@@ -283,3 +283,15 @@ def test_store_with_invalid_environment(tmp_path: Path) -> None:
     settings, source = store.load()
     assert settings == Settings() and source == SOURCE_ENV
     assert store.error is not None
+
+
+def test_pwm_chip() -> None:
+    """The chip of a fan is optional, must be a /sys path, and survives a round trip."""
+    chip = "/sys/devices/platform/nct6775.656"
+    settings = from_dict({"pwms": [{"path": PWM, "start": 200, "stop": 75, "chip": chip}]})
+    assert settings.pwms[0].chip == chip
+    assert from_dict(json.loads(json.dumps(settings.to_dict()))) == settings
+    assert from_dict({"pwms": [{"path": PWM, "start": 200, "stop": 75}]}).pwms[0].chip is None
+    assert problems({"pwms": [{"path": PWM, "start": 200, "stop": 75, "chip": "/etc/x"}]}) == {
+        "pwms.0.chip": "invalid_sys_path"
+    }

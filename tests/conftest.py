@@ -32,6 +32,10 @@ def fake_sys(tmp_path: Path) -> Path:
     }
     for name, value in files.items():
         (hwmon / name).write_text(value + "\n")
+    # The chip itself, which keeps its name when the hwmon number changes.
+    chip = root / "devices" / "platform" / "nct6775.656"
+    chip.mkdir(parents=True)
+    (hwmon / "device").symlink_to("../../../devices/platform/nct6775.656")
     # A chip without fans, sorted after hwmon2 by number, not by text.
     other = root / "class" / "hwmon" / "hwmon10"
     other.mkdir()

@@ -206,6 +206,36 @@ class Hardware:
         except OSError:
             return True
 
+    def chip_of(self, path: str) -> str | None:
+        """Return the stable /sys/devices path of the chip that owns a hwmon file, or None.
+
+        /sys/class/hwmon/hwmonN numbers follow the order in which drivers
+        appear and can change at a reboot; the device link of the hwmon folder
+        (/sys/devices/platform/nct6775.656 for example) does not.
+        """
+        folder = self._sys / os.path.dirname(path.removeprefix("/sys/"))
+        try:
+            real = (folder / "device").resolve(strict=True)
+            return "/sys/" + str(real.relative_to(self._sys.resolve()))
+        except (OSError, ValueError):
+            return None
+
+    def locate(self, path: str, chip: str) -> str | None:
+        """Return where the file named like path is now on that chip, or None if the chip is gone."""
+        if self.chip_of(path) == chip and (self._sys / path.removeprefix("/sys/")).exists():
+            return path
+        name = os.path.basename(path)
+        base = self._sys / "class" / "hwmon"
+        try:
+            folders = sorted((p.name for p in base.iterdir() if _HWMON.match(p.name)), key=_natural_key)
+        except OSError:
+            return None
+        for folder in folders:
+            candidate = f"/sys/class/hwmon/{folder}/{name}"
+            if self.chip_of(candidate) == chip and (base / folder / name).exists():
+                return candidate
+        return None
+
     def pwm_paths(self) -> set[str]:
         """Return the paths of every PWM output, to check what a client asks to test."""
         return {pwm.path for device in self.hwmons() for pwm in device.pwms}

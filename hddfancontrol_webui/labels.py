@@ -62,6 +62,16 @@ class Labels:
         with self._lock:
             return dict(self._labels)
 
+    def move(self, old: str, new: str) -> None:
+        """Give the label of old to new, when a fan's PWM file moved to another hwmon number."""
+        with self._lock:
+            if old not in self._labels or old == new:
+                return
+            labels = dict(self._labels)
+            labels[new] = labels.pop(old)
+            write_atomic(self.path, json.dumps(labels, indent=2, ensure_ascii=False) + "\n")
+            self._labels = labels
+
     def set(self, key: str, label: str) -> dict[str, str]:
         """Set the label of a drive or a fan; an empty label removes it. Return every label."""
         if not (is_dev_path(key) or is_sys_path(key)):

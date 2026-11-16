@@ -57,3 +57,12 @@ def test_broken_file(tmp_path: Path) -> None:
     assert Labels(tmp_path).all() == {DRIVE: "ok"}
     (tmp_path / "labels.json").write_text("[]")
     assert Labels(tmp_path).all() == {}
+
+
+def test_move(tmp_path: Path) -> None:
+    """The label of a fan follows its PWM file to a new hwmon number, and is kept on disk."""
+    labels = Labels(tmp_path)
+    labels.set("/sys/class/hwmon/hwmon2/pwm1", "Back 1")
+    labels.move("/sys/class/hwmon/hwmon2/pwm1", "/sys/class/hwmon/hwmon7/pwm1")
+    labels.move("/sys/class/hwmon/hwmon2/pwm5", "/sys/class/hwmon/hwmon7/pwm5")  # no label: nothing to do
+    assert Labels(tmp_path).all() == {"/sys/class/hwmon/hwmon7/pwm1": "Back 1"}

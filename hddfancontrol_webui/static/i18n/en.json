@@ -47,6 +47,7 @@
   "banner.settings_error": "The saved settings have invalid values: the environment variables are used. Check the logs.",
   "banner.waiting": "Choose the drives and the fans in Settings. The PWM test finds the values of each fan.",
   "banner.read_only": "Read only: /sys is mounted read only, as in a container that is not privileged. The fans are not controlled, hddfancontrol and hd-idle do not run, manual control and the PWM test are off, and SMART data may not be readable. Run the container with privileged: true (on TrueNAS SCALE: Privileged in the app settings).",
+  "banner.missing_pwms": "The chip of these fans is not on the host, so they are not controlled: {paths}. Load its kernel module (see Log), or choose the fans again in Settings.",
   "banner.failsafe": "No recent drive temperature: every fan runs at full speed until the temperatures come back.",
   "banner.safety": "A drive reached the maximum temperature: every fan runs at full speed.",
   "banner.safety_stale": "No recent drive temperature in manual control: every fan runs at full speed until you leave manual control.",

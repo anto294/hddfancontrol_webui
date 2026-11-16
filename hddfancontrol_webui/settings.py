@@ -81,6 +81,9 @@ class Pwm:
     path: str
     start: int
     stop: int
+    # The /sys/devices path of the chip, to find the output again when the
+    # hwmon number changes at a reboot (Hardware.locate).
+    chip: str | None = None
 
 
 # ---------------------------
@@ -297,8 +300,12 @@ def from_dict(data: Any) -> Settings:
             continue
         start = check.integer(item, "start", -1, 0, 255, prefix)
         stop = check.integer(item, "stop", -1, 0, 255, prefix)
+        chip = item.get("chip")
+        if chip is not None and (not isinstance(chip, str) or not is_sys_path(chip)):
+            check.add(prefix + "chip", "invalid_sys_path")
+            chip = None
         if start >= 0 and stop >= 0:
-            pwms.append(Pwm(path, start, stop))
+            pwms.append(Pwm(path, start, stop, chip))
 
     temp_min = check.number(data, "drive_temp_min", defaults.drive_temp_min)
     temp_max = check.number(data, "drive_temp_max", defaults.drive_temp_max)

@@ -12,6 +12,7 @@ from conftest import ScriptMaker
 
 from hddfancontrol_webui import supervisor as supervisor_module
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
+from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.settings import SettingsStore, from_dict
 from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, ReadOnly, Supervisor
 
@@ -293,4 +294,55 @@ async def test_read_only(setup: tuple[Supervisor, Path], fake_sys: Path) -> None
         await supervisor.start_pwm_test([PWM1])
     assert not supervisor.manual and not supervisor.test.running
     assert (fake_sys / "class/hwmon/hwmon2/pwm1_enable").read_text().strip() == "5"
+    await supervisor.stop()
+
+
+async def test_fans_follow_their_chip(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fan is found again when the hwmon number of its chip changes; a missing chip stops its control."""
+    calls = tmp_path / "calls.log"
+    monkeypatch.setenv("FAKE_LOG", str(calls))
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict(CONFIG))
+    chip = "/sys/devices/platform/nct6775.656"
+    moved: list[tuple[str, str]] = []
+    hddfancontrol = make_script("hddfancontrol", FAKE_HDDFANCONTROL)
+    hdidle = make_script("hd-idle", "time.sleep(60)")
+
+    def make() -> Supervisor:
+        logs = LogBuffer(echo=False)
+        fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+        return Supervisor(
+            store,
+            logs,
+            None,
+            fans,
+            hddfancontrol=hddfancontrol,
+            hdidle=hdidle,
+            hardware=Hardware(fake_dev, fake_sys),
+            on_pwm_moved=lambda old, new: moved.append((old, new)),
+        )
+
+    supervisor = make()
+    await supervisor.start()
+    assert supervisor.settings.pwms[0].chip == chip
+    assert store.load()[0].pwms[0].chip == chip  # recorded for the next start
+    await supervisor.stop()
+
+    (fake_sys / "class/hwmon/hwmon2").rename(fake_sys / "class/hwmon/hwmon7")
+    moved_to = "/sys/class/hwmon/hwmon7/pwm1"
+    supervisor = make()
+    await supervisor.start()
+    assert supervisor.settings.pwms[0].path == moved_to and store.load()[0].pwms[0].path == moved_to
+    assert moved == [(PWM1, moved_to)]
+    await wait_for(lambda: moved_to in read(calls))
+    await supervisor.stop()
+
+    (fake_sys / "class/hwmon/hwmon7").rename(tmp_path / "gone")
+    supervisor = make()
+    await supervisor.start()
+    assert supervisor.missing_pwms == [moved_to] and supervisor.status()["missing_pwms"] == [moved_to]
+    assert not supervisor.hddfancontrol.active
+    assert any("not on the host" in line["text"] for line in supervisor.logs.since(0))
     await supervisor.stop()

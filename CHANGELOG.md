@@ -16,6 +16,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- A chosen fan was kept only by its `/sys/class/hwmon/hwmonN` path, and that
+  number can change at a reboot: hddfancontrol then failed on a missing file,
+  or could drive an output of another chip. Each fan now records its chip;
+  at start the web UI finds it again under the new number, corrects the
+  settings and the fan's name, and logs it. When the chip is gone, those fans
+  are not controlled and a banner says which ones.
 - The history kept each drive temperature under the kernel name of the
   drive (sda), which can change at every boot: after a reboot, a line of
   the chart could go on with another drive of the same model. Temperatures

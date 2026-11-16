@@ -70,6 +70,7 @@ def build() -> tuple[web.Application, int]:
     # The programs are looked up in PATH unless a variable names them: a
     # bare metal installation keeps its own hddfancontrol in its own folder.
     env = os.environ
+    labels = Labels(config_dir)
     supervisor = Supervisor(
         SettingsStore(config_dir),
         logs,
@@ -78,6 +79,8 @@ def build() -> tuple[web.Application, int]:
         hddfancontrol=env.get("HDDFANCONTROL_BIN", HDDFANCONTROL_BIN),
         hdidle=env.get("HDIDLE_BIN", HDIDLE_BIN),
         read_only=hardware.read_only(),
+        hardware=hardware,
+        on_pwm_moved=labels.move,
     )
     history = History(config_dir / HISTORY_DB)
     smartctl = env.get("SMARTCTL_BIN", SMARTCTL_BIN)
@@ -97,7 +100,7 @@ def build() -> tuple[web.Application, int]:
             env.get("MODPROBE_BIN", MODPROBE_BIN),
         )
 
-    app = create_app(supervisor, hardware, temp_log, history, monitor, auth, Labels(config_dir), scan)
+    app = create_app(supervisor, hardware, temp_log, history, monitor, auth, labels, scan)
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:
         """Scan the sensors, then start everything; stop it all when the server stops."""

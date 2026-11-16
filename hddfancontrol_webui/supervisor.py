@@ -21,7 +21,7 @@ import sys
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -41,6 +41,7 @@ from .const import (
     STOP_TIMEOUT,
 )
 from .fancontrol import FanController
+from .hardware import Hardware
 from .settings import SOURCE_FILE, Settings, SettingsStore, hddfancontrol_args, hdidle_args
 
 _THRESHOLDS = re.compile(r"start/stop thresholds: (\d+)/(\d+)")
@@ -262,13 +263,21 @@ class Supervisor:
         hddfancontrol: str = HDDFANCONTROL_BIN,
         hdidle: str = HDIDLE_BIN,
         read_only: bool = False,
+        hardware: Hardware | None = None,
+        on_pwm_moved: Callable[[str, str], None] | None = None,
     ) -> None:
         """Use these settings, this log, this fan controller and these programs.
 
         With read_only, nothing is started and nothing can write the fans:
-        the web UI only shows what it can read.
+        the web UI only shows what it can read. With hardware, each fan is
+        found again on its chip when the hwmon number changes, and
+        on_pwm_moved(old, new) is told (to move its label).
         """
         self.read_only = read_only
+        self.hardware = hardware
+        self._on_pwm_moved = on_pwm_moved
+        # Chosen fans whose chip is not on the host now: they are not controlled.
+        self.missing_pwms: list[str] = []
         self.store = store
         self.logs = logs
         self.temp_log = temp_log
@@ -303,7 +312,41 @@ class Supervisor:
     async def start(self) -> None:
         """Start everything with the settings in force."""
         async with self._lock:
+            settings, missing = await self._placed(self.settings)
+            if self.source == SOURCE_FILE and settings != self.settings:
+                # A fan moved, or got its chip recorded: keep that for the next start.
+                await asyncio.to_thread(self.store.save, settings)
+            self.settings, self.missing_pwms = settings, missing
             await self._start_daemons()
+
+    async def _placed(self, settings: Settings) -> tuple[Settings, list[str]]:
+        """Return settings with each fan at its place now, and the fans whose chip is gone.
+
+        A fan is kept with the chip that owns its PWM file. When the hwmon
+        number of that chip changed (at a reboot), the path is corrected and
+        the label follows; when the chip is gone, the fan is listed in
+        missing_pwms and not controlled, since the old path may now belong
+        to another chip.
+        """
+        pwms, missing = [], []
+        for pwm in settings.pwms:
+            if self.hardware is None:
+                pwms.append(pwm)
+                continue
+            chip = pwm.chip or await asyncio.to_thread(self.hardware.chip_of, pwm.path)
+            if chip is None:
+                pwms.append(pwm)
+                continue
+            where = await asyncio.to_thread(self.hardware.locate, pwm.path, chip)
+            if where is None:
+                missing.append(pwm.path)
+                where = pwm.path
+            elif where != pwm.path:
+                self._log(f"The fan chip moved: {pwm.path} is now {where}")
+                if self._on_pwm_moved is not None:
+                    await asyncio.to_thread(self._on_pwm_moved, pwm.path, where)
+            pwms.append(replace(pwm, path=where, chip=chip))
+        return replace(settings, pwms=tuple(pwms)), missing
 
     def _temp_log(self) -> Path | None:
         """The temperature log path, if its directory can be created."""
@@ -337,6 +380,13 @@ class Supervisor:
                 self._log("WARNING: no drive is set, so manual control cannot watch the drive temperatures.")
             self.fans.start_manual(settings)
             self._log("Manual control: the fans keep the values you set")
+            return
+        if self.missing_pwms:
+            self._log(
+                "ERROR: the chip of these fans is not on the host, so they are not controlled: "
+                + ", ".join(self.missing_pwms)
+                + ". Load its kernel module, or choose the fans again in the web UI."
+            )
             return
         if not settings.complete:
             self._log(
@@ -375,8 +425,9 @@ class Supervisor:
         """Save new settings and restart with them."""
         async with self._lock:
             self._refuse_during_test()
+            settings, missing = await self._placed(settings)
             await asyncio.to_thread(self.store.save, settings)
-            self.settings, self.source = settings, SOURCE_FILE
+            self.settings, self.source, self.missing_pwms = settings, SOURCE_FILE, missing
             self._log("Settings saved, restarting")
             await self._restart()
 
@@ -385,7 +436,8 @@ class Supervisor:
         async with self._lock:
             self._refuse_during_test()
             await asyncio.to_thread(self.store.reset)
-            self.settings, self.source = await asyncio.to_thread(self.store.load)
+            settings, self.source = await asyncio.to_thread(self.store.load)
+            self.settings, self.missing_pwms = await self._placed(settings)
             self._log("Saved settings deleted, using the environment variables")
             await self._restart()
 
@@ -506,6 +558,7 @@ class Supervisor:
         return {
             "mode": self.mode,
             "read_only": self.read_only,
+            "missing_pwms": self.missing_pwms,
             "control_mode": self.settings.control_mode,
             "manual": self.manual,
             "settings_source": self.source,

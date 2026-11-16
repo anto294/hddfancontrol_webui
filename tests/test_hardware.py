@@ -69,3 +69,18 @@ def test_read_only(fake_sys: Path, fake_dev: Path, tmp_path: Path, monkeypatch: 
 
     monkeypatch.setattr(os, "statvfs", lambda _: Mount())
     assert Hardware(fake_dev, fake_sys).read_only() is True
+
+
+def test_chip_and_locate(fake_sys: Path, fake_dev: Path) -> None:
+    """A PWM file is found again on its chip after the hwmon number changed."""
+    hardware = Hardware(fake_dev, fake_sys)
+    chip = "/sys/devices/platform/nct6775.656"
+    assert hardware.chip_of("/sys/class/hwmon/hwmon2/pwm1") == chip
+    assert hardware.chip_of("/sys/class/hwmon/hwmon10/temp1_input") is None  # no device link
+    assert hardware.locate("/sys/class/hwmon/hwmon2/pwm1", chip) == "/sys/class/hwmon/hwmon2/pwm1"
+    (fake_sys / "class/hwmon/hwmon2").rename(fake_sys / "class/hwmon/hwmon7")
+    assert hardware.locate("/sys/class/hwmon/hwmon2/pwm1", chip) == "/sys/class/hwmon/hwmon7/pwm1"
+    assert hardware.locate("/sys/class/hwmon/hwmon2/pwm9", chip) is None
+    assert hardware.locate("/sys/class/hwmon/hwmon2/pwm1", "/sys/devices/platform/it87.552") is None
+    (fake_sys / "class/hwmon/hwmon7").rename(fake_sys / "class/hwmon/hwmon2")
+    assert Hardware(fake_dev, fake_sys / "missing").locate("/sys/class/hwmon/hwmon2/pwm1", chip) is None

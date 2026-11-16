@@ -239,6 +239,7 @@ function renderBanners() {
     box.append(banner("warning", t("banner.no_pwm")));
   }
   if (status.read_only) box.append(banner("error", t("banner.read_only")));
+  if (status.missing_pwms.length) box.append(banner("error", t("banner.missing_pwms", { paths: status.missing_pwms.map(pwmLabel).join(", ") })));
   if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
   if (status.mode === "waiting") box.append(banner("info", t("banner.waiting")));
   if (status.fans.auto.failsafe) box.append(banner("error", t("banner.failsafe")));

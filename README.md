@@ -184,7 +184,7 @@ The web UI is a single Python process with aiohttp, and uses about 45 MB of memo
 
 **A fan does not react to its slider.** The header may be in DC mode, or the BIOS may hold it at a fixed speed. Set the header to PWM mode in the BIOS.
 
-**The hwmon number of the fan chip changed after a reboot.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`. The Fans tab then shows the configured fans as not found: tick the new paths in **Settings**. Loading the module the same way at every boot keeps the order.
+**The hwmon number of the fan chip changed after a reboot.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656` for example), finds it again under the new number at start, corrects the settings and the fan's name, and says so in the log. If the chip is not there at all (its module is not loaded), those fans are not controlled and a banner says which ones.
 
 **A drive never sleeps.** Something reads or writes it: a pool scrub, SMART tests, an app. The web UI itself reads temperatures only through hddfancontrol, which leaves sleeping drives alone, and SMART data only with `-n standby`.
 
