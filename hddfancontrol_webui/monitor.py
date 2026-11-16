@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
@@ -48,6 +49,8 @@ SMART_COUNTS = (
 # Drive temperatures older than this say nothing about now (the safety
 # alert of the fan controller covers them).
 FRESH_SAMPLE_SECONDS = 600.0
+
+_LOGGER = logging.getLogger(__name__)
 
 SmartReader = Callable[[str], Awaitable[dict[str, Any]]]
 
@@ -95,6 +98,8 @@ class Monitor:
         self._logged_at = 0.0
         self._tasks: list[asyncio.Task[None]] = []
         self._smart_lock = asyncio.Lock()
+        # The last error of each loop, logged once until the loop works again.
+        self._errors: dict[str, str] = {}
 
     def start(self) -> None:
         """Start the background loops."""
@@ -211,22 +216,50 @@ class Monitor:
             self._logged_key = key
             self._logged_at = now
 
+    def _failed(self, loop: str, err: Exception) -> None:
+        """Log an error of a loop, once until it changes or the loop works again."""
+        text = f"{type(err).__name__}: {err}"
+        if self._errors.get(loop) != text:
+            self._errors[loop] = text
+            _LOGGER.error("The %s loop failed", loop, exc_info=err)
+            if self._log is not None:
+                self._log(f"ERROR: {loop} failed, trying again: {text}")
+
+    def _worked(self, loop: str) -> None:
+        """A loop worked: say so if it had failed."""
+        if self._errors.pop(loop, None) is not None and self._log is not None:
+            self._log(f"{loop} works again")
+
     async def _record_loop(self) -> None:
-        """Record every RECORD_PERIOD seconds, log the temperatures and purge every hour."""
+        """Record every RECORD_PERIOD seconds, log the temperatures and purge every hour.
+
+        An error (a full disk, a locked database) is logged and the loop goes
+        on: it also raises the alerts, which must never stop for good.
+        """
         last_purge = 0.0
         while True:
+            try:
+                await self._record_step()
+                if time.monotonic() - last_purge >= PURGE_PERIOD:
+                    settings = self._settings()
+                    await asyncio.to_thread(self.history.purge, settings.history_days)
+                    # SMART data of a drive no longer monitored (or gone) is not shown: drop it.
+                    await asyncio.to_thread(self.history.forget_smart, set(settings.monitor_drives))
+                    last_purge = time.monotonic()
+                self._worked("recording")
+            except Exception as err:  # the loop must outlive any error
+                self._failed("recording", err)
+            await asyncio.sleep(RECORD_PERIOD)
+
+    async def _record_step(self) -> None:
+        """Record once, log the temperatures and update the alerts; the alerts run even if recording fails."""
+        try:
             await asyncio.to_thread(self.record_once)
             self._log_summary(await asyncio.to_thread(self.summary))
+        finally:
             if self.alerts is not None:
                 status = self._status() if self._status is not None else {}
                 await self.alerts.update(await asyncio.to_thread(self.conditions, status))
-            if time.monotonic() - last_purge >= PURGE_PERIOD:
-                settings = self._settings()
-                await asyncio.to_thread(self.history.purge, settings.history_days)
-                # SMART data of a drive no longer monitored (or gone) is not shown: drop it.
-                await asyncio.to_thread(self.history.forget_smart, set(settings.monitor_drives))
-                last_purge = time.monotonic()
-            await asyncio.sleep(RECORD_PERIOD)
 
     def _drive_name(self, ids: list[str], fallback: str) -> str:
         """The name given to a drive, by any of its stable names, or fallback."""
@@ -341,7 +374,11 @@ class Monitor:
         while True:
             hours = self._settings().smart_interval_h
             if hours > 0:
-                await self.refresh_smart()
+                try:
+                    await self.refresh_smart()
+                    self._worked("SMART refresh")
+                except Exception as err:  # the loop must outlive any error
+                    self._failed("SMART refresh", err)
                 await asyncio.sleep(hours * 3600)
             else:
                 await asyncio.sleep(600)

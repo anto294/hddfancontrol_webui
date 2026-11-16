@@ -163,3 +163,48 @@ def test_temperature_summary(tmp_path: Path, fake_sys: Path, fake_dev: Path, mon
     assert empty.summary() is None
     empty.history.close()
     monitor.history.close()
+
+
+async def test_loops_survive_errors(tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failing database or SMART read is logged once; the loops go on, and the alerts still run."""
+    real = asyncio.sleep
+
+    async def quick(_: float) -> None:
+        await real(0.01)
+
+    async def reader(device: str) -> dict[str, Any]:
+        raise RuntimeError("smartctl broke")
+
+    monkeypatch.setattr(monitor_module.asyncio, "sleep", quick)
+    lines: list[str] = []
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, from_dict({"drives": [DRIVE]}), reader)
+    monitor._log = lines.append
+    updates: list[Any] = []
+
+    class FakeAlerts:
+        active: dict[str, Any] = {}
+
+        async def update(self, conditions: Any) -> None:
+            updates.append(conditions)
+
+    monitor.alerts = FakeAlerts()  # type: ignore[assignment]  # only update and active are used
+    broken = {"on": True}
+    record = monitor.history.record
+
+    def failing_record(*args: Any) -> None:
+        if broken["on"]:
+            raise OSError("disk full")
+        record(*args)
+
+    monkeypatch.setattr(monitor.history, "record", failing_record)
+    monitor.start()
+    await real(0.1)
+    assert all(not task.done() for task in monitor._tasks)
+    assert sum("recording failed" in line for line in lines) == 1
+    assert sum("SMART refresh failed" in line for line in lines) == 1
+    assert len(updates) > 1  # the alerts ran although recording failed
+    broken["on"] = False
+    await real(0.1)
+    assert any("recording works again" in line for line in lines)
+    await monitor.stop()
+    monitor.history.close()

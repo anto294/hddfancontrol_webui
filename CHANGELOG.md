@@ -20,6 +20,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   control loop and leave the fans at their last speed, with nothing on the
   page. Now every fan goes to full speed, a red banner and an alert say so,
   and the loop goes on: control resumes as soon as a step works again.
+- An error while recording (a full disk, a locked database) or reading
+  SMART data stopped the history and the alerts until the next restart,
+  silently. The error is now logged and the loops go on; the alerts are
+  checked even when recording fails.
 
 ## [0.5.1] - 2026-11-16
 
