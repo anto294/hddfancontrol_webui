@@ -49,6 +49,7 @@
   "banner.read_only": "Sola lettura: /sys è montato in sola lettura, come in un container non privilegiato. Le ventole non vengono comandate, hddfancontrol e hd-idle non partono, il controllo manuale e il test PWM sono disattivati e i dati SMART potrebbero non essere leggibili. Avvia il container con privileged: true (su TrueNAS SCALE: Privileged nelle impostazioni dell'app).",
   "banner.failsafe": "Nessuna temperatura recente dei dischi: tutte le ventole al massimo finché le temperature non tornano.",
   "banner.safety": "Un disco ha raggiunto la temperatura massima: tutte le ventole al massimo.",
+  "banner.safety_stale": "Nessuna temperatura recente dei dischi in controllo manuale: tutte le ventole al massimo finché non esci dal controllo manuale.",
 
   "overview.drives": "Temperature dei dischi",
   "overview.fans": "Ventole",
@@ -64,6 +65,7 @@
   "fans.intro": "Tutte le uscite PWM dell'host. Vengono comandate solo le ventole scelte nelle impostazioni: in controllo manuale muovi i loro cursori e guarda la velocità per capire quale ventola comanda ciascuno. Le altre uscite vengono solo mostrate. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico.",
   "fans.not_controlled": "non comandata: sceglila nelle impostazioni",
   "fans.safety": "Un disco ha raggiunto la temperatura massima: le ventole restano al massimo.",
+  "fans.safety_stale": "Nessuna temperatura recente dei dischi: le ventole restano al massimo. Esci dal controllo manuale per tornare al controllo automatico.",
   "fans.output": "Uscita",
   "fans.speed": "Velocità",
   "fans.configured": "in uso",

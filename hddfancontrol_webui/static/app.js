@@ -232,7 +232,7 @@ function renderBanners() {
   if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
   if (status.mode === "waiting") box.append(banner("info", t("banner.waiting")));
   if (status.fans.auto.failsafe) box.append(banner("error", t("banner.failsafe")));
-  if (status.fans.safety) box.append(banner("error", t("banner.safety")));
+  if (status.fans.safety) box.append(banner("error", t(status.fans.safety_reason === "stale" ? "banner.safety_stale" : "banner.safety")));
 }
 
 function renderOverview() {
@@ -334,6 +334,7 @@ function renderFansState() {
   button.className = status.manual ? "danger" : "";
   button.disabled = status.pwm_test.running || status.read_only;
   $("manual-safety").hidden = !status.fans.safety;
+  $("manual-safety").textContent = t(status.fans.safety_reason === "stale" ? "fans.safety_stale" : "fans.safety");
   for (const input of document.querySelectorAll("#fan-list input[type=range]")) {
     input.disabled = input.hidden || !status.manual || status.fans.safety;
   }

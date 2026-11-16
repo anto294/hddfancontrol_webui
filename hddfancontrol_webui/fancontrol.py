@@ -48,6 +48,10 @@ KI = 0.0015
 # not stop the fans; speeding up is never limited.
 MAX_DECREASE_PER_STEP = 0.10
 
+# Why manual control put every fan at full speed.
+SAFETY_HOT = "hot"
+SAFETY_STALE = "stale"
+
 LatestTemps = Callable[[], dict[str, Any] | None]
 Log = Callable[[str], None]
 
@@ -233,6 +237,8 @@ class FanController:
         self._task: asyncio.Task[None] | None = None
         self.mode: str | None = None
         self.safety = False
+        # Why manual control went to full speed: SAFETY_HOT or SAFETY_STALE.
+        self.safety_reason: str | None = None
         self.auto = _AutoState()
         self._settings = Settings()
         # The API sets manual values from a worker thread while the safety
@@ -257,6 +263,7 @@ class FanController:
         self._settings = settings
         self.mode = "manual"
         self.safety = False
+        self.safety_reason = None
         self._task = asyncio.create_task(self._run_manual(settings), name="fan-manual")
 
     def set_manual(self, path: str, value: int) -> None:
@@ -280,6 +287,7 @@ class FanController:
             self._log(f"Cannot restore the fans: {err}")
         self.mode = None
         self.safety = False
+        self.safety_reason = None
 
     def _write_all(self, pwms: tuple[Pwm, ...], speed: float) -> None:
         """Set every configured fan to a speed."""
@@ -325,17 +333,38 @@ class FanController:
             await asyncio.sleep(interval)
 
     async def _run_manual(self, settings: Settings) -> None:
-        """Watch the drives while the user sets the fans."""
+        """Watch the drives while the user sets the fans.
+
+        A hot drive, or, when drives are set, temperatures that stop coming
+        in, put every fan at full speed until manual control ends. Without
+        drives there is nothing to watch, so manual control stays usable to
+        find out which fan is which before the drives are chosen.
+        """
         hwmons = len(settings.hwmons)
+        stale_after = max(3 * float(settings.interval_s), 120.0)
+        started = datetime.now(UTC)
         while True:
-            hottest = _hottest(self._latest(), hwmons)
-            if hottest is not None and hottest >= settings.drive_temp_max and not self.safety:
+            now = datetime.now(UTC)
+            latest = self._latest()
+            hottest = _hottest(latest, hwmons)
+            age = _age_seconds(latest, now)
+            waiting = (now - started).total_seconds() < stale_after
+            reason = None
+            if hottest is not None and hottest >= settings.drive_temp_max:
+                reason = SAFETY_HOT
+            elif settings.drives and not waiting and (age is None or age > stale_after):
+                reason = SAFETY_STALE
+            if reason is not None and not self.safety:
                 with self._manual_lock:
                     self.safety = True
+                    self.safety_reason = reason
                     for path in list(self.writer.values) + [p.path for p in settings.pwms]:
                         with contextlib.suppress(OSError):
                             self.writer.write(path, PWM_MAX)
-                self._log(f"WARNING: a drive is at {hottest:g} °C, every fan goes to full speed")
+                if reason == SAFETY_HOT:
+                    self._log(f"WARNING: a drive is at {hottest:g} °C, every fan goes to full speed")
+                else:
+                    self._log("WARNING: no recent drive temperature, every fan goes to full speed")
             # The temperatures change only once per interval of hddfancontrol.
             await asyncio.sleep(settings.interval_s)
 
@@ -344,6 +373,7 @@ class FanController:
         return {
             "mode": self.mode,
             "safety": self.safety,
+            "safety_reason": self.safety_reason,
             "values": dict(self.writer.values),
             "auto": {"hottest": self.auto.hottest, "speed": self.auto.speed, "failsafe": self.auto.failsafe},
         }

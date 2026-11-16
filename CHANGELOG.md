@@ -16,7 +16,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   is which. In the auto mode, the extra temperature sensors with a range can
   raise the speed too. Only the fans chosen in the settings are ever written; the other
   PWM outputs are only shown. Hot drives put every fan at full speed in any
-  mode.
+  mode, and so do temperatures that stop coming in, in the auto mode and in
+  manual control with drives chosen.
 - The PWM test of hddfancontrol, from the web UI, with its values copied into
   the settings.
 - A spin down time per drive.

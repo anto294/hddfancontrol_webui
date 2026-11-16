@@ -49,6 +49,7 @@
   "banner.read_only": "Read only: /sys is mounted read only, as in a container that is not privileged. The fans are not controlled, hddfancontrol and hd-idle do not run, manual control and the PWM test are off, and SMART data may not be readable. Run the container with privileged: true (on TrueNAS SCALE: Privileged in the app settings).",
   "banner.failsafe": "No recent drive temperature: every fan runs at full speed until the temperatures come back.",
   "banner.safety": "A drive reached the maximum temperature: every fan runs at full speed.",
+  "banner.safety_stale": "No recent drive temperature in manual control: every fan runs at full speed until you leave manual control.",
 
   "overview.drives": "Drive temperatures",
   "overview.fans": "Fans",
@@ -64,6 +65,7 @@
   "fans.intro": "Every PWM output of the host. Only the fans chosen in Settings are ever controlled: in manual control, move their sliders and watch the speed to find which fan each one drives. The other outputs are only shown. Manual control is never saved: a restart goes back to automatic control.",
   "fans.not_controlled": "not controlled: choose it in Settings",
   "fans.safety": "A drive reached the maximum temperature: the fans stay at full speed.",
+  "fans.safety_stale": "No recent drive temperature: the fans stay at full speed. Leave manual control to go back to automatic control.",
   "fans.output": "Output",
   "fans.speed": "Speed",
   "fans.configured": "in use",

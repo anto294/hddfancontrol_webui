@@ -233,3 +233,29 @@ async def test_manual_control(fake_sys: Path, fast: None) -> None:
     assert fans.status()["safety"] is True
     await fans.stop()
     assert read(fake_sys, "pwm1_enable") == "5"
+
+
+async def test_manual_control_without_recent_temperatures(fake_sys: Path, fast: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With drives set, temperatures that stop coming in put the fans at full speed; without drives, nothing does."""
+    monkeypatch.setattr(fancontrol, "datetime", _Later)
+    _Later.calls = 0
+    old = sample({"sda A": 30.0, "coretemp.0/1": 50.0}, age=3600)
+    lines: list[str] = []
+    fans = FanController(PwmWriter(fake_sys), lambda: old, lines.append)
+    fans.start_manual(SETTINGS)
+    fans.set_manual(PWM2, 60)
+    await asyncio.sleep(0.1)
+    assert fans.safety and fans.status()["safety_reason"] == "stale"
+    assert read(fake_sys, "pwm2") == "255" and read(fake_sys, "pwm1") == "255"
+    assert any("no recent drive temperature" in line for line in lines)
+    await fans.stop()
+    assert fans.status()["safety_reason"] is None
+
+    _Later.calls = 0
+    no_drives = from_dict({"pwms": [{"path": PWM1, "start": 200, "stop": 75}], "interval_s": 1})
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lines.append)
+    fans.start_manual(no_drives)
+    fans.set_manual(PWM1, 90)
+    await asyncio.sleep(0.1)
+    assert not fans.safety and read(fake_sys, "pwm1") == "90"
+    await fans.stop()
