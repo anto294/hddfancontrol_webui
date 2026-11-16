@@ -15,10 +15,13 @@ ARG HDDFANCONTROL_VERSION
 RUN apk add --no-cache cargo git musl-dev
 WORKDIR /src
 RUN git clone --depth 1 --branch "${HDDFANCONTROL_VERSION}" https://github.com/desbma/hddfancontrol.git .
+# With an explicit --target, RUSTFLAGS reaches only the program: the proc
+# macros and build scripts are built for the host and cannot be static.
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
     CARGO_PROFILE_RELEASE_STRIP=true
-RUN cargo build --release --locked \
- && install -D target/release/hddfancontrol /out/hddfancontrol
+RUN target="$(rustc -vV | sed -n 's/^host: //p')" \
+ && cargo build --release --locked --target "${target}" \
+ && install -D "target/${target}/release/hddfancontrol" /out/hddfancontrol
 
 # --- hd-idle, cross-compiled: Go needs no emulation for other architectures
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine${ALPINE_VERSION} AS hdidle
