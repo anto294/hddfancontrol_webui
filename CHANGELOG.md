@@ -7,6 +7,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-16
+
+First release.
+
 ### Added
 
 - A web UI for hddfancontrol 2.1.2 and hd-idle 1.21, in English and Italian.
@@ -14,10 +18,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   maximum temperature; an auto mode that keeps the hottest drive near a
   target; and manual control with a slider per chosen fan, to find which fan
   is which. In the auto mode, the extra temperature sensors with a range can
-  raise the speed too. Only the fans chosen in the settings are ever written; the other
-  PWM outputs are only shown. Hot drives put every fan at full speed in any
-  mode, and so do temperatures that stop coming in, in the auto mode and in
-  manual control with drives chosen.
+  raise the speed too. Only the fans chosen in the settings are ever written;
+  the other PWM outputs are only shown. Hot drives put every fan at full speed
+  in any mode, and so do temperatures that stop coming in, in the auto mode
+  and in manual control with drives chosen.
 - The PWM test of hddfancontrol, from the web UI, with its values copied into
   the settings.
 - A spin down time per drive.
@@ -39,4 +43,5 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/commits/main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.1.0...main
+[0.1.0]: https://github.com/anto294/hddfancontrol_webui/releases/tag/v0.1.0
