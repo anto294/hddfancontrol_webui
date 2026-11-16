@@ -1,0 +1,21 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Builds
+build/
+dist/
+*.egg-info/
+
+# Local virtual environments
+.venv/
+venv/
+
+# A local run of the image or the web UI
+config/
+
+.claude/settings.local.json

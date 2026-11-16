@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hddfancontrol-webui"
+# The release workflow sets the real version from the tag.
+version = "0.0.0"
+description = "Web UI for hddfancontrol and hd-idle: drive temperature fan control, manual fan control, history and SMART data"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "anto294" }]
+requires-python = ">=3.11"
+dependencies = ["aiohttp>=3.10,<4"]
+classifiers = [
+    "Environment :: Web Environment",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Hardware",
+    "Topic :: System :: Monitoring",
+]
+
+[project.urls]
+Homepage = "https://github.com/anto294/hddfancontrol_webui"
+Issues = "https://github.com/anto294/hddfancontrol_webui/issues"
+Changelog = "https://github.com/anto294/hddfancontrol_webui/blob/main/CHANGELOG.md"
+
+[project.scripts]
+hddfancontrol-webui = "hddfancontrol_webui.__main__:main"
+
+[tool.setuptools]
+packages = ["hddfancontrol_webui"]
+
+[tool.setuptools.package-data]
+hddfancontrol_webui = ["static/*", "static/i18n/*"]
+
+[tool.black]
+line-length = 127
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 127
+target-version = "py311"
+
+[tool.coverage.run]
+source = ["hddfancontrol_webui"]
+omit = ["hddfancontrol_webui/__main__.py"]

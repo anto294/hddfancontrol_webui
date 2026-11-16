@@ -1,0 +1,7 @@
+# Shell scripts run on Linux: CRLF breaks their shebang.
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+.gitattributes export-ignore
+.gitignore export-ignore
+.github export-ignore
