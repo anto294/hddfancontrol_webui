@@ -321,5 +321,6 @@
   "settings.notify_language": "Lingua dei messaggi",
   "settings.notify_sent": "Inviato: controlla che sia arrivato.",
   "action.notify_test": "Invia un messaggio di prova",
-  "alert.fans_missing": "Il chip delle ventole non si trova più, quindi queste ventole non sono comandate: {fans}. Sceglile di nuovo in Impostazioni."
+  "alert.fans_missing": "Il chip delle ventole non si trova più, quindi queste ventole non sono comandate: {fans}. Sceglile di nuovo in Impostazioni.",
+  "settings.curve_now": "Disco più caldo ora: {temp}"
 }

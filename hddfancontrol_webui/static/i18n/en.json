@@ -321,5 +321,6 @@
   "settings.notify_language": "Language of the messages",
   "settings.notify_sent": "Sent: check that it arrived.",
   "action.notify_test": "Send a test message",
-  "alert.fans_missing": "The fan chip is not found any more, so these fans are not controlled: {fans}. Choose them again in Settings."
+  "alert.fans_missing": "The fan chip is not found any more, so these fans are not controlled: {fans}. Choose them again in Settings.",
+  "settings.curve_now": "Hottest drive now: {temp}"
 }

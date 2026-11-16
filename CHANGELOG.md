@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A chart of the fan curve in Settings: speed for each drive temperature as
+  the form stands, redrawn while you type, with the hottest drive as a dot
+  (in auto mode, the target and the maximum).
+
 - Alerts: a drive at the maximum temperature, a chosen fan that stops
   (0 RPM for 2 minutes with its PWM value well over its stop value, only for
   fans seen turning), SMART reporting a failing drive or a problem, drive

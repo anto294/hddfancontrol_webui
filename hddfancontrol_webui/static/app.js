@@ -716,6 +716,66 @@ function numberInput(name, value, attrs = {}) {
 function renderModeHelp() {
   const mode = $("settings-form").control_mode.value;
   $("mode-help").textContent = t(`settings.mode_help_${mode}`);
+  renderCurve();
+}
+
+// The fan speed for each drive temperature, as the form now stands, with
+// the hottest drive of the last sample as a dot. Curve mode: the minimum
+// speed up to the minimum temperature, full speed from the maximum, a line
+// in between. Auto mode: the speed is found by feedback, so only the target
+// and the maximum (full speed) are drawn.
+function renderCurve() {
+  const box = $("curve-chart");
+  const form = $("settings-form");
+  const low = Number(form.drive_temp_min.value);
+  const high = Number(form.drive_temp_max.value);
+  const target = Number(form.target_temp.value);
+  const minSpeed = Math.max(0, Math.min(100, Number(form.min_fan_speed_prct.value)));
+  box.replaceChildren();
+  if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) return;
+  const width = Math.max(box.clientWidth, 300);
+  const height = 170;
+  const pad = { left: 44, right: 14, top: 10, bottom: 26 };
+  const from = Math.floor(low - 10);
+  const to = Math.ceil(high + 8);
+  const x = (temp) => pad.left + ((temp - from) / (to - from)) * (width - pad.left - pad.right);
+  const y = (pct) => pad.top + (1 - pct / 100) * (height - pad.top - pad.bottom);
+  const chart = svg("svg", { viewBox: `0 0 ${width} ${height}`, width, height });
+  for (const pct of [0, 50, 100]) {
+    chart.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: y(pct), y2: y(pct), class: "gridline" }));
+    const label = svg("text", { x: pad.left - 6, y: y(pct) + 4, class: "axis", "text-anchor": "end" });
+    label.textContent = `${pct}%`;
+    chart.append(label);
+  }
+  for (const temp of niceTicks(from, to, 6)) {
+    const label = svg("text", { x: x(temp), y: height - 8, class: "axis", "text-anchor": "middle" });
+    label.textContent = `${temp}°`;
+    chart.append(label);
+  }
+  const auto = form.control_mode.value === "auto";
+  if (auto) {
+    for (const [temp, cls] of [[target, "marker target"], [high, "marker max"]]) {
+      if (!Number.isFinite(temp)) continue;
+      chart.append(svg("line", { x1: x(temp), x2: x(temp), y1: y(0), y2: y(100), class: cls }));
+    }
+    chart.append(svg("path", { d: `M${x(high)},${y(100)}H${width - pad.right}`, class: "series c1" }));
+  } else {
+    chart.append(svg("path", { d: `M${x(from)},${y(minSpeed)}H${x(low)}L${x(high)},${y(100)}H${width - pad.right}`, class: "series c1" }));
+  }
+  const temps = state.status && state.status.latest ? Object.values(state.status.latest.temps).filter((v) => v !== null) : [];
+  // In auto mode the dot sits at the speed the controller chose, when it runs.
+  const autoSpeed = state.status && state.status.fans.auto.speed !== null ? state.status.fans.auto.speed * 100 : null;
+  if (temps.length && (!auto || autoSpeed !== null)) {
+    const hottest = Math.max(...temps);
+    const curve = hottest <= low ? minSpeed : hottest >= high ? 100 : minSpeed + ((100 - minSpeed) * (hottest - low)) / (high - low);
+    const cx = x(Math.max(from, Math.min(to, hottest)));
+    const dot = svg("circle", { cx, cy: y(auto ? autoSpeed : curve), r: 5, class: `now ${tempLevel(hottest)}` });
+    const title = svg("title");
+    title.textContent = t("settings.curve_now", { temp: fmtTemp(hottest) });
+    dot.append(title);
+    chart.append(dot);
+  }
+  box.append(chart);
 }
 
 function renderSettings() {
@@ -1144,6 +1204,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("history-hours").addEventListener("change", loadHistory);
   $("settings-form").addEventListener("submit", saveSettings);
   $("settings-form").control_mode.addEventListener("change", renderModeHelp);
+  for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct"]) {
+    $("settings-form")[name].addEventListener("input", renderCurve);
+  }
   $("reset-settings").addEventListener("click", resetSettings);
   $("notify-test").addEventListener("click", testNotify);
   $("pwmtest-start").addEventListener("click", startPwmTest);
@@ -1154,7 +1217,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("logout").addEventListener("click", logout);
   for (const button of document.querySelectorAll(".open-wizard")) button.addEventListener("click", openWizard);
   $("log-source").addEventListener("change", renderLogs);
-  window.addEventListener("resize", () => state.tab === "history" && loadHistory());
+  window.addEventListener("resize", () => {
+    if (state.tab === "history") loadHistory();
+    if (state.tab === "settings") renderCurve();
+  });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       pollStatus();

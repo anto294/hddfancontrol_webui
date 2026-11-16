@@ -1152,3 +1152,36 @@ button.link {
     font-size: 1rem;
   }
 }
+
+/* Settings: the curve */
+.chart.curve {
+  min-height: 0;
+  margin: 0.6rem 0 0.2rem;
+}
+
+.chart .marker {
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.chart .marker.target {
+  stroke: var(--ok);
+}
+
+.chart .marker.max {
+  stroke: var(--danger);
+}
+
+.chart .now {
+  stroke: var(--surface);
+  stroke-width: 2;
+  fill: var(--ok);
+}
+
+.chart .now.warm {
+  fill: var(--warn);
+}
+
+.chart .now.hot {
+  fill: var(--danger);
+}
