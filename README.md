@@ -38,7 +38,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
 - **Keep an eye on the drives:** SMART health, power-on hours, reallocated and pending sectors, CRC errors, NVMe wear.
 - **Name things:** "Front fan", "Parity drive" instead of `pwm2` and `sdc`.
-- In English and Italian, with a light and a dark theme, on a phone as well.
+- In English and Italian (it follows the browser, or pick one in the header), with a light and a dark theme, on a phone as well.
 
 ## Requirements
 

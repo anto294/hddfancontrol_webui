@@ -9,6 +9,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A language selector in the header and on the login page: Automatic (the
+  language of the browser), English or Italiano, kept in the browser.
 - A `[temps]` log line with the temperatures of the drives that drive the
   fans, the speed of the chosen fans and the SMART temperature of the drives
   that are only monitored, written when a value changes and at least every

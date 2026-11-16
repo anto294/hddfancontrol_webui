@@ -132,8 +132,18 @@ a {
   border-radius: 8px;
 }
 
-.brand .link {
+.brand .lang {
   margin-left: auto;
+}
+
+select.lang {
+  width: auto;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+.card.login select.lang {
+  align-self: center;
 }
 
 .pill {

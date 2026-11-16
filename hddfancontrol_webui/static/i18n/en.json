@@ -230,5 +230,7 @@
   "error.read_only": "/sys is read only (the container is not privileged): the fans cannot be written.",
   "error.write_failed": "Cannot write the PWM file.",
   "error.network": "The web UI cannot reach the server.",
-  "error.unknown": "Something went wrong."
+  "error.unknown": "Something went wrong.",
+  "lang.auto": "Automatic",
+  "lang.label": "Language"
 }

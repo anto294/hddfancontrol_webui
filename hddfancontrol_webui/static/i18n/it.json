@@ -230,5 +230,7 @@
   "error.read_only": "/sys è in sola lettura (il container non è privilegiato): le ventole non possono essere scritte.",
   "error.write_failed": "Impossibile scrivere il file PWM.",
   "error.network": "La web UI non raggiunge il server.",
-  "error.unknown": "Qualcosa è andato storto."
+  "error.unknown": "Qualcosa è andato storto.",
+  "lang.auto": "Automatica",
+  "lang.label": "Lingua"
 }
