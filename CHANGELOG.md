@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-16
+
 ### Fixed
 
 - The highest operating temperature a drive is made for stayed empty: it
@@ -179,7 +181,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.5.0...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.5.1...main
+[0.5.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.3.0...v0.3.1
