@@ -17,17 +17,19 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient
 from conftest import ScriptMaker
 
+from hddfancontrol_webui.alerts import Alerts
 from hddfancontrol_webui.auth import AuthStore
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
 from hddfancontrol_webui.labels import Labels
 from hddfancontrol_webui.monitor import Monitor
+from hddfancontrol_webui.notify import NotifyError
 from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import AUTH, SUPERVISOR, create_app
+from hddfancontrol_webui.web import AUTH, MONITOR, SUPERVISOR, create_app
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -344,3 +346,29 @@ async def test_password_checks_run_one_at_a_time(make_client: ClientMaker, monke
     answers = await asyncio.gather(*(client.post("/api/login", json=body, headers=FETCH) for _ in range(5)))
     assert all(answer.status == 200 for answer in answers)
     assert running["most"] == 1
+
+
+async def test_notify_test_api(make_client: ClientMaker) -> None:
+    """The test message needs a saved address, and says when it cannot be sent."""
+    client = await make_client()
+    sent: list[str] = []
+    fail = False
+
+    async def sender(url: str, fmt: str, text: str, urgent: bool) -> None:
+        if fail:
+            raise NotifyError("down")
+        sent.append(url)
+
+    supervisor = client.app[SUPERVISOR]
+    client.app[MONITOR].alerts = Alerts(lambda: supervisor.settings, lambda _: None, sender)
+    response = await client.post("/api/notify/test", headers=FETCH)
+    assert response.status == 409 and (await response.json())["error"] == "no_notify_url"
+    saved = await client.put("/api/settings", json={"notify_url": "https://ntfy.sh/x"}, headers=FETCH)
+    assert saved.status == 200
+    response = await client.post("/api/notify/test", headers=FETCH)
+    assert response.status == 200 and sent == ["https://ntfy.sh/x"]
+    fail = True
+    response = await client.post("/api/notify/test", headers=FETCH)
+    assert response.status == 502 and (await response.json())["error"] == "notify_failed"
+    status = await (await client.get("/api/status")).json()
+    assert status["alerts"] == []

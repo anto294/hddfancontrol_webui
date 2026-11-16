@@ -7,6 +7,17 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Alerts: a drive at the maximum temperature, a chosen fan that stops
+  (0 RPM for 2 minutes with its PWM value well over its stop value, only for
+  fans seen turning), SMART reporting a failing drive or a problem, drive
+  temperatures that stop coming in, and fan chips that are not found any
+  more. Each one shows as a banner, is logged under `[alerts]` and, with an
+  address in Settings → Notifications (or `NOTIFY_URL`), is sent to ntfy,
+  Gotify or a JSON webhook, in English or Italian; so is its end. A button
+  sends a test message.
+
 ### Changed
 
 - Manual control ends by itself when no page of the web UI has been open

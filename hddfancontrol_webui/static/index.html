@@ -208,6 +208,32 @@
         </article>
 
         <article class="card">
+          <h2 data-icon="bell" data-i18n="settings.notify"></h2>
+          <p class="muted small" data-i18n="settings.notify_help"></p>
+          <div class="fields">
+            <label class="field wide"><span data-i18n="settings.notify_url"></span>
+              <input type="url" name="notify_url" spellcheck="false" autocomplete="off" placeholder="https://ntfy.sh/…">
+              <small class="muted" data-i18n="settings.notify_url_help"></small>
+              <small class="error" data-error="notify_url"></small></label>
+            <label class="field"><span data-i18n="settings.notify_format"></span>
+              <select name="notify_format">
+                <option value="ntfy">ntfy</option>
+                <option value="gotify">Gotify</option>
+                <option value="json">JSON (webhook)</option>
+              </select></label>
+            <label class="field"><span data-i18n="settings.notify_language"></span>
+              <select name="notify_language">
+                <option value="en">English</option>
+                <option value="it">Italiano</option>
+              </select></label>
+          </div>
+          <div class="actions">
+            <button type="button" id="notify-test" class="secondary" data-icon="bell" data-i18n="action.notify_test"></button>
+            <span id="notify-result" class="small"></span>
+          </div>
+        </article>
+
+        <article class="card">
           <h2 data-icon="settings" data-i18n="settings.advanced"></h2>
           <div class="fields">
             <label class="field"><span data-i18n="settings.interval_s"></span>
@@ -298,6 +324,7 @@
             <option>pwm-test</option>
             <option>sensors</option>
             <option>temps</option>
+            <option>alerts</option>
             <option>webui</option>
           </select>
         </div>

@@ -295,3 +295,16 @@ def test_pwm_chip() -> None:
     assert problems({"pwms": [{"path": PWM, "start": 200, "stop": 75, "chip": "/etc/x"}]}) == {
         "pwms.0.chip": "invalid_sys_path"
     }
+
+
+def test_notifications() -> None:
+    """The notify address is empty or http(s); format and language are from a fixed set; env names."""
+    settings = from_dict({"notify_url": " https://ntfy.sh/x ", "notify_format": "gotify", "notify_language": "it"})
+    assert (settings.notify_url, settings.notify_format, settings.notify_language) == ("https://ntfy.sh/x", "gotify", "it")
+    assert from_dict({"notify_url": ""}).notify_url == ""
+    for bad in ("ftp://x", "https://", "javascript:alert(1)", 5, "https://x/" + "a" * 600):
+        with pytest.raises(SettingsError) as err:
+            from_dict({"notify_url": bad})
+        assert err.value.problems[0]["code"] == "invalid_url"
+    doc = env_document({"NOTIFY_URL": "http://gotify.lan/message?token=a", "NOTIFY_FORMAT": "Gotify", "NOTIFY_LANGUAGE": "IT"})
+    assert doc == {"notify_url": "http://gotify.lan/message?token=a", "notify_format": "gotify", "notify_language": "it"}

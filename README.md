@@ -21,6 +21,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - [Fan control modes](#fan-control-modes)
 - [Spin down](#spin-down)
 - [History, SMART data and names](#history-smart-data-and-names)
+- [Alerts](#alerts)
 - [Security](#security)
 - [Environment variables](#environment-variables)
 - [Moving from fightforlife/docker_hddfancontrol](#moving-from-fightforlifedocker_hddfancontrol)
@@ -39,6 +40,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
 - **Keep an eye on the drives:** SMART health, power-on hours, reallocated and pending sectors, CRC errors, NVMe wear.
 - **Name things:** "Front fan", "Parity drive" instead of `pwm2` and `sdc`.
+- **Know when something is wrong:** a drive too hot, a fan that stopped, a SMART problem: a banner, a log line and, if you want, a message on your phone through ntfy, Gotify or a webhook.
 - **See it at a glance:** tiles with the hottest drive and the average fan speed, a colored bar per drive and per fan, fan icons that turn with the fans.
 - In English and Italian (it follows the browser, or pick one in the header), with a light and a dark theme, on a phone as well.
 
@@ -129,6 +131,22 @@ hd-idle spins the chosen drives down after an idle time: one for every drive, an
 - **SMART:** `smartctl -a -n standby` reads the drives marked as monitored in **Settings** (by default, the drives that drive the fans) every 6 hours by default, and when you press **Read SMART now**. A drive asleep at that time is not woken and keeps its last data.
 - **Names:** give a fan or a drive a name in the **Fans** tab or the drive list of **Settings**. Names are kept in `/config/labels.json`, and changing one does not restart fan control. Drives are named by their `/dev/disk/by-id` path, which does not change between boots.
 
+## Alerts
+
+The web UI watches for:
+
+- a drive that drives the fans at or above the maximum temperature (the alert ends 2 °C under it);
+- a chosen fan that stops: 0 RPM for 2 minutes while its PWM value is well over its stop value (only fans that were seen turning, so a connector without a speed sensor never counts);
+- SMART saying that a monitored drive is failing, or reporting a problem;
+- drive temperatures that stop coming in, which puts every fan at full speed;
+- a chosen fan whose chip is not found any more (see [Troubleshooting](#troubleshooting)).
+
+Each alert shows as a banner, is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address.
+
+- **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
+- **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
+- **json**: any webhook that takes a POST with `{"title", "message", "level"}` (`level` is `alert` or `ok`).
+
 ## Security
 
 - Set a password. Without one, anyone who reaches the port can stop the fans; the web UI says so at the top of every page.
@@ -167,6 +185,9 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `SPIN_DOWN_COMMAND` | `ata` | `ata` or `scsi` |
 | `HISTORY_DAYS` | `30` | Days of history to keep |
 | `SMART_INTERVAL_H` | `6` | Hours between SMART reads; `0` reads only on demand |
+| `NOTIFY_URL` | — | Where alerts are sent (see [Alerts](#alerts)); empty, none |
+| `NOTIFY_FORMAT` | `ntfy` | `ntfy`, `gotify` or `json` |
+| `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en` or `it` |
 
 ## Moving from fightforlife/docker_hddfancontrol
 
@@ -188,7 +209,7 @@ The web UI is a single Python process with aiohttp, and uses about 45 MB of memo
 
 **A fan does not react to its slider.** The header may be in DC mode, or the BIOS may hold it at a fixed speed. Set the header to PWM mode in the BIOS.
 
-**The hwmon number of the fan chip changed after a reboot.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656` for example), finds it again under the new number at start, corrects the settings and the fan's name, and says so in the log. If the chip is not there at all (its module is not loaded), those fans are not controlled and a banner says which ones.
+**The hwmon number of the fan chip changed after a reboot or a system update.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`, and a new kernel (a TrueNAS update) can load the modules in another order. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656` for example), finds it again under the new number at start, corrects the settings and the fan's name, and says so in the log. The chip is recorded the first time 0.2.0 or later starts with the fans chosen, so update the app before you update the system. If the chip is not there at all (its module is not loaded, or a new kernel names it differently), those fans are not controlled, never another chip's outputs, and a banner and an alert say which ones: load the module, or choose the fans again in Settings.
 
 **A drive never sleeps.** Something reads or writes it: a pool scrub, SMART tests, an app. The web UI itself reads temperatures only through hddfancontrol, which leaves sleeping drives alone, and SMART data only with `-n standby`.
 

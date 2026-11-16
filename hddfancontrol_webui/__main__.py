@@ -11,6 +11,7 @@ from typing import Any
 
 from aiohttp import web
 
+from .alerts import Alerts
 from .auth import AuthStore
 from .const import (
     DEFAULT_CONFIG_DIR,
@@ -21,6 +22,7 @@ from .const import (
     MODPROBE_BIN,
     SENSORS_DETECT_BIN,
     SMARTCTL_BIN,
+    SOURCE_ALERTS,
     SOURCE_FAN_CONTROL,
     SOURCE_SENSORS,
     SOURCE_TEMPS,
@@ -88,8 +90,17 @@ def build() -> tuple[web.Application, int]:
     async def smart_reader(device: str) -> dict[str, Any]:
         return await read_smart(device, smartctl)
 
+    alerts = Alerts(lambda: supervisor.settings, lambda text: logs.add(SOURCE_ALERTS, text))
     monitor = Monitor(
-        history, temp_log, hardware, lambda: supervisor.settings, smart_reader, lambda text: logs.add(SOURCE_TEMPS, text)
+        history,
+        temp_log,
+        hardware,
+        lambda: supervisor.settings,
+        smart_reader,
+        lambda text: logs.add(SOURCE_TEMPS, text),
+        alerts=alerts,
+        status=supervisor.status,
+        labels=labels.all,
     )
     auth = AuthStore(config_dir)
 

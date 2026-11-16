@@ -31,6 +31,7 @@ from .hardware import Hardware
 from .history import History
 from .labels import LabelError, Labels
 from .monitor import Monitor
+from .notify import NotifyError
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsError, from_dict
 from .supervisor import Busy, ReadOnly, Supervisor
@@ -309,12 +310,14 @@ async def get_status(request: web.Request) -> web.Response:
     # The pages ask for the status every few seconds while they are open.
     app[SUPERVISOR].touch_manual()
     data = app[SUPERVISOR].status()
+    alerts = app[MONITOR].alerts
     report: SensorReport = app[STATE]["sensors"]
     data.update(
         version=VERSION,
         auth=app[AUTH].status(),
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
+        alerts=alerts.status() if alerts is not None else [],
     )
     return web.json_response(data)
 
@@ -439,6 +442,22 @@ async def post_restart(request: web.Request) -> web.Response:
         await request.app[SUPERVISOR].restart()
     except Busy:
         return _json_error(409, "busy")
+    return web.json_response({"ok": True})
+
+
+# ---------------------------
+#   post_notify_test
+# ---------------------------
+async def post_notify_test(request: web.Request) -> web.Response:
+    """Send a test notification with the saved settings."""
+    alerts = request.app[MONITOR].alerts
+    if alerts is None or not request.app[SUPERVISOR].settings.notify_url:
+        return _json_error(409, "no_notify_url")
+    try:
+        await alerts.test()
+    except NotifyError as err:
+        _LOGGER.warning("Test notification failed: %s", err)
+        return _json_error(502, "notify_failed")
     return web.json_response({"ok": True})
 
 
@@ -587,6 +606,7 @@ def create_app(
     router.add_put("/api/settings", put_settings)
     router.add_delete("/api/settings", delete_settings)
     router.add_post("/api/restart", post_restart)
+    router.add_post("/api/notify/test", post_notify_test)
     router.add_put("/api/manual", put_manual)
     router.add_put("/api/manual/pwm", put_manual_pwm)
     router.add_post("/api/pwm-test", post_pwm_test)

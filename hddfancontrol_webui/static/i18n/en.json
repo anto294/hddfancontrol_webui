@@ -301,5 +301,25 @@
   "wizard.summary_spindown": "Sleep",
   "wizard.summary_password": "Password",
   "wizard.password_kept": "already set",
-  "wizard.password_none": "none"
+  "wizard.password_none": "none",
+
+  "error.no_notify_url": "No address is saved: enter one and save the settings first.",
+  "error.notify_failed": "The message could not be sent: check the address and that the service is reachable from the container (see Logs).",
+  "error.invalid_url": "Enter an address that starts with http:// or https://.",
+  "alert.drive_hot": "{drive} is at {temp} °C, at or above the maximum of {max} °C.",
+  "alert.fan_stalled": "{fan} does not turn: 0 RPM with the PWM at {percent} %. Check the fan and its cable.",
+  "alert.smart_failing": "{drive}: SMART says the drive is failing. Back up its data and replace it.",
+  "alert.smart_warning": "{drive}: SMART reports a problem; see the Drives tab.",
+  "alert.safety": "No new drive temperature: every fan runs at full speed.",
+  "alert.over": "Back to normal: {text}",
+  "alert.test": "Test message from hddfancontrol: notifications work.",
+  "settings.notify": "Notifications",
+  "settings.notify_help": "When a drive gets too hot, a fan stops, SMART reports a problem or the temperatures stop coming in, a message is sent to this address, and another when it is over. Leave it empty for none.",
+  "settings.notify_url": "Address",
+  "settings.notify_url_help": "ntfy: https://ntfy.sh/a-topic-of-yours · Gotify: https://your-server/message?token=… · JSON: any webhook that takes a POST.",
+  "settings.notify_format": "Service",
+  "settings.notify_language": "Language of the messages",
+  "settings.notify_sent": "Sent: check that it arrived.",
+  "action.notify_test": "Send a test message",
+  "alert.fans_missing": "The fan chip is not found any more, so these fans are not controlled: {fans}. Choose them again in Settings."
 }

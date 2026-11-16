@@ -56,6 +56,7 @@ SOURCE_SENSORS = "sensors"
 SOURCE_FAN_CONTROL = "fan-control"
 SOURCE_WEBUI = "webui"
 SOURCE_TEMPS = "temps"
+SOURCE_ALERTS = "alerts"
 
 LOG_BUFFER_LINES = 2000
 

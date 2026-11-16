@@ -31,6 +31,11 @@ COMMAND_TYPES = ("ata", "scsi")
 # curve: hddfancontrol drives the fans between the two temperatures.
 # auto: the web UI keeps the hottest drive near a target (fancontrol.py).
 CONTROL_MODES = ("curve", "auto")
+# How alerts are sent to NOTIFY_URL (notify.py), and in which language.
+NOTIFY_FORMATS = ("ntfy", "gotify", "json")
+NOTIFY_LANGUAGES = ("en", "it")
+MAX_URL_LENGTH = 500
+_URL = re.compile(r"^https?://[^\s/?#]+[^\s]*$")
 
 SOURCE_ENV = "environment"
 SOURCE_FILE = "file"
@@ -129,6 +134,9 @@ class Settings:
     target_temp: float = 40.0
     history_days: int = 30
     smart_interval_h: int = 6
+    notify_url: str = ""
+    notify_format: str = "ntfy"
+    notify_language: str = "en"
 
     @property
     def complete(self) -> bool:
@@ -367,10 +375,26 @@ def from_dict(data: Any) -> Settings:
         target_temp=target if target is not None else defaults.target_temp,
         history_days=check.integer(data, "history_days", defaults.history_days, 1, MAX_HISTORY_DAYS),
         smart_interval_h=check.integer(data, "smart_interval_h", defaults.smart_interval_h, 0, MAX_SMART_INTERVAL_H),
+        notify_url=_notify_url(check, data.get("notify_url", defaults.notify_url)),
+        notify_format=check.choice(data, "notify_format", defaults.notify_format, NOTIFY_FORMATS),
+        notify_language=check.choice(data, "notify_language", defaults.notify_language, NOTIFY_LANGUAGES),
     )
     if check.problems:
         raise SettingsError(check.problems)
     return settings
+
+
+# ---------------------------
+#   _notify_url
+# ---------------------------
+def _notify_url(check: _Collector, value: Any) -> str:
+    """Read the address alerts are sent to: empty (none), or an http(s) URL."""
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or len(value) > MAX_URL_LENGTH or not _URL.match(value.strip()):
+        check.add("notify_url", "invalid_url")
+        return ""
+    return value.strip()
 
 
 # ---------------------------
@@ -432,12 +456,16 @@ def env_document(env: Mapping[str, str]) -> dict[str, Any]:
         "TARGET_TEMP": "target_temp",
         "HISTORY_DAYS": "history_days",
         "SMART_INTERVAL_H": "smart_interval_h",
+        "NOTIFY_URL": "notify_url",
     }
     for var, key in simple.items():
         if env.get(var, "").strip():
             doc[key] = env[var].strip()
     if env.get("CONTROL_MODE", "").strip():
         doc["control_mode"] = env["CONTROL_MODE"].strip().lower()
+    for var, key in {"NOTIFY_FORMAT": "notify_format", "NOTIFY_LANGUAGE": "notify_language"}.items():
+        if env.get(var, "").strip():
+            doc[key] = env[var].strip().lower()
     if env.get("VERBOSITY", "").strip():
         doc["verbosity"] = env["VERBOSITY"].strip().upper()
     return doc

@@ -246,6 +246,10 @@ function renderBanners() {
   if (status.read_only) box.append(banner("error", t("banner.read_only")));
   if (status.missing_pwms.length) box.append(banner("error", t("banner.missing_pwms", { paths: status.missing_pwms.map(pwmLabel).join(", ") })));
   if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
+  // Safety and missing fans have their own banners.
+  for (const alert of status.alerts.filter((a) => a.kind !== "safety" && a.kind !== "fans_missing")) {
+    box.append(banner(alert.kind === "smart_warning" ? "warning" : "error", t(`alert.${alert.kind}`, alert.params)));
+  }
   if (status.mode === "waiting" && state.tab !== "setup") {
     box.append(banner("info", t("banner.waiting"), el("button", { class: "link", text: t("wizard.open"), onclick: openWizard })));
   }
@@ -719,7 +723,7 @@ function renderSettings() {
   if (!settings) return;
   const form = $("settings-form");
   $("settings-source").textContent = t(`settings.source_${state.settingsSource}`);
-  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "verbosity", "spin_down_time_s", "spin_down_command"]) {
+  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "verbosity", "spin_down_time_s", "spin_down_command", "notify_url", "notify_format", "notify_language"]) {
     form[name].value = settings[name];
   }
   form.restore_fan_settings.checked = settings.restore_fan_settings;
@@ -810,7 +814,7 @@ function collectSettings() {
   for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "spin_down_time_s"]) {
     doc[name] = form[name].value === "" ? null : Number(form[name].value);
   }
-  for (const name of ["control_mode", "verbosity", "spin_down_command"]) doc[name] = form[name].value;
+  for (const name of ["control_mode", "verbosity", "spin_down_command", "notify_url", "notify_format", "notify_language"]) doc[name] = form[name].value;
   doc.restore_fan_settings = form.restore_fan_settings.checked;
 
   doc.drives = [];
@@ -922,6 +926,23 @@ async function resetSettings() {
   } catch (error) {
     result.textContent = errorText(error);
     result.className = "small error";
+  }
+}
+
+async function testNotify() {
+  const result = $("notify-result");
+  const button = $("notify-test");
+  button.disabled = true;
+  result.textContent = "";
+  try {
+    await api("POST", "/api/notify/test");
+    result.textContent = t("settings.notify_sent");
+    result.className = "small ok";
+  } catch (error) {
+    result.textContent = errorText(error);
+    result.className = "small error";
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1124,6 +1145,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("settings-form").addEventListener("submit", saveSettings);
   $("settings-form").control_mode.addEventListener("change", renderModeHelp);
   $("reset-settings").addEventListener("click", resetSettings);
+  $("notify-test").addEventListener("click", testNotify);
   $("pwmtest-start").addEventListener("click", startPwmTest);
   $("pwmtest-cancel").addEventListener("click", cancelPwmTest);
   $("pwmtest-use").addEventListener("click", usePwmResults);
