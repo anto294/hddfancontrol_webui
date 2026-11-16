@@ -1,0 +1,4 @@
+*
+!hddfancontrol_webui
+**/__pycache__
+**/*.pyc

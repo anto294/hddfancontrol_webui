@@ -1,0 +1,33 @@
+# Example for Docker Compose, and for a Custom App on TrueNAS SCALE
+# (Apps → Discover Apps → ⋮ → Install via YAML).
+services:
+  hddfancontrol:
+    image: ghcr.io/anto294/hddfancontrol_webui:latest
+    container_name: hddfancontrol
+    restart: unless-stopped
+    # The fans and the drives are on the host. Privileged is needed to write
+    # the PWM files of /sys and to send ATA commands to the drives.
+    privileged: true
+    read_only: true
+    init: false # the image has its own init (tini)
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config # settings, labels, history, credentials
+      - /lib/modules:/lib/modules:ro # to load the sensor chip module
+      - /dev:/dev:ro # to see the drives by their stable names
+    tmpfs:
+      - /tmp
+    environment:
+      # Protect the web UI. You can also set the credentials in the web UI
+      # (Security); these variables win over it.
+      - WEBUI_USERNAME=admin
+      - WEBUI_PASSWORD=change-me-please
+      # Everything else can be set in the web UI. The variables of
+      # fightforlife/docker_hddfancontrol still work, for example:
+      # - DRIVES=/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW
+      # - PWM=/sys/class/hwmon/hwmon3/pwm1:200:75
+      # - DRIVE_TEMP_RANGE=40 60
+      # - SPIN_DOWN_TIME_S=600
+    # The web UI and the daemons fit easily in this.
+    mem_limit: 128m
