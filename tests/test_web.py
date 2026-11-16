@@ -305,9 +305,6 @@ async def test_labels_api(make_client: ClientMaker) -> None:
     assert response.status == 400
 
 
-# ---------------------------
-#   test_static_files_need_no_inline_style
-# ---------------------------
 def test_static_files_need_no_inline_style() -> None:
     """The pages and scripts set no style attribute, which the CSP would block."""
     static = Path(__file__).parent.parent / "hddfancontrol_webui" / "static"
