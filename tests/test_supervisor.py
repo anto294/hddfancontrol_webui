@@ -346,3 +346,36 @@ async def test_fans_follow_their_chip(
     assert not supervisor.hddfancontrol.active
     assert any("not on the host" in line["text"] for line in supervisor.logs.since(0))
     await supervisor.stop()
+
+
+async def test_manual_ends_without_a_page(setup: tuple[Supervisor, Path], fake_sys: Path) -> None:
+    """Manual control ends by itself when no page asks for the status any more."""
+    supervisor, _ = setup
+    supervisor._manual_timeout = 0.2
+    supervisor._manual_watch_period = 0.05
+    await supervisor.start()
+    await supervisor.set_manual(True)
+    supervisor.set_pwm(PWM1, 99)
+    for _ in range(6):  # an open page keeps it going
+        await asyncio.sleep(0.05)
+        supervisor.touch_manual()
+    assert supervisor.manual
+    # The fans are given back by the restart that follows.
+    await wait_for(lambda: (fake_sys / "class/hwmon/hwmon2/pwm1_enable").read_text().strip() == "5")
+    assert any("leaving manual control" in line["text"] for line in supervisor.logs.since(0))
+    await supervisor.stop()
+
+
+async def test_manual_watch_waits_for_the_pwm_test(setup: tuple[Supervisor, Path]) -> None:
+    """During a PWM test the watch cannot leave manual control; it does once the test is over."""
+    supervisor, _ = setup
+    supervisor._manual_timeout = 0.1
+    supervisor._manual_watch_period = 0.05
+    await supervisor.start()
+    await supervisor.set_manual(True)
+    supervisor.test.running = True
+    await asyncio.sleep(0.3)
+    assert supervisor.manual
+    supervisor.test.running = False
+    await wait_for(lambda: not supervisor.manual)
+    await supervisor.stop()

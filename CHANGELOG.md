@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- Manual control ends by itself when no page of the web UI has been open
+  for 2 minutes, so that a page closed in manual control (or during
+  Identify in the guided setup) never leaves the fans where they were set.
+  A page that is open but hidden in the browser counts as closed.
+
 ## [0.3.1] - 2026-11-16
 
 ### Changed

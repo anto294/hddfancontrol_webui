@@ -31,6 +31,8 @@ from .const import (
     HDDFANCONTROL_BIN,
     HDIDLE_BIN,
     LOG_BUFFER_LINES,
+    MANUAL_IDLE_TIMEOUT,
+    MANUAL_WATCH_PERIOD,
     RESTART_DELAY_MAX,
     RESTART_DELAY_MIN,
     RESTART_RESET_AFTER,
@@ -265,13 +267,16 @@ class Supervisor:
         read_only: bool = False,
         hardware: Hardware | None = None,
         on_pwm_moved: Callable[[str, str], None] | None = None,
+        manual_timeout: float = MANUAL_IDLE_TIMEOUT,
+        manual_watch_period: float = MANUAL_WATCH_PERIOD,
     ) -> None:
         """Use these settings, this log, this fan controller and these programs.
 
         With read_only, nothing is started and nothing can write the fans:
         the web UI only shows what it can read. With hardware, each fan is
         found again on its chip when the hwmon number changes, and
-        on_pwm_moved(old, new) is told (to move its label).
+        on_pwm_moved(old, new) is told (to move its label). Manual control
+        ends by itself after manual_timeout seconds without touch_manual().
         """
         self.read_only = read_only
         self.hardware = hardware
@@ -286,6 +291,10 @@ class Supervisor:
         self.hddfancontrol = Daemon(SOURCE_HDDFANCONTROL, hddfancontrol, logs)
         self.hdidle = Daemon(SOURCE_HDIDLE, hdidle, logs)
         self.manual = False
+        self._manual_timeout = manual_timeout
+        self._manual_watch_period = manual_watch_period
+        self._manual_seen = time.monotonic()
+        self._manual_watch: asyncio.Task[None] | None = None
         self.test = PwmTestState()
         self._test_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
@@ -412,6 +421,8 @@ class Supervisor:
     async def stop(self) -> None:
         """Stop everything, the PWM test too. Used when the container stops."""
         await self.cancel_pwm_test()
+        if self._manual_watch is not None:
+            await cancel_and_wait(self._manual_watch)
         async with self._lock:
             await self._stop_daemons()
 
@@ -450,9 +461,29 @@ class Supervisor:
             if enabled and self.read_only:
                 raise ReadOnly("/sys is read only")
             self.manual = enabled
-            if not enabled:
+            if enabled:
+                self.touch_manual()
+                if self._manual_watch is None or self._manual_watch.done():
+                    self._manual_watch = asyncio.create_task(self._watch_manual(), name="manual-watch")
+            else:
                 self._log("Manual control over, the fans go back to automatic control")
             await self._restart()
+
+    def touch_manual(self) -> None:
+        """A web page is open: manual control may go on."""
+        self._manual_seen = time.monotonic()
+
+    async def _watch_manual(self) -> None:
+        """Leave manual control when no web page has been seen for a while."""
+        while self.manual:
+            await asyncio.sleep(self._manual_watch_period)
+            if self.manual and time.monotonic() - self._manual_seen > self._manual_timeout:
+                self._log(f"No web page open for {self._manual_timeout:.0f} s: leaving manual control")
+                try:
+                    await self.set_manual(False)
+                except Busy:
+                    # A PWM test runs; try again once it is over.
+                    continue
 
     def set_pwm(self, path: str, value: int) -> None:
         """Set any PWM output of the host in manual control, to find out which fan it drives.
@@ -461,6 +492,7 @@ class Supervisor:
         """
         if not self.manual:
             raise Busy("Not in manual control")
+        self.touch_manual()
         self.fans.set_manual(path, value)
 
     def _refuse_during_test(self) -> None:

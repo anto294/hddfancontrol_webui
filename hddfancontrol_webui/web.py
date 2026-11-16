@@ -306,6 +306,8 @@ async def delete_auth(request: web.Request) -> web.Response:
 async def get_status(request: web.Request) -> web.Response:
     """State of the daemons, the fans, the PWM test and the sensor modules."""
     app = request.app
+    # The pages ask for the status every few seconds while they are open.
+    app[SUPERVISOR].touch_manual()
     data = app[SUPERVISOR].status()
     report: SensorReport = app[STATE]["sensors"]
     data.update(

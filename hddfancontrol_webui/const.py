@@ -70,6 +70,12 @@ RESTART_RESET_AFTER = 60.0
 # gets SIGTERM, so it is given time before SIGKILL.
 STOP_TIMEOUT = 15.0
 
+# Manual control ends by itself when no web page has asked for the status
+# (every few seconds while one is open and visible) for this long: a page
+# closed in manual control must not leave the fans where they were set.
+MANUAL_IDLE_TIMEOUT = 120.0
+MANUAL_WATCH_PERIOD = 10.0
+
 # The history endpoint never returns more points per series than this,
 # whatever the window: older points are averaged together.
 HISTORY_MAX_POINTS = 600
