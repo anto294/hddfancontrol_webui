@@ -114,3 +114,5 @@ async def test_read_smart(make_script: ScriptMaker) -> None:
     for program in (make_script("bad", "print('nope')"), make_script("list", "print('[]')"), "/nonexistent/smartctl"):
         result = await read_smart("/dev/sda", program)
         assert result["status"] == "error"
+    hung = await read_smart("/dev/sda", make_script("hung", "time.sleep(30)"), limit_s=0.2)
+    assert hung["status"] == "error" and "did not answer" in hung["messages"][0]

@@ -8,6 +8,7 @@ web UI shows, plus the attribute table for the details.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from typing import Any
 
@@ -25,6 +26,9 @@ WATCHED_ATTRIBUTES = {
 }
 COUNTERS = {4: "start_stop_count", 193: "load_cycle_count"}
 NVME_WEAR_WARNING = 90
+# A failing drive can keep smartctl waiting for minutes; the SMART refresh
+# reads the drives one after the other and must not hang on one.
+SMARTCTL_TIMEOUT = 120.0
 
 # Bits of the smartctl exit status.
 EXIT_OPEN_FAILED = 0x02
@@ -115,8 +119,8 @@ def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
 # ---------------------------
 #   read_smart
 # ---------------------------
-async def read_smart(device: str, smartctl: str = SMARTCTL_BIN) -> dict[str, Any]:
-    """Run smartctl on a drive and summarize what it says."""
+async def read_smart(device: str, smartctl: str = SMARTCTL_BIN, limit_s: float = SMARTCTL_TIMEOUT) -> dict[str, Any]:
+    """Run smartctl on a drive and summarize what it says. It gets limit_s seconds."""
     try:
         proc = await asyncio.create_subprocess_exec(
             smartctl,
@@ -128,9 +132,17 @@ async def read_smart(device: str, smartctl: str = SMARTCTL_BIN) -> dict[str, Any
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        output, _ = await proc.communicate()
     except OSError as err:
         return {"status": STATUS_ERROR, "messages": [str(err)]}
+    try:
+        output, _ = await asyncio.wait_for(proc.communicate(), limit_s)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        # A process stuck in the kernel dies only when its I/O returns: do not wait for it.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(proc.wait(), 5)
+        return {"status": STATUS_ERROR, "messages": [f"smartctl did not answer within {limit_s:g} s"]}
     try:
         data = json.loads(output)
     except (json.JSONDecodeError, UnicodeDecodeError):

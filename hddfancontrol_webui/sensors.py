@@ -14,6 +14,7 @@ with those steps for each module that is still missing.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -28,6 +29,8 @@ _MODULE = re.compile(r"^modprobe\s+([A-Za-z0-9_-]+)\s*$")
 STATUS_ALREADY_LOADED = "already_loaded"
 STATUS_LOADED = "loaded"
 STATUS_FAILED = "failed"
+# sensors-detect --auto takes about a minute; modprobe a moment.
+RUN_TIMEOUT = 300.0
 
 Log = Callable[[str], None]
 
@@ -101,10 +104,21 @@ def is_loaded(module: str, sys_root: Path = Path("/sys")) -> bool:
 # ---------------------------
 #   _run
 # ---------------------------
-async def _run(*argv: str) -> tuple[int, str]:
-    """Run a program and return its exit code and output."""
+async def _run(*argv: str, limit_s: float = RUN_TIMEOUT) -> tuple[int, str]:
+    """Run a program and return its exit code and output.
+
+    A program that does not finish in time is killed and raises TimeoutError,
+    an OSError like a program that cannot start.
+    """
     proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-    output, _ = await proc.communicate()
+    try:
+        output, _ = await asyncio.wait_for(proc.communicate(), limit_s)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(proc.wait(), 5)
+        raise TimeoutError(f"{argv[0]} did not finish within {limit_s:g} s") from None
     return proc.returncode or 0, output.decode("utf-8", errors="replace").strip()
 
 

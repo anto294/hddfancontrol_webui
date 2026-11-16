@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from conftest import ScriptMaker
 
+from hddfancontrol_webui import sensors
 from hddfancontrol_webui.sensors import (
     STATUS_ALREADY_LOADED,
     STATUS_FAILED,
@@ -88,3 +90,9 @@ async def test_scan_finds_nothing(fake_sys: Path, make_script: ScriptMaker) -> N
     report = await scan_sensor_modules(lines.append, detect, make_script("modprobe", ""), fake_sys)
     assert report.failed == []
     assert any("found no chip driver" in line for line in lines)
+
+
+async def test_run_kills_a_program_that_hangs(make_script: ScriptMaker) -> None:
+    """A program that does not finish in time is killed and reported as an OSError."""
+    with pytest.raises(OSError, match="did not finish"):
+        await sensors._run(make_script("hung", "time.sleep(30)"), limit_s=0.2)
