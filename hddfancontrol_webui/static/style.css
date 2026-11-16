@@ -526,6 +526,71 @@ button.link {
   border-radius: 2px;
 }
 
+/* Series colors: classes, because the CSP blocks style attributes. */
+.chart .series.c1 {
+  stroke: var(--c1);
+}
+
+.legend i.c1 {
+  background: var(--c1);
+}
+
+.chart .series.c2 {
+  stroke: var(--c2);
+}
+
+.legend i.c2 {
+  background: var(--c2);
+}
+
+.chart .series.c3 {
+  stroke: var(--c3);
+}
+
+.legend i.c3 {
+  background: var(--c3);
+}
+
+.chart .series.c4 {
+  stroke: var(--c4);
+}
+
+.legend i.c4 {
+  background: var(--c4);
+}
+
+.chart .series.c5 {
+  stroke: var(--c5);
+}
+
+.legend i.c5 {
+  background: var(--c5);
+}
+
+.chart .series.c6 {
+  stroke: var(--c6);
+}
+
+.legend i.c6 {
+  background: var(--c6);
+}
+
+.chart .series.c7 {
+  stroke: var(--c7);
+}
+
+.legend i.c7 {
+  background: var(--c7);
+}
+
+.chart .series.c8 {
+  stroke: var(--c8);
+}
+
+.legend i.c8 {
+  background: var(--c8);
+}
+
 /* Logs */
 .log {
   background: var(--surface-2);

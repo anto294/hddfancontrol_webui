@@ -561,7 +561,8 @@ function drawChart(container, data, series, unit, labelOf) {
   }
   const legend = el("div", { class: "legend" });
   series.forEach((s, index) => {
-    const color = `var(--c${(index % 8) + 1})`;
+    // A class, not a style attribute: the CSP blocks inline styles.
+    const color = `c${(index % 8) + 1}`;
     // A gap of more than three buckets (a sleeping drive, a stopped container) breaks the line.
     let path = "";
     let last = null;
@@ -570,14 +571,14 @@ function drawChart(container, data, series, unit, labelOf) {
       path += `${move ? "M" : "L"}${x(ts).toFixed(1)},${y(value).toFixed(1)}`;
       last = ts;
     }
-    const line = svg("path", { d: path, class: "series", style: `stroke:${color}` });
+    const line = svg("path", { d: path, class: `series ${color}` });
     const title = svg("title");
     title.textContent = labelOf(s.name);
     line.append(title);
     chart.append(line);
     const lastValue = s.points.length ? s.points[s.points.length - 1][1] : null;
     legend.append(
-      el("span", { class: "key" }, el("i", { style: `background:${color}` }), `${labelOf(s.name)}${lastValue === null ? "" : ` · ${lastValue}${unit}`}`),
+      el("span", { class: "key" }, el("i", { class: color }), `${labelOf(s.name)}${lastValue === null ? "" : ` · ${lastValue}${unit}`}`),
     );
   });
   container.append(chart, legend);

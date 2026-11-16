@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -240,3 +241,14 @@ async def test_labels_api(make_client: ClientMaker) -> None:
     bad = await client.put("/api/labels", json={"key": "/etc/x", "label": "a"}, headers=FETCH)
     assert (await bad.json())["error"] == "invalid_label_key"
     assert (await client.put("/api/labels", json={"key": PWM1}, headers=FETCH)).status == 400
+
+
+# ---------------------------
+#   test_static_files_need_no_inline_style
+# ---------------------------
+def test_static_files_need_no_inline_style() -> None:
+    """The pages and scripts set no style attribute, which the CSP would block."""
+    static = Path(__file__).parent.parent / "hddfancontrol_webui" / "static"
+    pattern = re.compile(r"""\bstyle\s*[:=]|setAttribute\(\s*["']style|<style""")
+    for path in [*static.glob("*.js"), *static.glob("*.html")]:
+        assert not pattern.search(path.read_text(encoding="utf-8")), path.name
