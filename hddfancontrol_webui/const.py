@@ -50,6 +50,7 @@ SOURCE_PWM_TEST = "pwm-test"
 SOURCE_SENSORS = "sensors"
 SOURCE_FAN_CONTROL = "fan-control"
 SOURCE_WEBUI = "webui"
+SOURCE_TEMPS = "temps"
 
 LOG_BUFFER_LINES = 2000
 

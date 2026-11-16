@@ -120,3 +120,44 @@ async def test_loops_start_and_stop(tmp_path: Path, fake_sys: Path, fake_dev: Pa
 def _dirs(tmp_path: Path) -> None:
     """Directories the second monitor needs."""
     (tmp_path / "b").mkdir()
+
+
+def test_temperature_summary(tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One line with the controlled drives, the chosen fans and the drives only monitored."""
+    other = "/dev/disk/by-id/nvme-Other"
+    settings = from_dict(
+        {
+            "drives": [DRIVE, "/dev/disk/by-id/ata-Second"],
+            "monitor_drives": [DRIVE, other],
+            "pwms": [{"path": "/sys/class/hwmon/hwmon2/pwm1", "start": 200, "stop": 75}],
+        }
+    )
+    lines: list[str] = []
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
+    monitor._log = lines.append
+    monitor.history.save_smart(other, {"status": "ok", "temperature": 38})
+    monitor.record_once()
+    summary = monitor.summary()
+    assert summary is not None
+    assert summary[1] == (
+        "controlled: sda 40°C, sdb asleep (hottest sda 40°C) | fans: pwm1 50% 812 RPM | monitored (SMART): nvme-Other 38°C"
+    )
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(monitor_module.time, "monotonic", lambda: clock["now"])
+    monitor._log_summary(summary)
+    monitor._log_summary(summary)
+    assert len(lines) == 1  # nothing changed
+    clock["now"] += monitor_module.TEMPS_HEARTBEAT
+    monitor._log_summary(summary)
+    assert len(lines) == 2  # still alive
+    monitor._log_summary(((("sda", 41),), "changed"))
+    assert lines[-1] == "changed"
+    monitor._log_summary(None)
+    assert len(lines) == 3
+
+    (tmp_path / "empty").mkdir()
+    empty = make_monitor(tmp_path / "empty", fake_sys, fake_dev, Settings())
+    assert empty.summary() is None
+    empty.history.close()
+    monitor.history.close()

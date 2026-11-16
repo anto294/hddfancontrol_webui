@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -17,6 +18,8 @@ from .smart import STATUS_STANDBY, read_smart
 from .templog import TempLog
 
 PURGE_PERIOD = 3600.0
+# The temperature line is logged when a value changes, and at least this often.
+TEMPS_HEARTBEAT = 600.0
 
 SmartReader = Callable[[str], Awaitable[dict[str, Any]]]
 
@@ -34,14 +37,20 @@ class Monitor:
         hardware: Hardware,
         settings: Callable[[], Settings],
         smart_reader: SmartReader = read_smart,
+        log: Callable[[str], None] | None = None,
     ) -> None:
-        """Read from these sources and write to history."""
+        """Read from these sources and write to history; log the temperatures with log."""
         self.history = history
         self.temp_log = temp_log
         self.hardware = hardware
         self._settings = settings
         self._smart_reader = smart_reader
+        self._log = log
         self._last_sample: str | None = None
+        # PWM (%) and speed (RPM) of every output, as read by the last record_once.
+        self._fans: dict[str, tuple[float | None, int | None]] = {}
+        self._logged_key: tuple[Any, ...] | None = None
+        self._logged_at = 0.0
         self._tasks: list[asyncio.Task[None]] = []
         self._smart_lock = asyncio.Lock()
 
@@ -69,8 +78,10 @@ class Monitor:
             if values:
                 self.history.record(ts, values)
         fans: list[tuple[str, str, float]] = []
+        self._fans = {}
         for device in self.hardware.hwmons():
             for pwm in device.pwms:
+                self._fans[pwm.path] = (None if pwm.value is None else pwm.value * 100 / 255, pwm.rpm)
                 if pwm.value is not None:
                     fans.append(("pwm", pwm.path, round(pwm.value * 100 / 255, 1)))
                 if pwm.rpm is not None:
@@ -79,11 +90,74 @@ class Monitor:
             self.history.record(int(time.time()), fans)
         return len(values) + len(fans)
 
+    def summary(self) -> tuple[tuple[Any, ...], str] | None:
+        """Describe the drives, the extra sensors and the chosen fans in one line. Blocking.
+
+        Returns what the line depends on, rounded so that noise does not count
+        as a change, and the line; None when there is nothing to describe.
+        """
+        settings = self._settings()
+        parts: list[str] = []
+        key: list[Any] = []
+        latest = self.temp_log.latest()
+        if latest is not None and settings.drives:
+            temps = list(latest["temps"].items())
+            split = len(temps) - len(settings.hwmons)
+            drives = [(name.split()[0], temp) for name, temp in temps[:split]]
+            key += [(name, None if temp is None else round(temp)) for name, temp in drives]
+            text = "controlled: " + ", ".join(
+                f"{name} {temp:g}°C" if temp is not None else f"{name} asleep" for name, temp in drives
+            )
+            awake = [(temp, name) for name, temp in drives if temp is not None]
+            if awake:
+                temp, name = max(awake)
+                text += f" (hottest {name} {temp:g}°C)"
+            parts.append(text)
+            sensors = [(name, temp) for name, temp in temps[split:] if temp is not None]
+            if sensors:
+                key += [(name, round(temp)) for name, temp in sensors]
+                parts.append("sensors: " + ", ".join(f"{name} {temp:g}°C" for name, temp in sensors))
+        fans = []
+        for pwm in settings.pwms:
+            percent, rpm = self._fans.get(pwm.path, (None, None))
+            key.append((pwm.path, None if percent is None else round(percent)))
+            speed = "?" if percent is None else f"{percent:.0f}%"
+            fans.append(f"{os.path.basename(pwm.path)} {speed}" + ("" if rpm is None else f" {rpm} RPM"))
+        if fans:
+            parts.append("fans: " + ", ".join(fans))
+        # Drives that are only monitored have no sample of hddfancontrol: their
+        # temperature is the one of the last SMART read.
+        only_monitored = [d for d in settings.monitor_drives if d not in settings.drives]
+        if only_monitored:
+            smart = self.history.smart()
+            items = []
+            for device in only_monitored:
+                name = os.path.basename(os.path.realpath(device))
+                temp = smart.get(device, {}).get("temperature")
+                key.append((name, temp))
+                items.append(f"{name} {temp}°C" if temp is not None else f"{name} ?")
+            parts.append("monitored (SMART): " + ", ".join(items))
+        if not parts:
+            return None
+        return tuple(key), " | ".join(parts)
+
+    def _log_summary(self, summary: tuple[tuple[Any, ...], str] | None) -> None:
+        """Log the line when it changed, or when the last one is TEMPS_HEARTBEAT old."""
+        if self._log is None or summary is None:
+            return
+        key, line = summary
+        now = time.monotonic()
+        if key != self._logged_key or now - self._logged_at >= TEMPS_HEARTBEAT:
+            self._log(line)
+            self._logged_key = key
+            self._logged_at = now
+
     async def _record_loop(self) -> None:
-        """Record every RECORD_PERIOD seconds and purge every hour."""
+        """Record every RECORD_PERIOD seconds, log the temperatures and purge every hour."""
         last_purge = 0.0
         while True:
             await asyncio.to_thread(self.record_once)
+            self._log_summary(await asyncio.to_thread(self.summary))
             if time.monotonic() - last_purge >= PURGE_PERIOD:
                 await asyncio.to_thread(self.history.purge, self._settings().history_days)
                 last_purge = time.monotonic()

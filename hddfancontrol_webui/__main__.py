@@ -23,6 +23,7 @@ from .const import (
     SMARTCTL_BIN,
     SOURCE_FAN_CONTROL,
     SOURCE_SENSORS,
+    SOURCE_TEMPS,
     SOURCE_WEBUI,
     TEMP_LOG_DIR,
     TEMP_LOG_FILE,
@@ -84,7 +85,9 @@ def build() -> tuple[web.Application, int]:
     async def smart_reader(device: str) -> dict[str, Any]:
         return await read_smart(device, smartctl)
 
-    monitor = Monitor(history, temp_log, hardware, lambda: supervisor.settings, smart_reader)
+    monitor = Monitor(
+        history, temp_log, hardware, lambda: supervisor.settings, smart_reader, lambda text: logs.add(SOURCE_TEMPS, text)
+    )
     auth = AuthStore(config_dir)
 
     async def scan() -> SensorReport:

@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- A `[temps]` log line with the temperatures of the drives that drive the
+  fans, the speed of the chosen fans and the SMART temperature of the drives
+  that are only monitored, written when a value changes and at least every
+  10 minutes.
+
 ### Changed
 
 - HTTP requests are no longer logged: the page polls the API every few
