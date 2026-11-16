@@ -135,6 +135,14 @@ async def test_auto_mode_drives_the_fans(fake_sys: Path, fast: None) -> None:
     assert not fans.active and fans.mode is None
 
 
+def test_hottest_counts_every_drive_of_an_interface() -> None:
+    """An interface name gives several drives: all of them count, the hwmon inputs do not."""
+    latest = sample({"sda A": 35.0, "sdb B": 52.0, "sdc C": None, "coretemp.0/1": 90.0})
+    assert fancontrol._hottest(latest, 1) == 52.0
+    assert fancontrol._hottest(sample({"sda A": 35.0, "sdb B": 41.0}), 0) == 41.0
+    assert fancontrol._hottest(sample({"sda A": None, "coretemp.0/1": 90.0}), 1) is None
+
+
 async def test_auto_mode_failsafe(fake_sys: Path, fast: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """Without recent temperatures, full speed; when they come back, control resumes."""
     current: dict[str, Any] = {"value": sample({"sda": 30.0}, age=3600)}
@@ -145,7 +153,7 @@ async def test_auto_mode_failsafe(fake_sys: Path, fast: None, monkeypatch: pytes
     await asyncio.sleep(0.1)
     assert fans.auto.failsafe and fans.auto.speed == 1.0
     assert read(fake_sys, "pwm1") == "255"
-    current["value"] = {"time": _Later.now(UTC).isoformat(), "temps": {"sda": 30.0}}
+    current["value"] = {"time": _Later.now(UTC).isoformat(), "temps": {"sda": 30.0, "coretemp.0/1": 60.0}}
     await asyncio.sleep(0.1)
     assert not fans.auto.failsafe
     assert any("full speed" in line for line in lines) and any("resumes" in line for line in lines)
@@ -168,7 +176,7 @@ class _Later(datetime):
 
 async def test_manual_control(fake_sys: Path, fast: None) -> None:
     """Manual values are written; a hot drive forces full speed and blocks the sliders."""
-    current: dict[str, Any] = {"value": sample({"sda": 35.0})}
+    current: dict[str, Any] = {"value": sample({"sda": 35.0, "coretemp.0/1": 60.0})}
     lines: list[str] = []
     fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lines.append)
     with pytest.raises(RuntimeError):
@@ -176,7 +184,7 @@ async def test_manual_control(fake_sys: Path, fast: None) -> None:
     fans.start_manual(SETTINGS)
     fans.set_manual(PWM2, 60)
     assert read(fake_sys, "pwm2") == "60"
-    current["value"] = sample({"sda": 51.0})
+    current["value"] = sample({"sda": 51.0, "coretemp.0/1": 60.0})
     await asyncio.sleep(0.1)
     assert fans.safety
     assert read(fake_sys, "pwm2") == "255" and read(fake_sys, "pwm1") == "255"

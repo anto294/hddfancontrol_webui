@@ -112,15 +112,17 @@ class PiController:
 # ---------------------------
 #   _hottest
 # ---------------------------
-def _hottest(latest: dict[str, Any] | None, drive_count: int) -> float | None:
+def _hottest(latest: dict[str, Any] | None, hwmon_count: int) -> float | None:
     """Return the highest drive temperature of a sample.
 
-    hddfancontrol logs the drives first, then the hwmon inputs, so the first
-    drive_count values are the drives.
+    hddfancontrol logs every drive first, then every hwmon input, and an
+    hwmon input is always there. So the drives are every value but the last
+    hwmon_count, however many drives an interface name such as 'ata' gave.
     """
     if not latest:
         return None
-    values = list(latest["temps"].values())[:drive_count]
+    values = list(latest["temps"].values())
+    values = values[: len(values) - hwmon_count]
     temps = [t for t in values if t is not None]
     return max(temps) if temps else None
 
@@ -265,7 +267,7 @@ class FanController:
         controller = PiController(settings.target_temp, settings.drive_temp_max, settings.min_fan_speed_prct / 100)
         interval = float(settings.interval_s)
         stale_after = max(3 * interval, 120.0)
-        drives = len(settings.drives)
+        hwmons = len(settings.hwmons)
         started = datetime.now(UTC)
         self._log(f"Auto mode: target {settings.target_temp:g} °C, full speed at {settings.drive_temp_max:g} °C")
         while True:
@@ -283,7 +285,7 @@ class FanController:
                 if self.auto.failsafe:
                     self._log("Drive temperatures are back, auto mode resumes")
                 self.auto.failsafe = False
-                hottest = _hottest(latest, drives)
+                hottest = _hottest(latest, hwmons)
                 speed = controller.step(hottest, interval)
             self.auto.hottest = hottest
             self.auto.speed = speed
@@ -292,9 +294,9 @@ class FanController:
 
     async def _run_manual(self, settings: Settings) -> None:
         """Watch the drives while the user sets the fans."""
-        drives = len(settings.drives)
+        hwmons = len(settings.hwmons)
         while True:
-            hottest = _hottest(self._latest(), drives)
+            hottest = _hottest(self._latest(), hwmons)
             if hottest is not None and hottest >= settings.drive_temp_max and not self.safety:
                 self.safety = True
                 self._log(f"WARNING: a drive is at {hottest:g} °C, every fan goes to full speed")
