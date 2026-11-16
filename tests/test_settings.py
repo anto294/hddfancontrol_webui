@@ -1,0 +1,269 @@
+"""Settings: checks, environment variables of the upstream image, command lines."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from hddfancontrol_webui.settings import (
+    SOURCE_ENV,
+    SOURCE_FILE,
+    Hwmon,
+    Pwm,
+    Settings,
+    SettingsError,
+    SettingsStore,
+    env_document,
+    from_dict,
+    hddfancontrol_args,
+    hdidle_args,
+)
+
+DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
+DRIVE2 = "/dev/disk/by-id/ata-WDC_WD40EFRX-68N32N0_WD-WCC7K1"
+PWM = "/sys/class/hwmon/hwmon3/pwm1"
+
+# The docker-compose.yml example of fightforlife/docker_hddfancontrol.
+UPSTREAM_ENV = {
+    "DRIVES": f"{DRIVE} {DRIVE2}",
+    "PWM": f"{PWM}:200:75 /sys/class/hwmon/hwmon3/pwm4:200:75",
+    "DRIVE_TEMP_RANGE": "40 60",
+    "MIN_FAN_SPEED_PRCT": "0",
+    "INTERVAL": "10s",
+    "HWMONS": "/sys/devices/platform/coretemp.0/hwmon/hwmon2/temp1_input:60:85",
+    "RESTORE_FAN_SETTINGS": "true",
+    "VERBOSITY": "TRACE",
+    "SPIN_DOWN_TIME_S": "600",
+}
+
+
+def problems(data: object) -> dict[str, str]:
+    """Return {field: code} of the problems of a document."""
+    with pytest.raises(SettingsError) as info:
+        from_dict(data)
+    return {p["field"]: p["code"] for p in info.value.problems}
+
+
+def test_defaults_are_those_of_hddfancontrol() -> None:
+    """An empty document gives the defaults, which cannot run yet."""
+    settings = from_dict({})
+    assert settings == Settings()
+    assert settings.drive_temp_min == 30 and settings.drive_temp_max == 50
+    assert settings.min_fan_speed_prct == 20
+    assert not settings.complete
+
+
+def test_upstream_environment() -> None:
+    """The variables of the upstream compose file give the same daemon command line."""
+    settings = from_dict(env_document(UPSTREAM_ENV))
+    assert settings.drives == (DRIVE, DRIVE2)
+    assert settings.pwms[0] == Pwm(PWM, 200, 75)
+    assert settings.hwmons == (Hwmon("/sys/devices/platform/coretemp.0/hwmon/hwmon2/temp1_input", 60, 85),)
+    assert settings.interval_s == 10
+    assert settings.restore_fan_settings is True
+    assert settings.complete
+    args = hddfancontrol_args(settings, Path("/config/templog/temps.jsonl"))
+    assert args[:4] == ["-v", "TRACE", "daemon", "--drives"]
+    assert args[args.index("--pwm") + 1] == f"{PWM}:200:75"
+    assert args[args.index("--drive-temp-range") + 1 : args.index("--drive-temp-range") + 3] == ["40", "60"]
+    assert args[args.index("--interval") + 1] == "10s"
+    assert args[args.index("--hwmons") + 1].endswith("temp1_input:60:85")
+    assert "--restore-fan-settings" in args
+    assert args[-2:] == ["--temp-log", "/config/templog/temps.jsonl"]
+
+
+@pytest.mark.parametrize(
+    ("value", "seconds"),
+    [("30", 30), ("30s", 30), ("3min", 180), ("2m", 120), ("1h", 3600), (" 5 sec ", 5)],
+)
+def test_interval_forms(value: str, seconds: int) -> None:
+    """INTERVAL accepts the forms of humantime that people use."""
+    assert from_dict(env_document({"INTERVAL": value})).interval_s == seconds
+
+
+def test_invalid_environment_values() -> None:
+    """Bad values name the field and the problem."""
+    found = problems(env_document({"INTERVAL": "soon", "PWM": f"{PWM}:x", "DRIVE_TEMP_RANGE": "50", "VERBOSITY": "loud"}))
+    assert found["interval_s"] == "invalid_number"
+    assert found["pwms.0.start"] == "required"
+    assert found["drive_temp_max"] == "required"
+    assert found["verbosity"] == "invalid_choice"
+
+
+def test_restore_false_is_false() -> None:
+    """Unlike the upstream script, RESTORE_FAN_SETTINGS=false does not turn it on."""
+    assert from_dict(env_document({"RESTORE_FAN_SETTINGS": "false"})).restore_fan_settings is False
+    assert problems(env_document({"RESTORE_FAN_SETTINGS": "maybe"})) == {"restore_fan_settings": "invalid_bool"}
+
+
+@pytest.mark.parametrize(
+    "drive",
+    ["/etc/passwd", "/dev/../etc/shadow", "/dev/sda; rm -rf /", "/dev/sd a", "-rf", "", 5],
+)
+def test_drive_paths_are_checked(drive: object) -> None:
+    """Only /dev paths and interface names reach hddfancontrol."""
+    assert problems({"drives": [drive]}) == {"drives.0": "invalid_drive"}
+
+
+def test_interface_selector_and_duplicates() -> None:
+    """An interface name is accepted, a repeated drive is not."""
+    assert from_dict({"drives": ["ata"]}).drives == ("ata",)
+    assert problems({"drives": [DRIVE, DRIVE]}) == {"drives.1": "duplicate"}
+
+
+def test_pwm_checks() -> None:
+    """PWM paths stay under /sys and values in 0..255."""
+    found = problems(
+        {
+            "pwms": [
+                {"path": "/proc/self/mem", "start": 1, "stop": 1},
+                {"path": PWM, "start": 300, "stop": -1},
+                {"path": PWM, "start": 1, "stop": 1},
+                {"path": "/sys/a", "start": True, "stop": "x"},
+                "nope",
+            ]
+        }
+    )
+    assert found == {
+        "pwms.0.path": "invalid_sys_path",
+        "pwms.1.start": "out_of_range",
+        "pwms.1.stop": "out_of_range",
+        "pwms.3.start": "invalid_number",
+        "pwms.3.stop": "invalid_number",
+        "pwms.4": "invalid_document",
+    }
+
+
+def test_duplicate_pwm() -> None:
+    """The same PWM file cannot be listed twice."""
+    pwm = {"path": PWM, "start": 200, "stop": 75}
+    assert problems({"pwms": [pwm, pwm]}) == {"pwms.1.path": "duplicate"}
+
+
+def test_temperature_order() -> None:
+    """The maximum is above the minimum, and the target below the maximum."""
+    assert problems({"drive_temp_min": 50, "drive_temp_max": 40, "target_temp": 35})["drive_temp_max"] == "range_order"
+    assert problems({"target_temp": 55}) == {"target_temp": "target_order"}
+    assert problems({"drive_temp_max": 500}) == {"drive_temp_max": "out_of_range"}
+    assert problems({"drive_temp_max": [1]}) == {"drive_temp_max": "invalid_number"}
+
+
+def test_hwmon_ranges() -> None:
+    """A hwmon range needs both ends, in order."""
+    found = problems(
+        {
+            "hwmons": [
+                {"path": "/sys/a", "temp_min": 40},
+                {"path": "/sys/b", "temp_min": 60, "temp_max": 50},
+                {"path": "/tmp/c"},
+                7,
+            ]
+        }
+    )
+    assert found == {
+        "hwmons.0.temp_max": "range_both",
+        "hwmons.1.temp_max": "range_order",
+        "hwmons.2.path": "invalid_sys_path",
+        "hwmons.3": "invalid_document",
+    }
+    assert from_dict({"hwmons": [{"path": "/sys/a"}]}).hwmons == (Hwmon("/sys/a"),)
+
+
+def test_lists_and_documents() -> None:
+    """Wrong shapes are refused."""
+    assert problems([]) == {"": "invalid_document"}
+    assert problems({"drives": "ata"}) == {"drives": "invalid_list"}
+    assert problems({"spin_down_drives": []}) == {"spin_down_drives": "invalid_document"}
+    assert problems({"control_mode": "turbo"}) == {"control_mode": "invalid_choice"}
+
+
+def test_spin_down_per_drive() -> None:
+    """A drive's own spin down time wins; 0 keeps it spinning; unknown drives are refused."""
+    settings = from_dict({"drives": [DRIVE, DRIVE2, "nvme"], "spin_down_drives": {DRIVE2: 0}, "spin_down_time_s": 900})
+    assert settings.spin_down_of(DRIVE) == 900
+    assert settings.spin_down_of(DRIVE2) == 0
+    assert hdidle_args(settings) == ["-i", "0", "-a", DRIVE, "-i", "900", "-c", "ata"]
+    assert problems({"drives": [DRIVE], "spin_down_drives": {DRIVE2: 10}}) == {f"spin_down_drives.{DRIVE2}": "unknown_drive"}
+    assert problems({"drives": [DRIVE], "spin_down_drives": {DRIVE: -1}}) == {f"spin_down_drives.{DRIVE}": "out_of_range"}
+
+
+def test_hdidle_off() -> None:
+    """hd-idle does not run without a drive path or with every time at 0."""
+    assert hdidle_args(from_dict({"drives": ["ata"]})) is None
+    assert hdidle_args(from_dict({"drives": [DRIVE], "spin_down_time_s": 0})) is None
+    debug = hdidle_args(from_dict({"drives": [DRIVE], "verbosity": "DEBUG", "spin_down_command": "scsi"}))
+    assert debug == ["-i", "0", "-d", "-a", DRIVE, "-i", "600", "-c", "scsi"]
+
+
+def test_measure_only_args() -> None:
+    """In auto mode hddfancontrol gets a command that does nothing instead of the PWM files."""
+    settings = from_dict(
+        {"drives": [DRIVE], "pwms": [{"path": PWM, "start": 200, "stop": 75}], "hwmons": [{"path": "/sys/a"}]}
+    )
+    args = hddfancontrol_args(settings, None, measure_only=True)
+    assert "--pwm" not in args
+    assert args[args.index("--fan-cmd") + 1] == "/bin/true"
+    assert args[args.index("--hwmons") + 1] == "/sys/a"
+    assert "--temp-log" not in args
+
+
+def test_new_environment_variables() -> None:
+    """The variables added by this image."""
+    settings = from_dict(
+        env_document(
+            {"CONTROL_MODE": "Auto", "TARGET_TEMP": "38", "HISTORY_DAYS": "90", "SMART_INTERVAL_H": "0", "AVERAGE": "3"}
+        )
+    )
+    assert (
+        settings.control_mode,
+        settings.target_temp,
+        settings.history_days,
+        settings.smart_interval_h,
+        settings.average,
+    ) == ("auto", 38, 90, 0, 3)
+
+
+def test_hwmon_env_without_range() -> None:
+    """HWMONS entries may omit the range, or give only half of it."""
+    doc = env_document({"HWMONS": "/sys/a /sys/b:40"})
+    assert doc["hwmons"] == [{"path": "/sys/a"}, {"path": "/sys/b", "temp_min": "40", "temp_max": None}]
+
+
+def test_round_trip() -> None:
+    """to_dict gives a document that from_dict reads back to the same settings."""
+    settings = from_dict(env_document(UPSTREAM_ENV))
+    assert from_dict(json.loads(json.dumps(settings.to_dict()))) == settings
+
+
+def test_store(tmp_path: Path) -> None:
+    """The file wins over the environment; reset goes back; a bad file falls back."""
+    store = SettingsStore(tmp_path, UPSTREAM_ENV)
+    settings, source = store.load()
+    assert source == SOURCE_ENV and settings.interval_s == 10
+
+    store.save(from_dict({"interval_s": 42}))
+    settings, source = store.load()
+    assert source == SOURCE_FILE and settings.interval_s == 42
+    assert not (tmp_path / "settings.tmp").exists()
+
+    store.path.write_text("{broken")
+    settings, source = store.load()
+    assert source == SOURCE_ENV and store.error is not None
+    assert store.error.problems[0]["code"] == "unreadable_file"
+
+    store.path.write_text(json.dumps({"interval_s": 0}))
+    settings, source = store.load()
+    assert source == SOURCE_ENV and store.error is not None
+
+    store.reset()
+    assert not store.path.exists() and store.error is None
+
+
+def test_store_with_invalid_environment(tmp_path: Path) -> None:
+    """Invalid variables give the defaults and an error, never a crash."""
+    store = SettingsStore(tmp_path, {"INTERVAL": "never"})
+    settings, source = store.load()
+    assert settings == Settings() and source == SOURCE_ENV
+    assert store.error is not None
