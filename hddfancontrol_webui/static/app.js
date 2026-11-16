@@ -1335,10 +1335,11 @@ async function pollLogs() {
 // Start
 // ---------------------------------------------------------------------------
 
-// Nothing is polled while the browser tab is hidden; coming back polls at once.
-function every(ms, fn) {
+// Nothing is polled while the browser tab is hidden, unless hidden() says
+// to go on; coming back polls at once.
+function every(ms, fn, hidden = () => false) {
   setTimeout(async function tick() {
-    if (!document.hidden) await fn();
+    if (!document.hidden || hidden()) await fn();
     setTimeout(tick, typeof ms === "function" ? ms() : ms);
   }, typeof ms === "function" ? ms() : ms);
 }
@@ -1409,7 +1410,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (wizardWanted() || first === "setup") openWizard();
   else showTab(document.getElementById(`tab-${first}`) ? first : "overview");
 
-  every(POLL_STATUS_MS, pollStatus);
+  // In manual control the status keeps coming in a background tab too: the
+  // server ends manual control only when the page is really closed.
+  every(POLL_STATUS_MS, pollStatus, () => Boolean(state.status && state.status.manual));
   every(() => (state.tab === "fans" || state.tab === "overview" ? POLL_HARDWARE_FAST_MS : POLL_HARDWARE_SLOW_MS), pollHardware);
   every(POLL_LOGS_MS, pollLogs);
   every(POLL_HISTORY_MS, () => state.tab === "history" && loadHistory());

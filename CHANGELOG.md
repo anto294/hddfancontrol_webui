@@ -45,6 +45,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   holds the same lock as every other change.
 - Moving a fan slider while manual control was starting gave an
   unexplained server error; it is now refused as "not in manual control".
+- Manual control ended after 2 minutes when its page was only in a
+  background tab, since hidden pages stop asking for the status. In manual
+  control the page now keeps asking, so only closing it (or a sleeping
+  computer) ends manual control.
 
 ## [0.5.1] - 2026-11-16
 

@@ -68,7 +68,7 @@
   "overview.asleep_count": "{count} asleep",
 
   "fans.title": "Fans",
-  "fans.intro": "Every PWM output of the host. In manual control, move any slider and watch the speed to find out which fan it drives; each output you move gets its previous setting back when you leave manual control. The curve and auto modes drive only the fans chosen in Settings. Manual control is never saved: a restart goes back to automatic control, and so does closing this page for 2 minutes.",
+  "fans.intro": "Every PWM output of the host. In manual control, move any slider and watch the speed to find out which fan it drives; each output you move gets its previous setting back when you leave manual control. The curve and auto modes drive only the fans chosen in Settings. Manual control is never saved: a restart goes back to automatic control, and so does closing this page (or putting the computer to sleep) for 2 minutes. A page left open in another tab keeps it.",
   "fans.safety": "A drive reached the maximum temperature: the fans stay at full speed.",
   "fans.safety_stale": "No recent drive temperature: the fans stay at full speed. Leave manual control to go back to automatic control.",
   "fans.safety_error": "The fan control hit an error: the fans stay at full speed. Leave manual control to go back to automatic control.",
