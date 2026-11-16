@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hddfancontrol</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/i18n.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="/static/logo.png" alt="" width="36" height="36">
+      <h1>hddfancontrol</h1>
+      <span id="mode" class="pill"></span>
+      <button id="logout" class="link" data-i18n="action.logout" hidden></button>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="overview" data-i18n="tab.overview"></button>
+      <button role="tab" data-tab="fans" data-i18n="tab.fans"></button>
+      <button role="tab" data-tab="smart" data-i18n="tab.smart"></button>
+      <button role="tab" data-tab="history" data-i18n="tab.history"></button>
+      <button role="tab" data-tab="settings" data-i18n="tab.settings"></button>
+      <button role="tab" data-tab="pwmtest" data-i18n="tab.pwmtest"></button>
+      <button role="tab" data-tab="security" data-i18n="tab.security"></button>
+      <button role="tab" data-tab="logs" data-i18n="tab.logs"></button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="banners"></div>
+
+    <!-- Overview -->
+    <section id="tab-overview" class="tab">
+      <div class="grid">
+        <article class="card">
+          <h2 data-i18n="overview.drives"></h2>
+          <p class="muted small" id="latest-time"></p>
+          <table class="list" id="drive-temps"></table>
+        </article>
+        <article class="card">
+          <h2 data-i18n="overview.fans"></h2>
+          <table class="list" id="fan-summary"></table>
+        </article>
+        <article class="card">
+          <h2 data-i18n="overview.control"></h2>
+          <table class="list" id="control"></table>
+          <div class="actions">
+            <button id="restart" class="secondary" data-i18n="action.restart"></button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Fans: manual control -->
+    <section id="tab-fans" class="tab" hidden>
+      <article class="card">
+        <div class="card-head">
+          <h2 data-i18n="fans.title"></h2>
+          <button id="manual-toggle"></button>
+        </div>
+        <p class="muted" data-i18n="fans.intro"></p>
+        <p class="warning" id="manual-safety" data-i18n="fans.safety" hidden></p>
+        <div id="fan-list"></div>
+      </article>
+    </section>
+
+    <!-- SMART -->
+    <section id="tab-smart" class="tab" hidden>
+      <article class="card">
+        <div class="card-head">
+          <h2 data-i18n="smart.title"></h2>
+          <button id="smart-refresh" class="secondary" data-i18n="action.refresh_smart"></button>
+        </div>
+        <p class="muted small" data-i18n="smart.intro"></p>
+      </article>
+      <div id="smart-list" class="grid"></div>
+    </section>
+
+    <!-- History -->
+    <section id="tab-history" class="tab" hidden>
+      <article class="card">
+        <div class="card-head">
+          <h2 data-i18n="history.temps"></h2>
+          <select id="history-hours" aria-label="Window">
+            <option value="1">1 h</option>
+            <option value="6" selected>6 h</option>
+            <option value="24">24 h</option>
+            <option value="168">7 d</option>
+            <option value="720">30 d</option>
+            <option value="2160">90 d</option>
+            <option value="8760">1 y</option>
+          </select>
+        </div>
+        <div id="chart-temp" class="chart"></div>
+      </article>
+      <article class="card">
+        <h2 data-i18n="history.rpm"></h2>
+        <div id="chart-rpm" class="chart"></div>
+      </article>
+      <article class="card">
+        <h2 data-i18n="history.pwm"></h2>
+        <div id="chart-pwm" class="chart"></div>
+      </article>
+    </section>
+
+    <!-- Settings -->
+    <section id="tab-settings" class="tab" hidden>
+      <form id="settings-form" novalidate>
+        <p class="muted" id="settings-source"></p>
+
+        <article class="card">
+          <h2 data-i18n="settings.mode"></h2>
+          <div class="fields">
+            <label class="field"><span data-i18n="settings.control_mode"></span>
+              <select name="control_mode">
+                <option value="curve" data-i18n="mode.curve"></option>
+                <option value="auto" data-i18n="mode.auto"></option>
+              </select></label>
+            <label class="field"><span data-i18n="settings.drive_temp_min"></span>
+              <input type="number" name="drive_temp_min" step="0.5" min="0" max="120">
+              <small class="error" data-error="drive_temp_min"></small></label>
+            <label class="field"><span data-i18n="settings.target_temp"></span>
+              <input type="number" name="target_temp" step="0.5" min="0" max="120">
+              <small class="error" data-error="target_temp"></small></label>
+            <label class="field"><span data-i18n="settings.drive_temp_max"></span>
+              <input type="number" name="drive_temp_max" step="0.5" min="0" max="120">
+              <small class="error" data-error="drive_temp_max"></small></label>
+            <label class="field"><span data-i18n="settings.min_fan_speed_prct"></span>
+              <input type="number" name="min_fan_speed_prct" min="0" max="100">
+              <small class="error" data-error="min_fan_speed_prct"></small></label>
+          </div>
+          <p class="muted small" id="mode-help"></p>
+          <p class="muted small" data-i18n="settings.min_speed_warning"></p>
+        </article>
+
+        <article class="card">
+          <h2 data-i18n="settings.drives"></h2>
+          <p class="muted small" data-i18n="settings.drives_help"></p>
+          <table class="list form-table" id="drive-list"></table>
+          <label class="field">
+            <span data-i18n="settings.other_drives"></span>
+            <input type="text" id="other-drives" spellcheck="false" autocomplete="off">
+            <small class="muted" data-i18n="settings.other_drives_help"></small>
+          </label>
+          <p class="error" data-error="drives"></p>
+          <p class="error" data-error="spin_down_drives"></p>
+        </article>
+
+        <article class="card">
+          <h2 data-i18n="settings.fans"></h2>
+          <p class="muted small" data-i18n="settings.fans_help"></p>
+          <table class="list form-table" id="pwm-list"></table>
+          <p class="error" data-error="pwms"></p>
+        </article>
+
+        <article class="card">
+          <h2 data-i18n="settings.spin_down"></h2>
+          <div class="fields">
+            <label class="field"><span data-i18n="settings.spin_down_time_s"></span>
+              <input type="number" name="spin_down_time_s" min="0" max="86400">
+              <small class="muted" data-i18n="settings.spin_down_help"></small>
+              <small class="error" data-error="spin_down_time_s"></small></label>
+            <label class="field"><span data-i18n="settings.spin_down_command"></span>
+              <select name="spin_down_command"><option>ata</option><option>scsi</option></select>
+              <small class="muted" data-i18n="settings.spin_down_command_help"></small></label>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2 data-i18n="settings.hwmons"></h2>
+          <p class="muted small" data-i18n="settings.hwmons_help"></p>
+          <table class="list form-table" id="hwmon-list"></table>
+          <p class="error" data-error="hwmons"></p>
+        </article>
+
+        <article class="card">
+          <h2 data-i18n="settings.advanced"></h2>
+          <div class="fields">
+            <label class="field"><span data-i18n="settings.interval_s"></span>
+              <input type="number" name="interval_s" min="1" max="3600">
+              <small class="error" data-error="interval_s"></small></label>
+            <label class="field"><span data-i18n="settings.average"></span>
+              <input type="number" name="average" min="1" max="100">
+              <small class="error" data-error="average"></small></label>
+            <label class="field"><span data-i18n="settings.history_days"></span>
+              <input type="number" name="history_days" min="1" max="365">
+              <small class="error" data-error="history_days"></small></label>
+            <label class="field"><span data-i18n="settings.smart_interval_h"></span>
+              <input type="number" name="smart_interval_h" min="0" max="168">
+              <small class="muted" data-i18n="settings.smart_interval_help"></small>
+              <small class="error" data-error="smart_interval_h"></small></label>
+            <label class="field"><span data-i18n="settings.verbosity"></span>
+              <select name="verbosity">
+                <option>TRACE</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option>
+              </select></label>
+          </div>
+          <label class="check"><input type="checkbox" name="restore_fan_settings">
+            <span data-i18n="settings.restore_fan_settings"></span></label>
+        </article>
+
+        <div class="actions sticky">
+          <button type="submit" data-i18n="action.save"></button>
+          <button type="button" id="reset-settings" class="secondary" data-i18n="action.reset"></button>
+          <span id="save-result" class="small"></span>
+        </div>
+      </form>
+    </section>
+
+    <!-- PWM test -->
+    <section id="tab-pwmtest" class="tab" hidden>
+      <article class="card">
+        <h2 data-i18n="pwmtest.title"></h2>
+        <p data-i18n="pwmtest.intro"></p>
+        <p class="warning" data-i18n="pwmtest.warning"></p>
+        <div id="pwmtest-list" class="checklist"></div>
+        <div class="actions">
+          <button id="pwmtest-start" data-i18n="action.start_test"></button>
+          <button id="pwmtest-cancel" class="danger" data-i18n="action.cancel_test"></button>
+        </div>
+      </article>
+      <article class="card">
+        <h2 data-i18n="pwmtest.results"></h2>
+        <table class="list" id="pwmtest-results"></table>
+        <div class="actions">
+          <button id="pwmtest-use" class="secondary" data-i18n="action.use_results"></button>
+        </div>
+      </article>
+    </section>
+
+    <!-- Security -->
+    <section id="tab-security" class="tab" hidden>
+      <article class="card">
+        <h2 data-i18n="security.title"></h2>
+        <p id="security-state"></p>
+        <form id="auth-form" class="fields narrow" novalidate autocomplete="on">
+          <label class="field" id="current-field"><span data-i18n="security.current"></span>
+            <input type="password" name="current" autocomplete="current-password"></label>
+          <label class="field"><span data-i18n="security.username"></span>
+            <input type="text" name="username" autocomplete="username" spellcheck="false"></label>
+          <label class="field"><span data-i18n="security.password"></span>
+            <input type="password" name="password" autocomplete="new-password" minlength="8"></label>
+          <label class="field"><span data-i18n="security.confirm"></span>
+            <input type="password" name="confirm" autocomplete="new-password"></label>
+          <div class="actions">
+            <button type="submit" data-i18n="action.save_credentials"></button>
+            <button type="button" id="auth-remove" class="danger" data-i18n="action.remove_credentials"></button>
+            <span id="auth-result" class="small"></span>
+          </div>
+        </form>
+      </article>
+    </section>
+
+    <!-- Logs -->
+    <section id="tab-logs" class="tab" hidden>
+      <article class="card">
+        <div class="card-head">
+          <h2 data-i18n="tab.logs"></h2>
+          <select id="log-source" aria-label="Source">
+            <option value="" data-i18n="logs.all"></option>
+            <option>hddfancontrol</option>
+            <option>hd-idle</option>
+            <option>fan-control</option>
+            <option>pwm-test</option>
+            <option>sensors</option>
+            <option>webui</option>
+          </select>
+        </div>
+        <pre id="log" class="log" tabindex="0"></pre>
+      </article>
+    </section>
+  </main>
+
+  <footer class="muted small">
+    <span id="version"></span> ·
+    <a href="https://github.com/anto294/hddfancontrol_webui" rel="noopener noreferrer" target="_blank">GitHub</a>
+  </footer>
+</body>
+</html>

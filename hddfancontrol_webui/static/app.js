@@ -1,0 +1,1020 @@
+"use strict";
+
+// Every value from the server goes into the page with textContent or as an
+// attribute, never as HTML: drive models and log lines are not trusted.
+
+const state = {
+  status: null,
+  hardware: { drives: [], hwmons: [] },
+  settings: null,
+  settingsSource: "",
+  labels: {},
+  tab: "overview",
+  logSeq: 0,
+  logLines: [],
+  dragging: new Set(),
+  pending: new Map(),
+};
+
+const POLL_STATUS_MS = 3000;
+const POLL_HARDWARE_FAST_MS = 2000;
+const POLL_HARDWARE_SLOW_MS = 15000;
+const POLL_LOGS_MS = 2000;
+const POLL_HISTORY_MS = 60000;
+const LOG_MAX_LINES = 2000;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function api(method, url, body) {
+  const options = { method, headers: { "X-Requested-With": "fetch" }, credentials: "same-origin" };
+  if (body !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(url, options);
+  if (response.status === 401 && !url.startsWith("/api/auth")) {
+    location.href = "/login";
+    throw new Error("unauthorized");
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok) {
+    const error = new Error((data && data.error) || String(response.status));
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === undefined || value === null || value === false) continue;
+    if (key === "class") node.className = value;
+    else if (key === "text") node.textContent = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else if (value === true) node.setAttribute(key, "");
+    else node.setAttribute(key, String(value));
+  }
+  for (const child of children) {
+    if (child !== null && child !== undefined) node.append(child);
+  }
+  return node;
+}
+
+function row(...cells) {
+  return el("tr", {}, ...cells.map((cell) => el("td", {}, cell)));
+}
+
+function headRow(...cells) {
+  return el("tr", {}, ...cells.map((cell) => el("th", { text: cell })));
+}
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function fmtTemp(value) {
+  return value === null || value === undefined ? "–" : `${Number(value).toFixed(1)} °C`;
+}
+
+function fmtPct(pwm) {
+  return pwm === null || pwm === undefined ? "–" : `${Math.round((pwm * 100) / 255)} %`;
+}
+
+function fmtRpm(rpm) {
+  return rpm === null || rpm === undefined ? "–" : `${rpm} RPM`;
+}
+
+function fmtBytes(bytes) {
+  if (!bytes) return "–";
+  const units = ["B", "kB", "MB", "GB", "TB", "PB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+
+function fmtTime(value) {
+  if (!value) return "–";
+  const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
+  return date.toLocaleString(I18N.lang);
+}
+
+function shortPath(path) {
+  return path.split("/").pop();
+}
+
+// The name given to a fan, or "nct6798 · pwm2" for /sys/class/hwmon/hwmon3/pwm2.
+function pwmLabel(path) {
+  if (state.labels[path]) return state.labels[path];
+  for (const device of state.hardware.hwmons) {
+    if (device.pwms.some((pwm) => pwm.path === path)) {
+      return `${device.name || device.hwmon} · ${shortPath(path)}`;
+    }
+  }
+  return path;
+}
+
+// The name given to a drive, looked up by any of its stable names.
+function driveLabelById(id) {
+  if (state.labels[id]) return state.labels[id];
+  const drive = state.hardware.drives.find((d) => d.ids.includes(id));
+  const named = drive && drive.ids.find((i) => state.labels[i]);
+  return named ? state.labels[named] : "";
+}
+
+// hddfancontrol names drives "sda ST4000VN006": show the label, then the kernel name.
+function driveLabelByLogName(name) {
+  const kernel = name.split(" ")[0];
+  const drive = state.hardware.drives.find((d) => d.name === kernel);
+  const label = drive ? driveLabelById(drive.ids[0]) : "";
+  return label ? `${label} (${kernel})` : name;
+}
+
+async function saveLabel(key, label) {
+  try {
+    state.labels = await api("PUT", "/api/labels", { key, label });
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  renderOverview();
+}
+
+function labelInput(key, current) {
+  const input = el("input", {
+    type: "text",
+    class: "label-input",
+    value: current || "",
+    maxlength: 40,
+    placeholder: t("labels.placeholder"),
+    "aria-label": t("labels.placeholder"),
+  });
+  input.addEventListener("change", () => saveLabel(key, input.value));
+  return input;
+}
+
+function allPwms() {
+  return state.hardware.hwmons.flatMap((device) => device.pwms.map((pwm) => ({ ...pwm, chip: device.name || device.hwmon })));
+}
+
+function errorText(error) {
+  if (error && error.data && error.data.error) return t(`error.${error.data.error}`);
+  return t("error.network");
+}
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+
+function showTab(name) {
+  state.tab = name;
+  for (const button of document.querySelectorAll("[data-tab]")) {
+    button.setAttribute("aria-selected", String(button.dataset.tab === name));
+  }
+  for (const section of document.querySelectorAll(".tab")) {
+    section.hidden = section.id !== `tab-${name}`;
+  }
+  try {
+    localStorage.setItem("tab", name);
+  } catch {
+    // Storage may be blocked; the tab is only a convenience.
+  }
+  if (name === "history") loadHistory();
+  if (name === "smart") loadSmart();
+  if (name === "settings") renderSettings();
+  if (name === "logs") renderLogs();
+  if (name === "security") loadAuth();
+  if (name === "fans" || name === "overview") pollHardware();
+}
+
+// ---------------------------------------------------------------------------
+// Status, banners, overview
+// ---------------------------------------------------------------------------
+
+function banner(kind, text, ...extra) {
+  return el("div", { class: `banner ${kind}`, role: kind === "error" ? "alert" : "status" }, el("p", { text }), ...extra);
+}
+
+function renderBanners() {
+  const status = state.status;
+  const box = $("banners");
+  box.replaceChildren();
+  if (!status) return;
+  if (!status.auth.enabled) {
+    box.append(banner("warning", t("banner.no_auth"), el("button", { class: "link", text: t("tab.security"), onclick: () => showTab("security") })));
+  }
+  const sensors = status.sensors;
+  if (sensors.state === "running") box.append(banner("info", t("banner.scanning")));
+  for (const module of sensors.modules.filter((m) => m.status === "failed")) {
+    box.append(
+      banner(
+        "warning",
+        t("banner.module_failed", { module: module.module, error: module.error }),
+        el("p", { class: "small", text: t("banner.truenas_hint", { module: module.module }) }),
+        el("button", { class: "secondary", text: t("action.rescan"), onclick: rescanSensors }),
+      ),
+    );
+  }
+  if (sensors.state === "done" && state.hardware.hwmons.length > 0 && allPwms().length === 0) {
+    box.append(banner("warning", t("banner.no_pwm")));
+  }
+  if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
+  if (status.mode === "waiting") box.append(banner("info", t("banner.waiting")));
+  if (status.fans.auto.failsafe) box.append(banner("error", t("banner.failsafe")));
+  if (status.fans.safety) box.append(banner("error", t("banner.safety")));
+}
+
+function renderOverview() {
+  const status = state.status;
+  if (!status) return;
+
+  const temps = $("drive-temps");
+  temps.replaceChildren();
+  if (status.latest) {
+    $("latest-time").textContent = t("overview.measured", { time: fmtTime(status.latest.time) });
+    for (const [name, value] of Object.entries(status.latest.temps)) {
+      temps.append(row(driveLabelByLogName(name), value === null ? el("span", { class: "badge muted", text: t("state.asleep") }) : fmtTemp(value)));
+    }
+  } else {
+    $("latest-time").textContent = t("overview.no_temps");
+  }
+
+  const fans = $("fan-summary");
+  fans.replaceChildren(headRow(t("fans.output"), "PWM", t("fans.speed")));
+  const configured = new Set((state.settings ? state.settings.pwms : []).map((pwm) => pwm.path));
+  // The configured fans, or every PWM output when none of them is found.
+  const matching = allPwms().filter((pwm) => configured.has(pwm.path));
+  const shown = matching.length ? matching : allPwms();
+  for (const pwm of shown) {
+    fans.append(row(pwmLabel(pwm.path), fmtPct(pwm.value), fmtRpm(pwm.rpm)));
+  }
+
+  const control = $("control");
+  control.replaceChildren();
+  control.append(row(t("overview.mode"), t(`mode.${status.mode}`)));
+  control.append(row(t("settings.control_mode"), t(`mode.${status.control_mode}`)));
+  if (status.fans.mode === "auto" && status.fans.auto.speed !== null) {
+    control.append(row(t("overview.hottest"), fmtTemp(status.fans.auto.hottest)));
+    control.append(row(t("overview.auto_speed"), `${Math.round(status.fans.auto.speed * 100)} %`));
+  }
+  for (const [name, daemon] of Object.entries(status.daemons)) {
+    const text = t(`daemon.${daemon.state}`) + (daemon.restarts ? ` · ${t("overview.restarts", { count: daemon.restarts })}` : "");
+    control.append(row(name, text));
+  }
+}
+
+function renderHeader() {
+  const status = state.status;
+  if (!status) return;
+  const pill = $("mode");
+  pill.textContent = t(`mode.${status.mode}`);
+  pill.dataset.mode = status.mode;
+  $("version").textContent = status.version === "dev" ? "dev" : `v${status.version}`;
+  $("logout").hidden = !status.auth.enabled;
+}
+
+async function pollStatus() {
+  try {
+    state.status = await api("GET", "/api/status");
+    renderHeader();
+    renderBanners();
+    renderOverview();
+    renderFansState();
+    renderPwmTest();
+  } catch (error) {
+    if (error.message !== "unauthorized") $("banners").replaceChildren(banner("error", t("error.network")));
+  }
+}
+
+async function pollHardware() {
+  try {
+    state.hardware = await api("GET", "/api/hardware");
+    renderOverview();
+    renderFans();
+    renderPwmTestList();
+  } catch {
+    // The next poll tries again; pollStatus shows network problems.
+  }
+}
+
+async function rescanSensors() {
+  try {
+    await api("POST", "/api/sensors/scan");
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  await pollStatus();
+  await pollHardware();
+}
+
+function alertBanner(text) {
+  $("banners").prepend(banner("error", text));
+}
+
+// ---------------------------------------------------------------------------
+// Fans: manual control
+// ---------------------------------------------------------------------------
+
+function renderFansState() {
+  const status = state.status;
+  if (!status) return;
+  const button = $("manual-toggle");
+  button.textContent = status.manual ? t("action.leave_manual") : t("action.enter_manual");
+  button.className = status.manual ? "danger" : "";
+  button.disabled = status.pwm_test.running;
+  $("manual-safety").hidden = !status.fans.safety;
+  for (const input of document.querySelectorAll("#fan-list input[type=range]")) {
+    input.disabled = !status.manual || status.fans.safety;
+  }
+}
+
+function sendPwm(path, value) {
+  clearTimeout(state.pending.get(path));
+  state.pending.set(
+    path,
+    setTimeout(async () => {
+      try {
+        await api("PUT", "/api/manual/pwm", { path, value });
+      } catch (error) {
+        alertBanner(errorText(error));
+      }
+    }, 120),
+  );
+}
+
+function renderFans() {
+  const list = $("fan-list");
+  const manual = state.status ? state.status.manual : false;
+  const configured = new Set((state.settings ? state.settings.pwms : []).map((pwm) => pwm.path));
+  for (const device of state.hardware.hwmons) {
+    if (device.pwms.length === 0) continue;
+    let group = list.querySelector(`[data-hwmon="${device.hwmon}"]`);
+    if (!group) {
+      group = el("div", { class: "fan-group", "data-hwmon": device.hwmon }, el("h3", { text: `${device.name || "?"} (${device.hwmon})` }));
+      list.append(group);
+    }
+    for (const pwm of device.pwms) {
+      let line = group.querySelector(`[data-path="${pwm.path}"]`);
+      if (!line) {
+        const range = el("input", { type: "range", min: 0, max: 255, step: 1, "aria-label": pwm.path });
+        range.addEventListener("pointerdown", () => state.dragging.add(pwm.path));
+        range.addEventListener("pointerup", () => state.dragging.delete(pwm.path));
+        range.addEventListener("input", () => {
+          line.querySelector(".pct").textContent = fmtPct(Number(range.value));
+          sendPwm(pwm.path, Number(range.value));
+        });
+        line = el(
+          "div",
+          { class: "fan-line", "data-path": pwm.path },
+          el(
+            "div",
+            { class: "fan-name" },
+            el("strong", { text: shortPath(pwm.path) }),
+            el("span", { class: "badge" }),
+            labelInput(pwm.path, state.labels[pwm.path]),
+            el("small", { class: "muted", text: pwm.path }),
+          ),
+          range,
+          el("span", { class: "pct" }),
+          el("span", { class: "rpm" }),
+        );
+        group.append(line);
+      }
+      const range = line.querySelector("input");
+      if (!state.dragging.has(pwm.path) && document.activeElement !== range && pwm.value !== null) {
+        range.value = pwm.value;
+        line.querySelector(".pct").textContent = fmtPct(pwm.value);
+      }
+      range.disabled = !manual || (state.status && state.status.fans.safety);
+      line.querySelector(".rpm").textContent = fmtRpm(pwm.rpm);
+      const badge = line.querySelector(".badge");
+      badge.textContent = configured.has(pwm.path) ? t("fans.configured") : "";
+      badge.hidden = !configured.has(pwm.path);
+    }
+  }
+  if (!list.children.length) list.replaceChildren(el("p", { class: "muted", text: t("banner.no_pwm") }));
+}
+
+async function toggleManual() {
+  const enabled = !(state.status && state.status.manual);
+  try {
+    await api("PUT", "/api/manual", { enabled });
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  await pollStatus();
+  await pollHardware();
+}
+
+// ---------------------------------------------------------------------------
+// SMART
+// ---------------------------------------------------------------------------
+
+function smartCard(device, data) {
+  const status = data.status || "error";
+  const label = driveLabelById(device);
+  const title = el("div", { class: "card-head" }, el("h3", { text: label || shortPath(device) }), el("span", { class: `badge ${status}`, text: t(`smart.status.${status}`) }));
+  const card = el("article", { class: "card smart" }, title);
+  if (label) card.append(el("p", { class: "muted small", text: shortPath(device) }));
+  if (data.model) card.append(el("p", { class: "muted small", text: `${data.model} · ${fmtBytes(data.capacity_bytes)}` }));
+  const table = el("table", { class: "list" });
+  const fields = [
+    ["serial", data.serial],
+    ["firmware", data.firmware],
+    ["temperature", data.temperature === undefined || data.temperature === null ? null : fmtTemp(data.temperature)],
+    ["power_on_hours", data.power_on_hours === undefined || data.power_on_hours === null ? null : `${data.power_on_hours} h (${Math.round(data.power_on_hours / 24)} d)`],
+    ["power_cycles", data.power_cycles],
+    ["start_stop_count", data.start_stop_count],
+    ["load_cycle_count", data.load_cycle_count],
+    ["reallocated_sectors", data.reallocated_sectors],
+    ["pending_sectors", data.pending_sectors],
+    ["offline_uncorrectable", data.offline_uncorrectable],
+    ["reported_uncorrectable", data.reported_uncorrectable],
+    ["crc_errors", data.crc_errors],
+    ["percentage_used", data.percentage_used === undefined || data.percentage_used === null ? null : `${data.percentage_used} %`],
+    ["available_spare", data.available_spare === undefined || data.available_spare === null ? null : `${data.available_spare} %`],
+    ["media_errors", data.media_errors],
+    ["unsafe_shutdowns", data.unsafe_shutdowns],
+  ];
+  for (const [key, value] of fields) {
+    if (value !== undefined && value !== null && value !== "") table.append(row(t(`smart.${key}`), String(value)));
+  }
+  card.append(table);
+  for (const warning of data.warnings || []) card.append(el("p", { class: "warning small", text: t(`smart.warn.${warning}`) }));
+  for (const message of data.messages || []) card.append(el("p", { class: "error small", text: message }));
+  const note = data.asleep ? t("smart.asleep_note") : "";
+  card.append(el("p", { class: "muted small", text: `${t("smart.updated", { time: fmtTime(data.time) })} ${note}` }));
+  if (data.attributes && data.attributes.length) {
+    const attrs = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.value"), t("smart.worst"), t("smart.thresh"), t("smart.raw")));
+    for (const attr of data.attributes) {
+      const line = row(String(attr.id), attr.name, String(attr.value ?? ""), String(attr.worst ?? ""), String(attr.thresh ?? ""), String(attr.raw ?? ""));
+      if (attr.failed) line.className = "failed";
+      attrs.append(line);
+    }
+    card.append(el("details", {}, el("summary", { text: t("smart.attributes") }), attrs));
+  }
+  return card;
+}
+
+function renderSmart(data) {
+  const list = $("smart-list");
+  const entries = Object.entries(data).sort(([a], [b]) => a.localeCompare(b));
+  list.replaceChildren(...entries.map(([device, info]) => smartCard(device, info)));
+  if (!entries.length) list.append(el("p", { class: "muted", text: t("smart.none") }));
+}
+
+async function loadSmart() {
+  try {
+    renderSmart(await api("GET", "/api/smart"));
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+}
+
+async function refreshSmart() {
+  const button = $("smart-refresh");
+  button.disabled = true;
+  try {
+    renderSmart(await api("POST", "/api/smart"));
+  } catch (error) {
+    alertBanner(errorText(error));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// History charts (inline SVG, no library)
+// ---------------------------------------------------------------------------
+
+const SVG = "http://www.w3.org/2000/svg";
+
+function svg(tag, attrs = {}) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+function niceTicks(min, max, count) {
+  const span = max - min || 1;
+  const raw = span / count;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((f) => f * power).find((s) => s >= raw) || raw;
+  const ticks = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) ticks.push(Number(v.toFixed(6)));
+  return ticks;
+}
+
+function drawChart(container, data, series, unit, labelOf) {
+  container.replaceChildren();
+  if (!series.length) {
+    container.append(el("p", { class: "muted", text: t("history.empty") }));
+    return;
+  }
+  const width = Math.max(container.clientWidth, 300);
+  const height = 240;
+  const pad = { left: 52, right: 12, top: 10, bottom: 28 };
+  let min = Infinity;
+  let max = -Infinity;
+  for (const s of series) {
+    for (const [, value] of s.points) {
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+  }
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+  const margin = (max - min) * 0.08;
+  min -= margin;
+  max += margin;
+  const x = (ts) => pad.left + ((ts - data.start) / (data.end - data.start)) * (width - pad.left - pad.right);
+  const y = (value) => pad.top + (1 - (value - min) / (max - min)) * (height - pad.top - pad.bottom);
+
+  const chart = svg("svg", { viewBox: `0 0 ${width} ${height}`, width, height, role: "img" });
+  for (const tick of niceTicks(min, max, 4)) {
+    chart.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: y(tick), y2: y(tick), class: "gridline" }));
+    const label = svg("text", { x: pad.left - 6, y: y(tick) + 4, class: "axis", "text-anchor": "end" });
+    label.textContent = `${tick}${unit}`;
+    chart.append(label);
+  }
+  const long = data.end - data.start > 2 * 86400;
+  for (let i = 0; i <= 4; i += 1) {
+    const ts = data.start + ((data.end - data.start) * i) / 4;
+    const date = new Date(ts * 1000);
+    const label = svg("text", { x: x(ts), y: height - 8, class: "axis", "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" });
+    label.textContent = long
+      ? date.toLocaleDateString(I18N.lang, { day: "2-digit", month: "2-digit" })
+      : date.toLocaleTimeString(I18N.lang, { hour: "2-digit", minute: "2-digit" });
+    chart.append(label);
+  }
+  const legend = el("div", { class: "legend" });
+  series.forEach((s, index) => {
+    const color = `var(--c${(index % 8) + 1})`;
+    // A gap of more than three buckets (a sleeping drive, a stopped container) breaks the line.
+    let path = "";
+    let last = null;
+    for (const [ts, value] of s.points) {
+      const move = last === null || ts - last > 3 * data.bucket;
+      path += `${move ? "M" : "L"}${x(ts).toFixed(1)},${y(value).toFixed(1)}`;
+      last = ts;
+    }
+    const line = svg("path", { d: path, class: "series", style: `stroke:${color}` });
+    const title = svg("title");
+    title.textContent = labelOf(s.name);
+    line.append(title);
+    chart.append(line);
+    const lastValue = s.points.length ? s.points[s.points.length - 1][1] : null;
+    legend.append(
+      el("span", { class: "key" }, el("i", { style: `background:${color}` }), `${labelOf(s.name)}${lastValue === null ? "" : ` · ${lastValue}${unit}`}`),
+    );
+  });
+  container.append(chart, legend);
+}
+
+async function loadHistory() {
+  const hours = $("history-hours").value;
+  try {
+    const data = await api("GET", `/api/history?hours=${encodeURIComponent(hours)}`);
+    const of = (kind) => data.series.filter((s) => s.kind === kind);
+    drawChart($("chart-temp"), data, of("temp"), "°", driveLabelByLogName);
+    drawChart($("chart-rpm"), data, of("rpm"), "", pwmLabel);
+    drawChart($("chart-pwm"), data, of("pwm"), "%", pwmLabel);
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+function numberInput(name, value, attrs = {}) {
+  return el("input", { type: "number", name, value: value ?? "", ...attrs });
+}
+
+function renderModeHelp() {
+  const mode = $("settings-form").control_mode.value;
+  $("mode-help").textContent = t(`settings.mode_help_${mode}`);
+}
+
+function renderSettings() {
+  const settings = state.settings;
+  if (!settings) return;
+  const form = $("settings-form");
+  $("settings-source").textContent = t(`settings.source_${state.settingsSource}`);
+  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "verbosity", "spin_down_time_s", "spin_down_command"]) {
+    form[name].value = settings[name];
+  }
+  form.restore_fan_settings.checked = settings.restore_fan_settings;
+  renderModeHelp();
+
+  // Drives: one row per drive found, with the name to use and its own spin down time.
+  const drives = $("drive-list");
+  drives.replaceChildren(headRow("", t("settings.drive"), t("labels.label"), t("settings.drive_name"), t("settings.spin_down_own")));
+  const known = new Set();
+  for (const drive of state.hardware.drives) {
+    drive.ids.forEach((id) => known.add(id));
+    const chosen = drive.ids.find((id) => settings.drives.includes(id));
+    const select = el("select", { name: "drive_id" }, ...drive.ids.map((id) => el("option", { value: id, text: shortPath(id), selected: id === chosen })));
+    const own = chosen && chosen in settings.spin_down_drives ? settings.spin_down_drives[chosen] : "";
+    drives.append(
+      el(
+        "tr",
+        { "data-drive": drive.name },
+        el("td", {}, el("input", { type: "checkbox", name: "drive_use", checked: Boolean(chosen), "aria-label": drive.name })),
+        el("td", {}, el("strong", { text: drive.name }), " ", el("span", { class: "muted small", text: `${drive.model} · ${fmtBytes(drive.size_bytes)}${drive.rotational === false ? " · SSD" : ""}` })),
+        el("td", {}, labelInput(chosen || drive.ids[0], driveLabelById(drive.ids[0]))),
+        el("td", {}, select),
+        el("td", {}, numberInput("drive_spin", own, { min: 0, max: 86400, placeholder: settings.spin_down_time_s, "aria-label": t("settings.spin_down_own") })),
+      ),
+    );
+  }
+  $("other-drives").value = settings.drives.filter((d) => !known.has(d)).join(" ");
+
+  // Fans: every PWM output found, and the configured ones that are missing.
+  const pwms = $("pwm-list");
+  pwms.replaceChildren(headRow("", t("fans.output"), t("settings.start"), t("settings.stop"), t("fans.speed")));
+  const configured = new Map(settings.pwms.map((pwm) => [pwm.path, pwm]));
+  const rows = allPwms().map((pwm) => ({ path: pwm.path, label: pwmLabel(pwm.path), rpm: pwm.rpm }));
+  for (const path of configured.keys()) {
+    if (!rows.some((r) => r.path === path)) rows.push({ path, label: `${path} (${t("settings.not_found")})`, rpm: null });
+  }
+  for (const item of rows) {
+    const pwm = configured.get(item.path);
+    pwms.append(
+      el(
+        "tr",
+        { "data-path": item.path },
+        el("td", {}, el("input", { type: "checkbox", name: "pwm_use", checked: Boolean(pwm), "aria-label": item.path })),
+        el("td", {}, el("strong", { text: item.label }), el("br"), el("small", { class: "muted", text: item.path })),
+        el("td", {}, numberInput("pwm_start", pwm ? pwm.start : "", { min: 0, max: 255, placeholder: "200" })),
+        el("td", {}, numberInput("pwm_stop", pwm ? pwm.stop : "", { min: 0, max: 255, placeholder: "75" })),
+        el("td", { text: fmtRpm(item.rpm) }),
+      ),
+    );
+  }
+
+  // Extra hwmon temperatures.
+  const hwmons = $("hwmon-list");
+  hwmons.replaceChildren(headRow("", t("settings.sensor"), t("settings.now"), t("settings.temp_min"), t("settings.temp_max")));
+  const chosen = new Map(settings.hwmons.map((h) => [h.path, h]));
+  const inputs = state.hardware.hwmons.flatMap((device) => device.temps.map((temp) => ({ ...temp, chip: device.name || device.hwmon })));
+  for (const path of chosen.keys()) {
+    if (!inputs.some((i) => i.path === path)) inputs.push({ path, label: t("settings.not_found"), chip: "", celsius: null });
+  }
+  for (const input of inputs) {
+    const hwmon = chosen.get(input.path);
+    hwmons.append(
+      el(
+        "tr",
+        { "data-path": input.path },
+        el("td", {}, el("input", { type: "checkbox", name: "hwmon_use", checked: Boolean(hwmon), "aria-label": input.path })),
+        el("td", {}, el("strong", { text: `${input.chip} · ${input.label}` }), el("br"), el("small", { class: "muted", text: input.path })),
+        el("td", { text: fmtTemp(input.celsius) }),
+        el("td", {}, numberInput("hwmon_min", hwmon ? hwmon.temp_min : "", { step: 0.5, min: 0, max: 120 })),
+        el("td", {}, numberInput("hwmon_max", hwmon ? hwmon.temp_max : "", { step: 0.5, min: 0, max: 120 })),
+      ),
+    );
+  }
+}
+
+function optionalNumber(value) {
+  return value === "" ? null : Number(value);
+}
+
+function collectSettings() {
+  const form = $("settings-form");
+  const doc = {};
+  for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "spin_down_time_s"]) {
+    doc[name] = form[name].value === "" ? null : Number(form[name].value);
+  }
+  for (const name of ["control_mode", "verbosity", "spin_down_command"]) doc[name] = form[name].value;
+  doc.restore_fan_settings = form.restore_fan_settings.checked;
+
+  doc.drives = [];
+  doc.spin_down_drives = {};
+  for (const line of $("drive-list").querySelectorAll("tr[data-drive]")) {
+    if (!line.querySelector("[name=drive_use]").checked) continue;
+    const id = line.querySelector("[name=drive_id]").value;
+    doc.drives.push(id);
+    const own = line.querySelector("[name=drive_spin]").value;
+    if (own !== "") doc.spin_down_drives[id] = Number(own);
+  }
+  for (const other of $("other-drives").value.split(/\s+/).filter(Boolean)) {
+    doc.drives.push(other);
+    if (state.settings && other in state.settings.spin_down_drives) doc.spin_down_drives[other] = state.settings.spin_down_drives[other];
+  }
+
+  doc.pwms = [];
+  for (const line of $("pwm-list").querySelectorAll("tr[data-path]")) {
+    if (!line.querySelector("[name=pwm_use]").checked) continue;
+    doc.pwms.push({
+      path: line.dataset.path,
+      start: optionalNumber(line.querySelector("[name=pwm_start]").value),
+      stop: optionalNumber(line.querySelector("[name=pwm_stop]").value),
+    });
+  }
+
+  doc.hwmons = [];
+  for (const line of $("hwmon-list").querySelectorAll("tr[data-path]")) {
+    if (!line.querySelector("[name=hwmon_use]").checked) continue;
+    const hwmon = { path: line.dataset.path };
+    const low = optionalNumber(line.querySelector("[name=hwmon_min]").value);
+    const high = optionalNumber(line.querySelector("[name=hwmon_max]").value);
+    if (low !== null) hwmon.temp_min = low;
+    if (high !== null) hwmon.temp_max = high;
+    doc.hwmons.push(hwmon);
+  }
+  return doc;
+}
+
+function showProblems(problems) {
+  for (const node of document.querySelectorAll("[data-error]")) node.textContent = "";
+  for (const problem of problems) {
+    const exact = document.querySelector(`[data-error="${CSS.escape(problem.field)}"]`);
+    const target = exact || document.querySelector(`[data-error="${CSS.escape(problem.field.split(".")[0])}"]`);
+    const text = t(`error.${problem.code}`, problem.params || {});
+    if (target) target.textContent = target.textContent ? `${target.textContent} ${text}` : `${problem.field}: ${text}`;
+  }
+}
+
+async function loadSettings() {
+  const data = await api("GET", "/api/settings");
+  state.settings = data.settings;
+  state.settingsSource = data.source;
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  const result = $("save-result");
+  result.textContent = "";
+  showProblems([]);
+  try {
+    const data = await api("PUT", "/api/settings", collectSettings());
+    state.settings = data.settings;
+    state.settingsSource = data.source;
+    renderSettings();
+    result.textContent = t("settings.saved");
+    result.className = "small ok";
+  } catch (error) {
+    if (error.data && error.data.problems) showProblems(error.data.problems);
+    result.textContent = errorText(error);
+    result.className = "small error";
+  }
+  pollStatus();
+}
+
+async function resetSettings() {
+  const result = $("save-result");
+  try {
+    const data = await api("DELETE", "/api/settings");
+    state.settings = data.settings;
+    state.settingsSource = data.source;
+    renderSettings();
+    result.textContent = t("settings.reset_done");
+    result.className = "small ok";
+  } catch (error) {
+    result.textContent = errorText(error);
+    result.className = "small error";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PWM test
+// ---------------------------------------------------------------------------
+
+function renderPwmTestList() {
+  const list = $("pwmtest-list");
+  const checked = new Set([...list.querySelectorAll("input:checked")].map((i) => i.value));
+  list.replaceChildren(
+    ...allPwms().map((pwm) =>
+      el("label", { class: "check" }, el("input", { type: "checkbox", value: pwm.path, checked: checked.has(pwm.path) }), `${pwmLabel(pwm.path)} — ${fmtRpm(pwm.rpm)}`),
+    ),
+  );
+}
+
+function renderPwmTest() {
+  const test = state.status.pwm_test;
+  $("pwmtest-start").disabled = test.running;
+  $("pwmtest-cancel").disabled = !test.running;
+  const table = $("pwmtest-results");
+  table.replaceChildren(headRow(t("fans.output"), t("pwmtest.status"), t("settings.start"), t("settings.stop")));
+  for (const path of test.paths) {
+    const result = test.results[path] || { status: "pending" };
+    const status = t(`pwmtest.${result.status}`) + (result.error ? ` (${result.error})` : "") + (test.current === path ? " …" : "");
+    table.append(row(pwmLabel(path), status, String(result.start ?? "–"), String(result.stop ?? "–")));
+  }
+  $("pwmtest-use").disabled = !Object.values(test.results).some((r) => r.status === "done");
+}
+
+async function startPwmTest() {
+  const paths = [...$("pwmtest-list").querySelectorAll("input:checked")].map((i) => i.value);
+  if (!paths.length) return;
+  try {
+    await api("POST", "/api/pwm-test", { paths });
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  pollStatus();
+}
+
+async function cancelPwmTest() {
+  try {
+    await api("DELETE", "/api/pwm-test");
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  pollStatus();
+}
+
+function usePwmResults() {
+  showTab("settings");
+  const results = state.status.pwm_test.results;
+  for (const [path, result] of Object.entries(results)) {
+    if (result.status !== "done") continue;
+    const line = $("pwm-list").querySelector(`tr[data-path="${CSS.escape(path)}"]`);
+    if (!line) continue;
+    line.querySelector("[name=pwm_use]").checked = true;
+    line.querySelector("[name=pwm_start]").value = result.start;
+    line.querySelector("[name=pwm_stop]").value = result.stop;
+  }
+  const result = $("save-result");
+  result.textContent = t("pwmtest.review");
+  result.className = "small";
+}
+
+// ---------------------------------------------------------------------------
+// Security
+// ---------------------------------------------------------------------------
+
+async function loadAuth() {
+  try {
+    const auth = await api("GET", "/api/auth");
+    const form = $("auth-form");
+    $("security-state").textContent = t(`security.state_${auth.source}`, { username: auth.username });
+    form.hidden = auth.source === "environment";
+    $("current-field").hidden = !auth.enabled;
+    $("auth-remove").hidden = !auth.enabled;
+    form.username.value = auth.username || "admin";
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+}
+
+async function saveCredentials(event) {
+  event.preventDefault();
+  const form = $("auth-form");
+  const result = $("auth-result");
+  result.className = "small error";
+  if (form.password.value !== form.confirm.value) {
+    result.textContent = t("error.password_mismatch");
+    return;
+  }
+  try {
+    await api("PUT", "/api/auth", { username: form.username.value, password: form.password.value, current: form.current.value });
+    form.reset();
+    result.textContent = t("security.saved");
+    result.className = "small ok";
+  } catch (error) {
+    result.textContent = errorText(error);
+  }
+  loadAuth();
+  pollStatus();
+}
+
+async function removeCredentials() {
+  const form = $("auth-form");
+  const result = $("auth-result");
+  try {
+    await api("DELETE", "/api/auth", { current: form.current.value });
+    form.reset();
+    result.textContent = t("security.removed");
+    result.className = "small ok";
+  } catch (error) {
+    result.textContent = errorText(error);
+    result.className = "small error";
+  }
+  loadAuth();
+  pollStatus();
+}
+
+async function logout() {
+  try {
+    await api("POST", "/api/logout");
+  } finally {
+    location.href = "/login";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Logs
+// ---------------------------------------------------------------------------
+
+function formatLog(line) {
+  const time = new Date(line.time).toLocaleTimeString(I18N.lang);
+  return `${time} [${line.source}] ${line.text}\n`;
+}
+
+function renderLogs() {
+  const source = $("log-source").value;
+  const lines = state.logLines.filter((line) => !source || line.source === source);
+  $("log").textContent = lines.map(formatLog).join("");
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+async function pollLogs() {
+  try {
+    const data = await api("GET", `/api/logs?after=${state.logSeq}`);
+    if (!data.lines.length) return;
+    state.logSeq = data.last;
+    state.logLines.push(...data.lines);
+    if (state.logLines.length > LOG_MAX_LINES) state.logLines.splice(0, state.logLines.length - LOG_MAX_LINES);
+    if (state.tab !== "logs") return;
+    const log = $("log");
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    const source = $("log-source").value;
+    log.append(data.lines.filter((line) => !source || line.source === source).map(formatLog).join(""));
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  } catch {
+    // The next poll tries again.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+// Nothing is polled while the browser tab is hidden; coming back polls at once.
+function every(ms, fn) {
+  setTimeout(async function tick() {
+    if (!document.hidden) await fn();
+    setTimeout(tick, typeof ms === "function" ? ms() : ms);
+  }, typeof ms === "function" ? ms() : ms);
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  await loadI18n();
+  for (const button of document.querySelectorAll("[data-tab]")) {
+    button.addEventListener("click", () => showTab(button.dataset.tab));
+  }
+  $("restart").addEventListener("click", async () => {
+    try {
+      await api("POST", "/api/restart");
+    } catch (error) {
+      alertBanner(errorText(error));
+    }
+    pollStatus();
+  });
+  $("manual-toggle").addEventListener("click", toggleManual);
+  $("smart-refresh").addEventListener("click", refreshSmart);
+  $("history-hours").addEventListener("change", loadHistory);
+  $("settings-form").addEventListener("submit", saveSettings);
+  $("settings-form").control_mode.addEventListener("change", renderModeHelp);
+  $("reset-settings").addEventListener("click", resetSettings);
+  $("pwmtest-start").addEventListener("click", startPwmTest);
+  $("pwmtest-cancel").addEventListener("click", cancelPwmTest);
+  $("pwmtest-use").addEventListener("click", usePwmResults);
+  $("auth-form").addEventListener("submit", saveCredentials);
+  $("auth-remove").addEventListener("click", removeCredentials);
+  $("logout").addEventListener("click", logout);
+  $("log-source").addEventListener("change", renderLogs);
+  window.addEventListener("resize", () => state.tab === "history" && loadHistory());
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      pollStatus();
+      pollHardware();
+    }
+  });
+
+  try {
+    state.labels = await api("GET", "/api/labels");
+    await loadSettings();
+  } catch {
+    // pollStatus shows the problem.
+  }
+  await Promise.all([pollStatus(), pollHardware(), pollLogs()]);
+  let first = "overview";
+  try {
+    first = localStorage.getItem("tab") || "overview";
+  } catch {
+    first = "overview";
+  }
+  showTab(document.getElementById(`tab-${first}`) ? first : "overview");
+
+  every(POLL_STATUS_MS, pollStatus);
+  every(() => (state.tab === "fans" || state.tab === "overview" ? POLL_HARDWARE_FAST_MS : POLL_HARDWARE_SLOW_MS), pollHardware);
+  every(POLL_LOGS_MS, pollLogs);
+  every(POLL_HISTORY_MS, () => state.tab === "history" && loadHistory());
+});

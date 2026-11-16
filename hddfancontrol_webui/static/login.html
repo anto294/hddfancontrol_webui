@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hddfancontrol</title>
+  <link rel="icon" href="/static/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/i18n.js" defer></script>
+  <script src="/static/login.js" defer></script>
+</head>
+<body class="login-page">
+  <main>
+    <form id="login" class="card login" novalidate>
+      <div class="brand">
+        <img src="/static/logo.png" alt="" width="96" height="96">
+        <h1>hddfancontrol</h1>
+      </div>
+      <label class="field"><span data-i18n="security.username"></span>
+        <input type="text" name="username" autocomplete="username" spellcheck="false" required autofocus></label>
+      <label class="field"><span data-i18n="security.password"></span>
+        <input type="password" name="password" autocomplete="current-password" required></label>
+      <p class="error" id="login-error" role="alert"></p>
+      <button type="submit" data-i18n="action.login"></button>
+    </form>
+  </main>
+</body>
+</html>
