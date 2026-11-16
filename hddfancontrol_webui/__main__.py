@@ -107,11 +107,21 @@ def build() -> tuple[web.Application, int]:
             )
 
         async def startup() -> None:
+            # A failed sensor scan must not keep the fans from being controlled.
             if load_modules:
                 app[STATE]["sensors"] = SensorReport(state="running")
-                app[STATE]["sensors"] = await scan()
-            await supervisor.start()
-            monitor.start()
+                try:
+                    app[STATE]["sensors"] = await scan()
+                except Exception as err:  # any failure: report it and go on
+                    logs.add(SOURCE_SENSORS, f"WARNING: the sensor scan failed: {err!r}")
+                    app[STATE]["sensors"] = SensorReport(state="done", detect_error=repr(err))
+            try:
+                await supervisor.start()
+            except Exception as err:
+                logs.add(SOURCE_WEBUI, f"ERROR: cannot start fan control: {err!r}")
+                raise
+            finally:
+                monitor.start()
 
         task = asyncio.create_task(startup(), name="startup")
         yield
