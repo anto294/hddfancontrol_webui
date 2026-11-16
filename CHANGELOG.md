@@ -49,6 +49,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   background tab, since hidden pages stop asking for the status. In manual
   control the page now keeps asking, so only closing it (or a sleeping
   computer) ends manual control.
+- hddfancontrol logs a drive whose temperature probe failed (common under
+  heavy I/O such as a scrub) the same way as a sleeping drive. In the auto
+  mode a failed probe of every drive dropped the fans to the minimum
+  speed. The last temperature of a drive now keeps counting for five
+  intervals after it turns empty, in the auto mode and in manual control.
 
 ## [0.5.1] - 2026-11-16
 

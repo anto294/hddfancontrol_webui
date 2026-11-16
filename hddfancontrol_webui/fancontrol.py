@@ -14,6 +14,8 @@ Safety, in both modes:
 - A drive at or above the maximum temperature puts every fan at full speed.
 - In auto mode, a temperature log that stops updating also puts every fan
   at full speed, since the controller no longer knows the temperatures.
+- A drive that turns null (asleep, or a failed probe) keeps counting with
+  its last temperature for NULL_HOLD_INTERVALS intervals.
 - An unexpected error in either loop puts every fan at full speed; the loop
   goes on, and the next step that works takes over again.
 - When control ends, each PWM output gets back the pwmN_enable value it had,
@@ -49,6 +51,13 @@ KI = 0.0015
 # Slowing down is limited to this much speed per step, so a short dip does
 # not stop the fans; speeding up is never limited.
 MAX_DECREASE_PER_STEP = 0.10
+
+# hddfancontrol logs null both for a sleeping drive and for a probe that
+# failed (it tolerates 4 failures in a row, common under heavy I/O such as a
+# scrub, and exits at the 5th). The last temperature of a drive that turns
+# null is kept this many intervals, so a failed probe of a hot drive never
+# lets the fans slow down; a drive that really sleeps drops out after it.
+NULL_HOLD_INTERVALS = 5
 
 # Why manual control put every fan at full speed.
 SAFETY_HOT = "hot"
@@ -126,21 +135,47 @@ class PiController:
 
 
 # ---------------------------
-#   _hottest
+#   _drive_temps
 # ---------------------------
-def _hottest(latest: dict[str, Any] | None, hwmon_count: int) -> float | None:
-    """Return the highest drive temperature of a sample.
+def _drive_temps(latest: dict[str, Any], hwmon_count: int) -> list[tuple[str, float | None]]:
+    """Return the drive entries of a sample.
 
     hddfancontrol logs every drive first, then every hwmon input, and an
     hwmon input is always there. So the drives are every value but the last
     hwmon_count, however many drives an interface name such as 'ata' gave.
     """
-    if not latest:
-        return None
-    values = list(latest["temps"].values())
-    values = values[: len(values) - hwmon_count]
-    temps = [t for t in values if t is not None]
-    return max(temps) if temps else None
+    items = list(latest["temps"].items())
+    return items[: max(0, len(items) - hwmon_count)]
+
+
+# ---------------------------
+#   DriveTemps
+# ---------------------------
+class DriveTemps:
+    """The hottest drive, keeping for a while the last temperature of a drive that turned null."""
+
+    def __init__(self, hold_s: float) -> None:
+        """Keep a temperature hold_s seconds (of sample time) after its drive turned null."""
+        self._hold = hold_s
+        self._last: dict[str, tuple[float, datetime]] = {}
+
+    def hottest(self, latest: dict[str, Any] | None, hwmon_count: int) -> float | None:
+        """Return the highest drive temperature, counting the ones held; None when there is none."""
+        if not latest:
+            return None
+        when = datetime.fromisoformat(latest["time"])
+        temps: list[float] = []
+        for name, temp in _drive_temps(latest, hwmon_count):
+            if temp is not None:
+                self._last[name] = (temp, when)
+                temps.append(temp)
+            elif name in self._last:
+                held, seen = self._last[name]
+                if (when - seen).total_seconds() <= self._hold:
+                    temps.append(held)
+                else:
+                    del self._last[name]
+        return max(temps) if temps else None
 
 
 # ---------------------------
@@ -270,6 +305,7 @@ class FanController:
         # loop runs in the event loop: checking safety and writing must be one
         # step, or a value could land just after the fans went to full speed.
         self._manual_lock = threading.Lock()
+        self._temps = DriveTemps(0)
 
     @property
     def active(self) -> bool:
@@ -353,6 +389,7 @@ class FanController:
         stale_after = max(3 * interval, 120.0)
         hwmons = len(settings.hwmons)
         started = datetime.now(UTC)
+        self._temps = DriveTemps(NULL_HOLD_INTERVALS * interval)
         self._log(f"Auto mode: target {settings.target_temp:g} °C, full speed at {settings.drive_temp_max:g} °C")
         unranged = [h.path for h in settings.hwmons if h.temp_min is None or h.temp_max is None]
         if unranged:
@@ -383,7 +420,7 @@ class FanController:
             if self.auto.failsafe:
                 self._log("Drive temperatures are back, auto mode resumes")
             self.auto.failsafe = False
-            hottest = _hottest(latest, hwmons)
+            hottest = self._temps.hottest(latest, hwmons)
             # The drives and the extra sensors each ask for a speed: the higher one wins.
             speed = max(controller.step(hottest, interval), _sensor_speed(latest, settings.hwmons))
         self.auto.hottest = hottest
@@ -404,6 +441,7 @@ class FanController:
         hwmons = len(settings.hwmons)
         stale_after = max(3 * float(settings.interval_s), 120.0)
         started = datetime.now(UTC)
+        self._temps = DriveTemps(NULL_HOLD_INTERVALS * float(settings.interval_s))
         while True:
             try:
                 self._manual_step(settings, hwmons, stale_after, started)
@@ -419,7 +457,7 @@ class FanController:
         """Check the drives once; a hot drive or old temperatures put every fan at full speed."""
         now = datetime.now(UTC)
         latest = self._latest()
-        hottest = _hottest(latest, hwmons)
+        hottest = self._temps.hottest(latest, hwmons)
         age = _age_seconds(latest, now)
         waiting = (now - started).total_seconds() < stale_after
         reason = None
