@@ -32,7 +32,6 @@ DEFAULT_CONFIG_DIR = Path("/config")
 SETTINGS_FILE = "settings.json"
 TEMP_LOG_DIR = "templog"
 TEMP_LOG_FILE = "temps.jsonl"
-TEMP_LOG_MAX_FILES = 7
 
 DEFAULT_PORT = 8080
 
