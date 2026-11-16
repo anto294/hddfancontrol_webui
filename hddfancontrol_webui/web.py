@@ -141,6 +141,20 @@ async def _password_work(request: web.Request, func: Callable[..., Any], *args: 
 
 
 # ---------------------------
+#   _is_https
+# ---------------------------
+def _is_https(request: web.Request) -> bool:
+    """Whether the browser reached the web UI over HTTPS, directly or through a reverse proxy.
+
+    The proxy says so in X-Forwarded-Proto. Trusting it only decides
+    whether the session cookie is marked Secure: a client that fakes it
+    gets a cookie its own browser does not send back over HTTP.
+    """
+    forwarded = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
+    return request.secure or forwarded == "https"
+
+
+# ---------------------------
 #   _json_error
 # ---------------------------
 def _json_error(status: int, code: str, problems: list[dict[str, Any]] | None = None) -> web.Response:
@@ -287,7 +301,7 @@ async def post_login(request: web.Request) -> web.Response:
         max_age=SESSION_LIFETIME,
         httponly=True,
         samesite="Strict",
-        secure=request.secure,
+        secure=_is_https(request),
         path="/",
     )
     return response
@@ -339,7 +353,7 @@ async def put_auth(request: web.Request) -> web.Response:
         max_age=SESSION_LIFETIME,
         httponly=True,
         samesite="Strict",
-        secure=request.secure,
+        secure=_is_https(request),
         path="/",
     )
     return response

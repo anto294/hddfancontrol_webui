@@ -440,3 +440,13 @@ def test_login_limiter_window_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
     clock["now"] += 11
     limiter.failed("d")  # expired entries make room
     assert limiter.blocked("d")
+
+
+async def test_session_cookie_is_secure_behind_an_https_proxy(make_client: ClientMaker) -> None:
+    """The session cookie is marked Secure when a reverse proxy says the browser used HTTPS."""
+    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
+    good = {"username": "anto", "password": "a-long-password"}
+    plain = await client.post("/api/login", json=good, headers=FETCH)
+    assert "Secure" not in plain.headers["Set-Cookie"]
+    proxied = await client.post("/api/login", json=good, headers={**FETCH, "X-Forwarded-Proto": "https, http"})
+    assert "Secure" in proxied.headers["Set-Cookie"]

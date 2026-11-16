@@ -61,6 +61,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   429) until the 15 minutes are over, at the login page and for HTTP Basic
   credentials, without running the password check. A right password
   clears the count.
+- Behind a reverse proxy that serves HTTPS (X-Forwarded-Proto: https),
+  the session cookie is now marked Secure.
 
 ## [0.5.1] - 2026-11-16
 
