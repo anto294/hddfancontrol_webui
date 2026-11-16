@@ -136,14 +136,87 @@ a {
   margin-left: auto;
 }
 
-select.lang {
-  width: auto;
-  padding: 0.2rem 0.4rem;
+/* Language picker (i18n.js) */
+.lang {
+  position: relative;
+}
+
+.lang-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+  padding: 0.25rem 0.55rem;
   font-size: 0.85rem;
 }
 
-.card.login select.lang {
+.flag {
+  width: 1.5em;
+  height: 1em;
+  border-radius: 2px;
+  flex: none;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.flag.auto {
+  width: 1.1em;
+  height: 1.1em;
+  box-shadow: none;
+}
+
+.flag .globe {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.lang-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 11rem;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 25%);
+}
+
+.lang-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.lang-list li:hover,
+.lang-list li:focus {
+  background: var(--surface-2);
+  outline: none;
+}
+
+.lang-list li[aria-selected="true"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.card.login .lang {
   align-self: center;
+}
+
+.card.login .lang-list {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .pill {

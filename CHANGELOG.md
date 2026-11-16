@@ -7,6 +7,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- The language picker shows a flag next to each language (drawn as SVG,
+  so it looks the same on Windows, which has no flag emoji).
+
 ### Fixed
 
 - The footer of the Docker image showed the version with two v's (vv0.2.0):
