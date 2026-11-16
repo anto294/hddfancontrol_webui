@@ -1,0 +1,140 @@
+"""Start the web UI and the daemons: ``python -m hddfancontrol_webui``."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
+
+from aiohttp import web
+
+from .auth import AuthStore
+from .const import (
+    DEFAULT_CONFIG_DIR,
+    DEFAULT_PORT,
+    HDDFANCONTROL_BIN,
+    HDIDLE_BIN,
+    HISTORY_DB,
+    MODPROBE_BIN,
+    SENSORS_DETECT_BIN,
+    SMARTCTL_BIN,
+    SOURCE_FAN_CONTROL,
+    SOURCE_SENSORS,
+    SOURCE_WEBUI,
+    TEMP_LOG_DIR,
+    TEMP_LOG_FILE,
+    VERSION,
+)
+from .fancontrol import FanController, PwmWriter
+from .hardware import Hardware
+from .history import History
+from .labels import Labels
+from .monitor import Monitor
+from .sensors import SensorReport, scan_sensor_modules
+from .settings import SettingsStore
+from .smart import read_smart
+from .supervisor import LogBuffer, Supervisor
+from .templog import TempLog
+from .web import STATE, create_app
+
+
+# ---------------------------
+#   _env_flag
+# ---------------------------
+def _env_flag(name: str, default: bool) -> bool:
+    """Read a true/false environment variable."""
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return default
+    return value in ("1", "true", "yes", "on")
+
+
+# ---------------------------
+#   build
+# ---------------------------
+def build() -> tuple[web.Application, int]:
+    """Build the application from the environment, and return it with its port."""
+    config_dir = Path(os.environ.get("CONFIG_DIR", str(DEFAULT_CONFIG_DIR)))
+    port = int(os.environ.get("WEBUI_PORT", str(DEFAULT_PORT)))
+    load_modules = _env_flag("LOAD_SENSOR_MODULES", True)
+
+    logs = LogBuffer()
+    temp_log_path = config_dir / TEMP_LOG_DIR / TEMP_LOG_FILE
+    temp_log = TempLog(temp_log_path)
+    hardware = Hardware()
+    fans = FanController(PwmWriter(), temp_log.latest, lambda text: logs.add(SOURCE_FAN_CONTROL, text))
+    # The programs are looked up in PATH unless a variable names them: a
+    # bare metal installation keeps its own hddfancontrol in its own folder.
+    env = os.environ
+    supervisor = Supervisor(
+        SettingsStore(config_dir),
+        logs,
+        temp_log_path,
+        fans,
+        hddfancontrol=env.get("HDDFANCONTROL_BIN", HDDFANCONTROL_BIN),
+        hdidle=env.get("HDIDLE_BIN", HDIDLE_BIN),
+    )
+    history = History(config_dir / HISTORY_DB)
+    smartctl = env.get("SMARTCTL_BIN", SMARTCTL_BIN)
+
+    async def smart_reader(device: str) -> dict[str, Any]:
+        return await read_smart(device, smartctl)
+
+    monitor = Monitor(history, temp_log, hardware, lambda: supervisor.settings, smart_reader)
+    auth = AuthStore(config_dir)
+
+    async def scan() -> SensorReport:
+        return await scan_sensor_modules(
+            lambda text: logs.add(SOURCE_SENSORS, text),
+            env.get("SENSORS_DETECT_BIN", SENSORS_DETECT_BIN),
+            env.get("MODPROBE_BIN", MODPROBE_BIN),
+        )
+
+    app = create_app(supervisor, hardware, temp_log, history, monitor, auth, Labels(config_dir), scan)
+
+    async def lifecycle(app: web.Application) -> AsyncIterator[None]:
+        """Scan the sensors, then start everything; stop it all when the server stops."""
+        logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}, listening on port {port}")
+        if not auth.enabled:
+            logs.add(
+                SOURCE_WEBUI,
+                "WARNING: no username and password are set, anyone who reaches the port can change the fans. "
+                "Set them in the web UI (Security) or with WEBUI_USERNAME and WEBUI_PASSWORD.",
+            )
+
+        async def startup() -> None:
+            if load_modules:
+                app[STATE]["sensors"] = SensorReport(state="running")
+                app[STATE]["sensors"] = await scan()
+            await supervisor.start()
+            monitor.start()
+
+        task = asyncio.create_task(startup(), name="startup")
+        yield
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await monitor.stop()
+        await supervisor.stop()
+        history.close()
+
+    app.cleanup_ctx.append(lifecycle)
+    return app, port
+
+
+# ---------------------------
+#   main
+# ---------------------------
+def main() -> None:
+    """Run until SIGTERM or SIGINT, which stop the daemons and give the fans back."""
+    logging.basicConfig(level=logging.INFO, format="[webui] %(levelname)s %(name)s: %(message)s")
+    app, port = build()
+    # A container listens on every interface; Docker decides what is published.
+    host = os.environ.get("WEBUI_HOST", "0.0.0.0")  # noqa: S104  # nosec B104
+    web.run_app(app, host=host, port=port, print=None)
+
+
+if __name__ == "__main__":
+    main()
