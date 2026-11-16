@@ -84,3 +84,40 @@ def test_chip_and_locate(fake_sys: Path, fake_dev: Path) -> None:
     assert hardware.locate("/sys/class/hwmon/hwmon2/pwm1", "/sys/devices/platform/it87.552") is None
     (fake_sys / "class/hwmon/hwmon7").rename(fake_sys / "class/hwmon/hwmon2")
     assert Hardware(fake_dev, fake_sys / "missing").locate("/sys/class/hwmon/hwmon2/pwm1", chip) is None
+
+
+def test_drive_connection(tmp_path: Path) -> None:
+    """The bus, the controller driver and the NVMe link come from the place of the drive in sysfs."""
+    sys_root = tmp_path / "sys"
+    dev_root = tmp_path / "dev"
+    by_id = dev_root / "disk" / "by-id"
+    by_id.mkdir(parents=True)
+    drivers = sys_root / "bus" / "pci" / "drivers"
+    places = {
+        "sda": ("0000:00:17.0", "ahci", "ata3/host2/target2:0:0/2:0:0:0/block/sda"),
+        "sdb": ("0000:01:00.0", "mpt3sas", "host0/port-0:0/end_device-0:0/target0:0:0/0:0:0:0/block/sdb"),
+        "sdc": ("0000:00:14.0", "xhci_hcd", "usb2/2-1/2-1:1.0/host6/target6:0:0/6:0:0:0/block/sdc"),
+        "nvme0n1": ("0000:02:00.0", "nvme", "nvme/nvme0/nvme0n1"),
+    }
+    for name, (address, driver, rest) in places.items():
+        pci = sys_root / "devices" / "pci0000:00" / address
+        place = pci / rest
+        place.mkdir(parents=True)
+        (drivers / driver).mkdir(parents=True, exist_ok=True)
+        (pci / "driver").symlink_to(drivers / driver)
+        (sys_root / "class" / "block").mkdir(parents=True, exist_ok=True)
+        (sys_root / "class" / "block" / name).symlink_to(place)
+        (dev_root / name).write_text("")
+        (by_id / f"id-{name}").symlink_to(f"../../{name}")
+    nvme = sys_root / "devices" / "pci0000:00" / "0000:02:00.0"
+    (nvme / "current_link_speed").write_text("8.0 GT/s PCIe\n")
+    (nvme / "current_link_width").write_text("4\n")
+    (nvme / "nvme" / "nvme0" / "nvme0n1" / "device").symlink_to(nvme / "nvme" / "nvme0")
+    (nvme / "nvme" / "nvme0" / "device").symlink_to(nvme)
+    drives = {d.name: (d.bus, d.controller, d.link) for d in Hardware(dev_root, sys_root).drives()}
+    assert drives == {
+        "sda": ("sata", "ahci", ""),
+        "sdb": ("sas", "mpt3sas", ""),
+        "sdc": ("usb", "xhci_hcd", ""),
+        "nvme0n1": ("nvme", "nvme", "8.0 GT/s PCIe x4"),
+    }

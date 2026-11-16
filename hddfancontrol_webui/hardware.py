@@ -10,6 +10,7 @@ hddfancontrol needs, even when the tests read a fake tree somewhere else.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 from dataclasses import asdict, dataclass, field
@@ -23,6 +24,8 @@ _LOW_PRIORITY = ("wwn-", "nvme-eui.", "nvme-nvme.", "eui.")
 _PWM = re.compile(r"^pwm(\d+)$")
 _TEMP = re.compile(r"^temp(\d+)_input$")
 _HWMON = re.compile(r"^hwmon\d+$")
+_ATA_PORT = re.compile(r"^ata\d+$")
+_PCI_ADDRESS = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$")
 
 
 # ---------------------------
@@ -37,6 +40,11 @@ class Drive:
     model: str = ""
     size_bytes: int = 0
     rotational: bool | None = None
+    # How it is connected: "sata", "sas", "nvme" or "usb"; the kernel driver of
+    # its controller (ahci, mpt3sas, nvme...); for NVMe, the PCIe link.
+    bus: str = ""
+    controller: str = ""
+    link: str = ""
 
 
 # ---------------------------
@@ -149,12 +157,51 @@ class Hardware:
         block = self._sys / "class" / "block" / kernel_name
         size = _read_int(block / "size")
         rotational = _read_int(block / "queue" / "rotational")
+        bus, controller, link = self._connection(block, kernel_name)
         return Drive(
             name=kernel_name,
             model=_read(block / "device" / "model") or "",
             size_bytes=(size or 0) * 512,
             rotational=None if rotational is None else rotational == 1,
+            bus=bus,
+            controller=controller,
+            link=link,
         )
+
+    @staticmethod
+    def _connection(block: Path, kernel_name: str) -> tuple[str, str, str]:
+        """Return the bus, the driver of the controller and the PCIe link of a drive, as far as sysfs tells.
+
+        /sys/class/block/sda points at its place in the device tree, for example
+        /sys/devices/pci0000:00/0000:00:17.0/ata3/host2/... (a SATA port of the
+        board) or .../0000:01:00.0/host0/port-0:0/end_device-0:0/... (an HBA).
+        """
+        try:
+            parts = block.resolve(strict=True).parts
+        except OSError:
+            return "", "", ""
+        if any(part.startswith("usb") for part in parts):
+            bus = "usb"
+        elif kernel_name.startswith("nvme"):
+            bus = "nvme"
+        elif any(_ATA_PORT.match(part) for part in parts):
+            bus = "sata"
+        elif any(part.startswith(("end_device-", "port-", "expander-")) for part in parts):
+            bus = "sas"
+        else:
+            bus = ""
+        controller = ""
+        pci = [index for index, part in enumerate(parts) if _PCI_ADDRESS.match(part)]
+        if pci:
+            with contextlib.suppress(OSError):
+                controller = (Path(*parts[: pci[-1] + 1]) / "driver").resolve(strict=True).name
+        link = ""
+        if bus == "nvme":
+            speed = _read(block / "device" / "device" / "current_link_speed")
+            width = _read(block / "device" / "device" / "current_link_width")
+            if speed:
+                link = f"{speed} x{width}" if width else speed
+        return bus, controller, link
 
     def hwmons(self) -> list[HwmonDevice]:
         """List the hwmon devices, with their PWM outputs and temperatures."""
