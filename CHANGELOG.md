@@ -13,7 +13,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Three fan control modes: the curve of hddfancontrol between a minimum and a
   maximum temperature; an auto mode that keeps the hottest drive near a
   target; and manual control with a slider per chosen fan, to find which fan
-  is which. Only the fans chosen in the settings are ever written; the other
+  is which. In the auto mode, the extra temperature sensors with a range can
+  raise the speed too. Only the fans chosen in the settings are ever written; the other
   PWM outputs are only shown. Hot drives put every fan at full speed in any
   mode.
 - The PWM test of hddfancontrol, from the web UI, with its values copied into

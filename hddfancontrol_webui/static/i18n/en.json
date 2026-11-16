@@ -148,7 +148,7 @@
   "settings.spin_down_command": "Command type",
   "settings.spin_down_command_help": "ata for SATA drives, scsi for SAS drives and some USB enclosures.",
   "settings.hwmons": "Other temperature sensors",
-  "settings.hwmons_help": "Also run the fans for these sensors. Without a range, hddfancontrol picks one. Avoid CPU sensors unless the CPU uses little power.",
+  "settings.hwmons_help": "Also run the fans for these sensors: in proportion between the minimum and the maximum, at full speed from the maximum. Without a range, hddfancontrol picks one in the curve mode, and the auto mode ignores the sensor. Avoid CPU sensors unless the CPU uses little power.",
   "settings.sensor": "Sensor",
   "settings.now": "Now",
   "settings.temp_min": "Min (°C)",

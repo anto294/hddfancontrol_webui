@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from .aio import cancel_and_wait
-from .settings import Pwm, Settings
+from .settings import Hwmon, Pwm, Settings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,6 +127,29 @@ def _hottest(latest: dict[str, Any] | None, hwmon_count: int) -> float | None:
     values = values[: len(values) - hwmon_count]
     temps = [t for t in values if t is not None]
     return max(temps) if temps else None
+
+
+# ---------------------------
+#   _sensor_speed
+# ---------------------------
+def _sensor_speed(latest: dict[str, Any] | None, hwmons: tuple[Hwmon, ...]) -> float:
+    """Return the speed that the extra hwmon sensors ask for, from 0 to 1.
+
+    The hwmon inputs are the last values of a sample, in the order of the
+    settings. Like the curve of hddfancontrol, a sensor asks for nothing up
+    to its minimum, for full speed from its maximum, and in proportion
+    between. A sensor without a range asks for nothing: its range is one
+    that hddfancontrol picks for itself.
+    """
+    if not latest or not hwmons:
+        return 0.0
+    values = list(latest["temps"].values())[-len(hwmons) :]
+    speed = 0.0
+    for hwmon, temp in zip(hwmons, values, strict=False):
+        if temp is None or hwmon.temp_min is None or hwmon.temp_max is None:
+            continue
+        speed = max(speed, min(1.0, max(0.0, (temp - hwmon.temp_min) / (hwmon.temp_max - hwmon.temp_min))))
+    return speed
 
 
 # ---------------------------
@@ -275,6 +298,9 @@ class FanController:
         hwmons = len(settings.hwmons)
         started = datetime.now(UTC)
         self._log(f"Auto mode: target {settings.target_temp:g} °C, full speed at {settings.drive_temp_max:g} °C")
+        unranged = [h.path for h in settings.hwmons if h.temp_min is None or h.temp_max is None]
+        if unranged:
+            self._log(f"WARNING: auto mode uses only the sensors with a range; without one: {', '.join(unranged)}")
         while True:
             now = datetime.now(UTC)
             latest = self._latest()
@@ -291,7 +317,8 @@ class FanController:
                     self._log("Drive temperatures are back, auto mode resumes")
                 self.auto.failsafe = False
                 hottest = _hottest(latest, hwmons)
-                speed = controller.step(hottest, interval)
+                # The drives and the extra sensors each ask for a speed: the higher one wins.
+                speed = max(controller.step(hottest, interval), _sensor_speed(latest, settings.hwmons))
             self.auto.hottest = hottest
             self.auto.speed = speed
             self._write_all(settings.pwms, speed)

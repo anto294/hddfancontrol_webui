@@ -143,6 +143,46 @@ def test_hottest_counts_every_drive_of_an_interface() -> None:
     assert fancontrol._hottest(sample({"sda A": None, "coretemp.0/1": 90.0}), 1) is None
 
 
+def test_sensor_speed() -> None:
+    """A sensor with a range asks for a speed in proportion; one without a range asks for nothing."""
+    hwmons = from_dict(
+        {
+            "hwmons": [
+                {"path": "/sys/a", "temp_min": 40, "temp_max": 60},
+                {"path": "/sys/b"},
+                {"path": "/sys/c", "temp_min": 30, "temp_max": 40},
+            ]
+        }
+    ).hwmons
+    latest = sample({"sda A": 35.0, "a/1": 50.0, "b/1": 99.0, "c/1": 20.0})
+    assert fancontrol._sensor_speed(latest, hwmons) == 0.5
+    assert fancontrol._sensor_speed(sample({"sda A": 35.0, "a/1": 70.0, "b/1": 0.0, "c/1": 0.0}), hwmons) == 1.0
+    assert fancontrol._sensor_speed(latest, ()) == 0.0
+    assert fancontrol._sensor_speed(None, hwmons) == 0.0
+
+
+async def test_auto_mode_follows_a_hot_sensor(fake_sys: Path, fast: None) -> None:
+    """A sensor with a range past its maximum puts the fans at full speed with cool drives."""
+    settings = from_dict(
+        {
+            "drives": ["/dev/a"],
+            "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
+            "hwmons": [{"path": "/sys/x", "temp_min": 40, "temp_max": 60}, {"path": "/sys/y"}],
+            "control_mode": "auto",
+            "interval_s": 1,
+        }
+    )
+    lines: list[str] = []
+    latest = sample({"sda A": 30.0, "x/1": 65.0, "y/1": 90.0})
+    fans = FanController(PwmWriter(fake_sys), lambda: latest, lines.append)
+    fans.start_auto(settings)
+    await asyncio.sleep(0.1)
+    assert fans.auto.hottest == 30.0 and fans.auto.speed == 1.0
+    assert read(fake_sys, "pwm1") == "255"
+    assert any("/sys/y" in line and "range" in line for line in lines)
+    await fans.stop()
+
+
 async def test_auto_mode_failsafe(fake_sys: Path, fast: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """Without recent temperatures, full speed; when they come back, control resumes."""
     current: dict[str, Any] = {"value": sample({"sda": 30.0}, age=3600)}
