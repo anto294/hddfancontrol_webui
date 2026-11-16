@@ -170,7 +170,7 @@ class AuthStore:
         salt = secrets.token_bytes(16)
         data = {"username": username, "salt": salt.hex(), "hash": _hash(password, salt).hex()}
         # Readable only by root: the hash is not the password, but still.
-        write_atomic(self.path, json.dumps(data), mode=0o600)
+        write_atomic(self.path, json.dumps(data))
         self._file = data
         self._sessions.clear()
 
