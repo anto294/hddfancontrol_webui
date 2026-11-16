@@ -24,6 +24,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   SMART data stopped the history and the alerts until the next restart,
   silently. The error is now logged and the loops go on; the alerts are
   checked even when recording fails.
+- In the curve mode, when hddfancontrol ended by itself (a crash), the
+  fans kept their last speed for up to a minute while it was started
+  again. They now run at full speed until it runs again, and get their
+  mode back just before it starts.
 
 ## [0.5.1] - 2026-11-16
 

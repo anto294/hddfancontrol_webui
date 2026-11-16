@@ -379,3 +379,55 @@ async def test_manual_watch_waits_for_the_pwm_test(setup: tuple[Supervisor, Path
     supervisor.test.running = False
     await wait_for(lambda: not supervisor.manual)
     await supervisor.stop()
+
+
+async def test_curve_mode_full_speed_while_hddfancontrol_is_down(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In the curve mode, hddfancontrol ending by itself puts the fans at full speed until it starts again."""
+    real = asyncio.sleep
+    gate = asyncio.Event()
+
+    async def held(delay: float) -> None:
+        # The restart delay waits for the test; other sleeps are short.
+        if delay >= 1:
+            await gate.wait()
+        await real(0.01)
+
+    monkeypatch.setattr(supervisor_module.asyncio, "sleep", held)
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict(CONFIG))
+    logs = LogBuffer(echo=False)
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: logs.add("fan-control", text))
+    supervisor = Supervisor(store, logs, None, fans, hddfancontrol=make_script("crash", "sys.exit(3)"), hdidle="/bin/true")
+    enable = fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1_enable"
+    value = fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1"
+    await supervisor.start()
+    await wait_for(lambda: value.read_text().strip() == "255")
+    assert enable.read_text().strip() == "1"
+    assert any("full speed until it runs again" in line["text"] for line in logs.since(0))
+    gate.set()
+    # Before the next start the chip gets its mode back, so hddfancontrol saves the right one.
+    await wait_for(lambda: supervisor.hddfancontrol.restarts >= 1)
+    await supervisor.stop()
+    assert enable.read_text().strip() == "5"
+
+
+async def test_daemon_hook_errors_are_logged(make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failing hook is logged and the daemon keeps restarting."""
+    real = asyncio.sleep
+
+    async def quick(_: float) -> None:
+        await real(0.01)
+
+    monkeypatch.setattr(supervisor_module.asyncio, "sleep", quick)
+    logs = LogBuffer(echo=False)
+
+    def broken() -> None:
+        raise RuntimeError("hook")
+
+    daemon = Daemon("x", make_script("exits2", "sys.exit(1)"), logs, on_exit=broken, on_restart=broken)
+    daemon.start([])
+    await wait_for(lambda: daemon.restarts >= 2)
+    await daemon.stop()
+    assert any("RuntimeError('hook')" in line["text"] for line in logs.since(0))
