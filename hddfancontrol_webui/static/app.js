@@ -13,6 +13,7 @@ const state = {
   logSeq: 0,
   logLines: [],
   dragging: new Set(),
+  showAcked: false,
   pending: new Map(),
 };
 
@@ -225,8 +226,23 @@ function renderBanners() {
   const box = $("banners");
   box.replaceChildren();
   if (!status) return;
+  // Warnings taken note of are hidden, unless the user asks to see them.
+  let hidden = 0;
+  const shown = (acked) => {
+    if (acked && !state.showAcked) hidden += 1;
+    return !acked || state.showAcked;
+  };
   if (!status.auth.enabled) {
-    box.append(banner("warning", t("banner.no_auth"), el("button", { class: "link", text: t("tab.security"), onclick: () => showTab("security") })));
+    const acked = status.acknowledged.includes("banner:no_auth");
+    if (shown(acked)) {
+      box.append(
+        banner(
+          "warning",
+          t("banner.no_auth"),
+          el("div", { class: "banner-actions" }, el("button", { class: "link", text: t("tab.security"), onclick: () => showTab("security") }), ackButton("banner:no_auth", acked)),
+        ),
+      );
+    }
   }
   const sensors = status.sensors;
   if (sensors.state === "running") box.append(banner("info", t("banner.scanning")));
@@ -248,7 +264,26 @@ function renderBanners() {
   if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
   // Safety and missing fans have their own banners.
   for (const alert of status.alerts.filter((a) => a.kind !== "safety" && a.kind !== "fans_missing")) {
-    box.append(banner(alert.kind === "smart_warning" ? "warning" : "error", t(`alert.${alert.kind}`, alert.params)));
+    if (!shown(alert.acknowledged)) continue;
+    box.append(banner(alert.kind === "smart_warning" ? "warning" : "error", alertText(alert), el("div", { class: "banner-actions" }, ackButton(alert.key, alert.acknowledged))));
+  }
+  const anyAcked = status.alerts.some((a) => a.acknowledged) || status.acknowledged.length > 0;
+  if (hidden || (state.showAcked && anyAcked)) {
+    box.append(
+      el(
+        "p",
+        { class: "muted small hidden-alerts" },
+        hidden ? `${hidden === 1 ? t("alert.hidden_one") : t("alert.hidden", { count: hidden })} ` : "",
+        el("button", {
+          class: "link",
+          text: state.showAcked ? t("alert.hide_hidden") : t("alert.show_hidden"),
+          onclick: () => {
+            state.showAcked = !state.showAcked;
+            renderBanners();
+          },
+        }),
+      ),
+    );
   }
   if (status.mode === "waiting" && state.tab !== "setup") {
     box.append(banner("info", t("banner.waiting"), el("button", { class: "link", text: t("wizard.open"), onclick: openWizard })));
@@ -287,6 +322,30 @@ function setStat(id, value, level = "") {
   const node = $(id);
   node.querySelector(".stat-value").textContent = value;
   node.className = `stat ${level}`.trim();
+}
+
+// The text of an alert; SMART warning codes become sentences.
+function alertText(alert) {
+  const params = { ...alert.params };
+  if (Array.isArray(params.warnings)) params.problems = params.warnings.map((code) => t(`smart.warn.${code}`)).join(" ");
+  return t(`alert.${alert.kind}`, params);
+}
+
+function ackButton(key, acked) {
+  const button = el("button", {
+    class: "link ack",
+    text: acked ? t("alert.unacknowledge") : t("alert.acknowledge"),
+    onclick: async () => {
+      try {
+        await api("PUT", "/api/alerts/ack", { key, acknowledged: !acked });
+      } catch (error) {
+        alertBanner(errorText(error));
+      }
+      await pollStatus();
+    },
+  });
+  button.prepend(icon(acked ? "warning" : "check"));
+  return button;
 }
 
 function renderOverview() {

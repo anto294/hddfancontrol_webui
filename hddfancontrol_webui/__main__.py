@@ -90,7 +90,7 @@ def build() -> tuple[web.Application, int]:
     async def smart_reader(device: str) -> dict[str, Any]:
         return await read_smart(device, smartctl)
 
-    alerts = Alerts(lambda: supervisor.settings, lambda text: logs.add(SOURCE_ALERTS, text))
+    alerts = Alerts(lambda: supervisor.settings, lambda text: logs.add(SOURCE_ALERTS, text), config_dir=config_dir)
     monitor = Monitor(
         history,
         temp_log,

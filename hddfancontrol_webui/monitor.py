@@ -36,6 +36,15 @@ FAN_STALL_SECONDS = 120.0
 # A hot drive alert ends this much under the maximum, so that it does not
 # start and end at every sample around the maximum.
 HOT_HYSTERESIS = 2.0
+# SMART counters that only grow: a higher value is a new problem.
+SMART_COUNTS = (
+    "reallocated_sectors",
+    "pending_sectors",
+    "offline_uncorrectable",
+    "reported_uncorrectable",
+    "crc_errors",
+    "media_errors",
+)
 # Drive temperatures older than this say nothing about now (the safety
 # alert of the fan controller covers them).
 FRESH_SAMPLE_SECONDS = 600.0
@@ -292,7 +301,14 @@ class Monitor:
                 continue
             drive = by_id.get(device)
             fallback = f"{drive.model} ({drive.name})" if drive else os.path.basename(device)
-            found[f"smart:{device}"] = (kind, {"drive": self._drive_name(drive.ids if drive else [device], fallback)})
+            # The counts make a new error show again an alert that was taken note of.
+            counts = {field: data[field] for field in SMART_COUNTS if data.get(field)}
+            counts["failed"] = sorted(a.get("id") for a in data.get("attributes", []) if a.get("failed"))
+            params = {
+                "drive": self._drive_name(drive.ids if drive else [device], fallback),
+                "warnings": data.get("warnings", []),
+            }
+            found[f"smart:{device}"] = (kind, {**params, "counts": counts})
         return found
 
     def smart(self) -> dict[str, dict[str, Any]]:

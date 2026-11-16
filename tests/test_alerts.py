@@ -147,9 +147,46 @@ def test_conditions_safety_smart_missing(tmp_path: Path, fake_sys: Path, fake_de
     status = {"fans": {"safety": True, "auto": {}}, "missing_pwms": [PWM1, "/sys/class/hwmon/hwmon9/pwm3"]}
     found = monitor.conditions(status)
     assert found["safety"] == ("safety", {})
-    assert found["smart:" + DRIVE] == ("smart_failing", {"drive": "ST4000VN006 (sda)"})
+    assert found["smart:" + DRIVE] == (
+        "smart_failing",
+        {"drive": "ST4000VN006 (sda)", "warnings": [], "counts": {"failed": []}},
+    )
     assert "smart:/dev/disk/by-id/ata-Old" not in found  # not monitored
     assert found["fans_missing"] == ("fans_missing", {"fans": "Front fan, pwm3"})
     monitor._labels = lambda: {}
     assert monitor._fan_name(PWM1) == "nct6798 pwm1"
     monitor.history.close()
+
+
+async def test_notes_on_alerts(tmp_path: Path) -> None:
+    """A note hides an alert until it gets worse or ends; it survives a restart."""
+    settings = Settings()
+    alerts = Alerts(lambda: settings, lambda _: None, config_dir=tmp_path)
+    smart = {"drive": "sda", "warnings": ["crc_errors"], "counts": {"crc_errors": 5}}
+    await alerts.update(
+        {"smart:a": ("smart_warning", smart), "hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})}
+    )
+    assert alerts.ack("smart:a") and alerts.ack("hot:sda") and alerts.ack("banner:no_auth")
+    assert not alerts.ack("nothing")
+    await alerts.update(
+        {"smart:a": ("smart_warning", smart), "hot:sda": ("drive_hot", {"drive": "sda", "temp": "52", "max": "50"})}
+    )
+    assert all(a["acknowledged"] for a in alerts.status())  # a new temperature is the same alert
+
+    again = Alerts(lambda: settings, lambda _: None, config_dir=tmp_path)
+    assert set(again.acks) == {"smart:a", "hot:sda", "banner:no_auth"}
+    worse = {**smart, "counts": {"crc_errors": 6}}
+    await again.update({"smart:a": ("smart_warning", worse)})
+    assert again.status()[0]["acknowledged"] is False  # one more CRC error: shown again
+    assert "hot:sda" not in again.acks and "banner:no_auth" in again.acks  # the hot alert ended
+    again.unack("banner:no_auth")
+    again.unack("banner:no_auth")
+    assert json.loads((tmp_path / "alerts.json").read_text()) == {"smart:a": again.acks["smart:a"]}
+    (tmp_path / "alerts.json").write_text("[1]")
+    assert Alerts(lambda: settings, lambda _: None, config_dir=tmp_path).acks == {}
+
+
+def test_render_smart_problems() -> None:
+    """SMART warning codes become the sentences of the web UI."""
+    text = render("it", "alert.smart_warning", {"drive": "sda", "warnings": ["crc_errors"]})
+    assert text == "sda: Errori CRC dell'interfaccia: controlla il cavo. (SMART)"

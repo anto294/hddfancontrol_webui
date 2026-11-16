@@ -366,6 +366,23 @@ h2[data-icon] .icon {
 
 .banner-body {
   min-width: 0;
+  flex: 1;
+}
+
+.banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+}
+
+button.ack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.hidden-alerts {
+  margin: -0.2rem 0 12px;
 }
 
 .banner.info > .icon {

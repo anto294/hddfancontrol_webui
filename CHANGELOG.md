@@ -7,6 +7,19 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- "Noted, hide" on the alert banners and on the warning about the missing
+  password: the banner goes, the note is kept in `/config/alerts.json` for
+  every browser, and a line says how many are hidden, with a button to show
+  them again. An alert shows again when it gets worse (one more SMART error)
+  or when it ends and comes back.
+
+### Changed
+
+- A SMART alert says what the problem is (for example "Interface CRC
+  errors: check the cable") instead of only "SMART reports a problem".
+
 ## [0.4.0] - 2026-11-16
 
 ### Added

@@ -372,3 +372,25 @@ async def test_notify_test_api(make_client: ClientMaker) -> None:
     assert response.status == 502 and (await response.json())["error"] == "notify_failed"
     status = await (await client.get("/api/status")).json()
     assert status["alerts"] == []
+
+
+async def test_alert_notes_api(make_client: ClientMaker, tmp_path: Path) -> None:
+    """Notes are taken on known alerts and warnings only, and can be removed."""
+    client = await make_client()
+    response = await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": True}, headers=FETCH)
+    assert response.status == 404  # this app has no alerts
+    supervisor = client.app[SUPERVISOR]
+    alerts = Alerts(lambda: supervisor.settings, lambda _: None, config_dir=tmp_path / "config")
+    client.app[MONITOR].alerts = alerts
+    for body in ({"key": 1, "acknowledged": True}, {"key": "x"}, []):
+        response = await client.put("/api/alerts/ack", json=body, headers=FETCH)
+        assert response.status == 400
+    response = await client.put("/api/alerts/ack", json={"key": "nothing", "acknowledged": True}, headers=FETCH)
+    assert response.status == 404 and (await response.json())["error"] == "unknown_alert"
+    response = await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": True}, headers=FETCH)
+    assert response.status == 200
+    status = await (await client.get("/api/status")).json()
+    assert status["acknowledged"] == ["banner:no_auth"]
+    await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": False}, headers=FETCH)
+    status = await (await client.get("/api/status")).json()
+    assert status["acknowledged"] == []

@@ -309,7 +309,7 @@
   "alert.drive_hot": "{drive} is at {temp} °C, at or above the maximum of {max} °C.",
   "alert.fan_stalled": "{fan} does not turn: 0 RPM with the PWM at {percent} %. Check the fan and its cable.",
   "alert.smart_failing": "{drive}: SMART says the drive is failing. Back up its data and replace it.",
-  "alert.smart_warning": "{drive}: SMART reports a problem; see the Drives tab.",
+  "alert.smart_warning": "{drive}: {problems} (SMART)",
   "alert.safety": "No new drive temperature: every fan runs at full speed.",
   "alert.over": "Back to normal: {text}",
   "alert.test": "Test message from hddfancontrol: notifications work.",
@@ -328,5 +328,12 @@
   "action.export": "Export",
   "action.import": "Import",
   "settings.imported": "Imported and applied.",
-  "error.backup_invalid": "This file is not a backup of hddfancontrol web UI."
+  "error.backup_invalid": "This file is not a backup of hddfancontrol web UI.",
+  "error.unknown_alert": "This warning is over already.",
+  "alert.acknowledge": "Noted, hide",
+  "alert.unacknowledge": "Show again",
+  "alert.hidden": "{count} warnings taken note of are hidden.",
+  "alert.show_hidden": "Show",
+  "alert.hide_hidden": "Hide",
+  "alert.hidden_one": "1 warning taken note of is hidden."
 }

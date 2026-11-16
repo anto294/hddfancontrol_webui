@@ -142,7 +142,7 @@ The web UI watches for:
 - drive temperatures that stop coming in, which puts every fan at full speed;
 - a chosen fan whose chip is not found any more (see [Troubleshooting](#troubleshooting)).
 
-Each alert shows as a banner, is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address.
+Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back), is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address.
 
 - **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
 - **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.

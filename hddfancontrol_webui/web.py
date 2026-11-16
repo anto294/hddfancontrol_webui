@@ -318,6 +318,7 @@ async def get_status(request: web.Request) -> web.Response:
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
         alerts=alerts.status() if alerts is not None else [],
+        acknowledged=[key for key in alerts.acks if key.startswith("banner:")] if alerts is not None else [],
     )
     return web.json_response(data)
 
@@ -442,6 +443,29 @@ async def post_restart(request: web.Request) -> web.Response:
         await request.app[SUPERVISOR].restart()
     except Busy:
         return _json_error(409, "busy")
+    return web.json_response({"ok": True})
+
+
+# ---------------------------
+#   put_alert_ack
+# ---------------------------
+async def put_alert_ack(request: web.Request) -> web.Response:
+    """Take note of an alert ({"key", "acknowledged": true}) or show it again (false)."""
+    alerts = request.app[MONITOR].alerts
+    data = await _read_json(request)
+    if not isinstance(data, dict) or not isinstance(data.get("key"), str) or not isinstance(data.get("acknowledged"), bool):
+        return _json_error(400, "invalid_document")
+    if alerts is None:
+        return _json_error(404, "unknown_alert")
+    try:
+        if data["acknowledged"]:
+            if not await asyncio.to_thread(alerts.ack, data["key"]):
+                return _json_error(404, "unknown_alert")
+        else:
+            await asyncio.to_thread(alerts.unack, data["key"])
+    except OSError as err:
+        _LOGGER.error("Cannot save the notes on alerts: %s", err)
+        return _json_error(500, "save_failed")
     return web.json_response({"ok": True})
 
 
@@ -607,6 +631,7 @@ def create_app(
     router.add_delete("/api/settings", delete_settings)
     router.add_post("/api/restart", post_restart)
     router.add_post("/api/notify/test", post_notify_test)
+    router.add_put("/api/alerts/ack", put_alert_ack)
     router.add_put("/api/manual", put_manual)
     router.add_put("/api/manual/pwm", put_manual_pwm)
     router.add_post("/api/pwm-test", post_pwm_test)
