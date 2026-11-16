@@ -1,0 +1,35 @@
+[Unit]
+Description=hddfancontrol web UI (fan control from drive temperatures, hd-idle)
+Documentation=https://github.com/anto294/hddfancontrol_webui
+After=local-fs.target systemd-modules-load.service
+
+[Service]
+Type=simple
+Environment=CONFIG_DIR=/var/lib/hddfancontrol-webui
+# The static hddfancontrol, hd-idle and sdparm of the release come first.
+Environment=PATH=/opt/hddfancontrol-webui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# sensors-detect --auto can change /etc/modules on a real host: off by default.
+Environment=LOAD_SENSOR_MODULES=false
+# Values in this file win over the ones above.
+EnvironmentFile=-/etc/hddfancontrol-webui/env
+ExecStart=/opt/hddfancontrol-webui/venv/bin/hddfancontrol-webui
+StateDirectory=hddfancontrol-webui
+StateDirectoryMode=0700
+# SIGTERM goes to the web UI, which stops the daemons and gives the fans back.
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Root is needed for /sys PWM files and drive commands; keep the rest closed.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=192M
+
+[Install]
+WantedBy=multi-user.target
