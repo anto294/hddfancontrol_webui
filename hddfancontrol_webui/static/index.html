@@ -8,6 +8,7 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/i18n.js" defer></script>
+  <script src="/static/icons.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -17,17 +18,17 @@
       <h1>hddfancontrol</h1>
       <span id="mode" class="pill"></span>
       <select class="lang"></select>
-      <button id="logout" class="link" data-i18n="action.logout" hidden></button>
+      <button id="logout" class="link" data-icon="logout" data-i18n="action.logout" hidden></button>
     </div>
     <nav class="tabs" role="tablist">
-      <button role="tab" data-tab="overview" data-i18n="tab.overview"></button>
-      <button role="tab" data-tab="fans" data-i18n="tab.fans"></button>
-      <button role="tab" data-tab="smart" data-i18n="tab.smart"></button>
-      <button role="tab" data-tab="history" data-i18n="tab.history"></button>
-      <button role="tab" data-tab="settings" data-i18n="tab.settings"></button>
-      <button role="tab" data-tab="pwmtest" data-i18n="tab.pwmtest"></button>
-      <button role="tab" data-tab="security" data-i18n="tab.security"></button>
-      <button role="tab" data-tab="logs" data-i18n="tab.logs"></button>
+      <button role="tab" data-tab="overview" data-icon="overview" data-i18n="tab.overview"></button>
+      <button role="tab" data-tab="fans" data-icon="fans" data-i18n="tab.fans"></button>
+      <button role="tab" data-tab="smart" data-icon="smart" data-i18n="tab.smart"></button>
+      <button role="tab" data-tab="history" data-icon="history" data-i18n="tab.history"></button>
+      <button role="tab" data-tab="settings" data-icon="settings" data-i18n="tab.settings"></button>
+      <button role="tab" data-tab="pwmtest" data-icon="pwmtest" data-i18n="tab.pwmtest"></button>
+      <button role="tab" data-tab="security" data-icon="security" data-i18n="tab.security"></button>
+      <button role="tab" data-tab="logs" data-icon="logs" data-i18n="tab.logs"></button>
     </nav>
   </header>
 
@@ -38,19 +39,19 @@
     <section id="tab-overview" class="tab">
       <div class="grid">
         <article class="card">
-          <h2 data-i18n="overview.drives"></h2>
+          <h2 data-icon="drive" data-i18n="overview.drives"></h2>
           <p class="muted small" id="latest-time"></p>
           <table class="list" id="drive-temps"></table>
         </article>
         <article class="card">
-          <h2 data-i18n="overview.fans"></h2>
+          <h2 data-icon="fan" data-i18n="overview.fans"></h2>
           <table class="list" id="fan-summary"></table>
         </article>
         <article class="card">
-          <h2 data-i18n="overview.control"></h2>
+          <h2 data-icon="chip" data-i18n="overview.control"></h2>
           <table class="list" id="control"></table>
           <div class="actions">
-            <button id="restart" class="secondary" data-i18n="action.restart"></button>
+            <button id="restart" class="secondary" data-icon="restart" data-i18n="action.restart"></button>
           </div>
         </article>
       </div>
@@ -60,7 +61,7 @@
     <section id="tab-fans" class="tab" hidden>
       <article class="card">
         <div class="card-head">
-          <h2 data-i18n="fans.title"></h2>
+          <h2 data-icon="fan" data-i18n="fans.title"></h2>
           <button id="manual-toggle"></button>
         </div>
         <p class="muted" data-i18n="fans.intro"></p>
@@ -73,8 +74,8 @@
     <section id="tab-smart" class="tab" hidden>
       <article class="card">
         <div class="card-head">
-          <h2 data-i18n="smart.title"></h2>
-          <button id="smart-refresh" class="secondary" data-i18n="action.refresh_smart"></button>
+          <h2 data-icon="smart" data-i18n="smart.title"></h2>
+          <button id="smart-refresh" class="secondary" data-icon="restart" data-i18n="action.refresh_smart"></button>
         </div>
         <p class="muted small" data-i18n="smart.intro"></p>
       </article>
@@ -85,7 +86,7 @@
     <section id="tab-history" class="tab" hidden>
       <article class="card">
         <div class="card-head">
-          <h2 data-i18n="history.temps"></h2>
+          <h2 data-icon="thermometer" data-i18n="history.temps"></h2>
           <select id="history-hours" aria-label="Window">
             <option value="1">1 h</option>
             <option value="6" selected>6 h</option>
@@ -99,11 +100,11 @@
         <div id="chart-temp" class="chart"></div>
       </article>
       <article class="card">
-        <h2 data-i18n="history.rpm"></h2>
+        <h2 data-icon="fan" data-i18n="history.rpm"></h2>
         <div id="chart-rpm" class="chart"></div>
       </article>
       <article class="card">
-        <h2 data-i18n="history.pwm"></h2>
+        <h2 data-icon="history" data-i18n="history.pwm"></h2>
         <div id="chart-pwm" class="chart"></div>
       </article>
     </section>
@@ -114,7 +115,7 @@
         <p class="muted" id="settings-source"></p>
 
         <article class="card">
-          <h2 data-i18n="settings.mode"></h2>
+          <h2 data-icon="thermometer" data-i18n="settings.mode"></h2>
           <div class="fields">
             <label class="field"><span data-i18n="settings.control_mode"></span>
               <select name="control_mode">
@@ -139,7 +140,7 @@
         </article>
 
         <article class="card">
-          <h2 data-i18n="settings.drives"></h2>
+          <h2 data-icon="drive" data-i18n="settings.drives"></h2>
           <p class="muted small" data-i18n="settings.drives_help"></p>
           <table class="list form-table" id="drive-list"></table>
           <label class="field">
@@ -153,14 +154,14 @@
         </article>
 
         <article class="card">
-          <h2 data-i18n="settings.fans"></h2>
+          <h2 data-icon="fan" data-i18n="settings.fans"></h2>
           <p class="muted small" data-i18n="settings.fans_help"></p>
           <table class="list form-table" id="pwm-list"></table>
           <p class="error" data-error="pwms"></p>
         </article>
 
         <article class="card">
-          <h2 data-i18n="settings.spin_down"></h2>
+          <h2 data-icon="moon" data-i18n="settings.spin_down"></h2>
           <div class="fields">
             <label class="field"><span data-i18n="settings.spin_down_time_s"></span>
               <input type="number" name="spin_down_time_s" min="0" max="86400">
@@ -173,14 +174,14 @@
         </article>
 
         <article class="card">
-          <h2 data-i18n="settings.hwmons"></h2>
+          <h2 data-icon="chip" data-i18n="settings.hwmons"></h2>
           <p class="muted small" data-i18n="settings.hwmons_help"></p>
           <table class="list form-table" id="hwmon-list"></table>
           <p class="error" data-error="hwmons"></p>
         </article>
 
         <article class="card">
-          <h2 data-i18n="settings.advanced"></h2>
+          <h2 data-icon="settings" data-i18n="settings.advanced"></h2>
           <div class="fields">
             <label class="field"><span data-i18n="settings.interval_s"></span>
               <input type="number" name="interval_s" min="1" max="3600">
@@ -215,7 +216,7 @@
     <!-- PWM test -->
     <section id="tab-pwmtest" class="tab" hidden>
       <article class="card">
-        <h2 data-i18n="pwmtest.title"></h2>
+        <h2 data-icon="pwmtest" data-i18n="pwmtest.title"></h2>
         <p data-i18n="pwmtest.intro"></p>
         <p class="warning" data-i18n="pwmtest.warning"></p>
         <div id="pwmtest-list" class="checklist"></div>
@@ -225,7 +226,7 @@
         </div>
       </article>
       <article class="card">
-        <h2 data-i18n="pwmtest.results"></h2>
+        <h2 data-icon="check" data-i18n="pwmtest.results"></h2>
         <table class="list" id="pwmtest-results"></table>
         <div class="actions">
           <button id="pwmtest-use" class="secondary" data-i18n="action.use_results"></button>
@@ -236,7 +237,7 @@
     <!-- Security -->
     <section id="tab-security" class="tab" hidden>
       <article class="card">
-        <h2 data-i18n="security.title"></h2>
+        <h2 data-icon="security" data-i18n="security.title"></h2>
         <p id="security-state"></p>
         <form id="auth-form" class="fields narrow" novalidate autocomplete="on">
           <label class="field" id="current-field"><span data-i18n="security.current"></span>
@@ -260,7 +261,7 @@
     <section id="tab-logs" class="tab" hidden>
       <article class="card">
         <div class="card-head">
-          <h2 data-i18n="tab.logs"></h2>
+          <h2 data-icon="logs" data-i18n="tab.logs"></h2>
           <select id="log-source" aria-label="Source">
             <option value="" data-i18n="logs.all"></option>
             <option>hddfancontrol</option>

@@ -239,12 +239,72 @@ footer {
   margin: 0;
 }
 
+/* Icons (icons.js): stroked with the color of the text around them. */
+.icon {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -0.2em;
+}
+
+h2[data-icon],
+h3[data-icon] {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+button[data-icon] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+h2[data-icon] .icon {
+  color: var(--accent);
+}
+
+.tabs button .icon {
+  width: 1.05em;
+  height: 1.05em;
+}
+
 /* Banners */
 .banner {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
   border-radius: var(--radius);
   padding: 0.7rem 1rem;
   margin-bottom: 12px;
   border: 1px solid var(--border);
+}
+
+.banner > .icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-top: 0.05rem;
+}
+
+.banner-body {
+  min-width: 0;
+}
+
+.banner.info > .icon {
+  color: var(--accent);
+}
+
+.banner.warning > .icon {
+  color: var(--warn);
+}
+
+.banner.error > .icon {
+  color: var(--danger);
 }
 
 .banner p {

@@ -212,7 +212,12 @@ function showTab(name) {
 // ---------------------------------------------------------------------------
 
 function banner(kind, text, ...extra) {
-  return el("div", { class: `banner ${kind}`, role: kind === "error" ? "alert" : "status" }, el("p", { text }), ...extra);
+  return el(
+    "div",
+    { class: `banner ${kind}`, role: kind === "error" ? "alert" : "status" },
+    icon(kind),
+    el("div", { class: "banner-body" }, el("p", { text }), ...extra),
+  );
 }
 
 function renderBanners() {
@@ -1015,6 +1020,7 @@ function every(ms, fn) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   await loadI18n();
+  applyIcons(document);
   for (const button of document.querySelectorAll("[data-tab]")) {
     button.addEventListener("click", () => showTab(button.dataset.tab));
   }
