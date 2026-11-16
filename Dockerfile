@@ -12,6 +12,8 @@ ARG SDPARM_SHA256=c4c9efafdbeb662e2f9712707ec490932bd4d010bb1129ae7a99526546eead
 # --- hddfancontrol, static, so the same file also ships in the bare metal tarball
 FROM alpine:${ALPINE_VERSION} AS hddfancontrol
 ARG HDDFANCONTROL_VERSION
+# A failing command inside a pipe must fail the build.
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 RUN apk add --no-cache cargo git musl-dev
 WORKDIR /src
 RUN git clone --depth 1 --branch "${HDDFANCONTROL_VERSION}" https://github.com/desbma/hddfancontrol.git .
@@ -31,8 +33,8 @@ ARG TARGETARCH
 ARG TARGETVARIANT
 RUN apk add --no-cache git
 WORKDIR /src
-RUN git clone --depth 1 --branch "${HDIDLE_VERSION}" https://github.com/adelolmo/hd-idle.git .
-RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" GOARM="${TARGETVARIANT#v}" \
+RUN git clone --depth 1 --branch "${HDIDLE_VERSION}" https://github.com/adelolmo/hd-idle.git . \
+ && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" GOARM="${TARGETVARIANT#v}" \
     go build -trimpath -ldflags="-s -w" -o /out/hd-idle .
 
 # --- sdparm: hddfancontrol uses it for the state of SAS drives. Alpine has it
@@ -40,6 +42,7 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" GOARM="${TARGETVARIA
 FROM alpine:${ALPINE_VERSION} AS sdparm
 ARG SDPARM_VERSION
 ARG SDPARM_SHA256
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 RUN apk add --no-cache build-base linux-headers
 WORKDIR /src
 RUN wget -q -O sdparm.tar.xz "https://deb.debian.org/debian/pool/main/s/sdparm/sdparm_${SDPARM_VERSION}.orig.tar.xz" \
@@ -88,7 +91,7 @@ ENV APP_VERSION=${APP_VERSION} \
 VOLUME /config
 EXPOSE 8080
 HEALTHCHECK --interval=60s --timeout=5s --start-period=60s \
-  CMD wget -q -O /dev/null "http://127.0.0.1:${WEBUI_PORT:-8080}/healthz" || exit 1
+  CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${WEBUI_PORT:-8080}/healthz\" || exit 1"]
 # tini reaps the processes that hddfancontrol starts (hdparm, smartctl) and
 # passes SIGTERM on, so the fans are given back when the container stops.
 ENTRYPOINT ["/sbin/tini", "--"]
