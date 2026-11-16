@@ -28,6 +28,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   fans kept their last speed for up to a minute while it was started
   again. They now run at full speed until it runs again, and get their
   mode back just before it starts.
+- A SMART attribute that went under its threshold only in the past (smartctl
+  "In_the_past", often the airflow temperature of a drive that once ran
+  hot) raised a lasting "attribute went below its threshold" warning. It
+  is now listed on the drive card as information, in orange in the
+  attribute table; only an attribute failing now is a warning.
 
 ## [0.5.1] - 2026-11-16
 

@@ -25,7 +25,7 @@ from .const import RECORD_PERIOD
 from .hardware import Hardware
 from .history import History
 from .settings import Settings
-from .smart import STATUS_STANDBY, read_smart
+from .smart import STATUS_STANDBY, failed_now, read_smart
 from .templog import TempLog
 
 PURGE_PERIOD = 3600.0
@@ -339,7 +339,7 @@ class Monitor:
             fallback = f"{drive.model} ({drive.name})" if drive else os.path.basename(device)
             # The counts make a new error show again an alert that was taken note of.
             counts = {field: data[field] for field in SMART_COUNTS if data.get(field)}
-            counts["failed"] = sorted(a.get("id") for a in data.get("attributes", []) if a.get("failed"))
+            counts["failed"] = sorted(a.get("id") for a in data.get("attributes", []) if failed_now(a.get("failed")))
             params = {
                 "drive": self._drive_name(drive.ids if drive else [device], fallback),
                 "warnings": data.get("warnings", []),

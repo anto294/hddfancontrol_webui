@@ -116,6 +116,7 @@
   "smart.warn.spin_retries": "The drive needed retries to spin up.",
   "smart.warn.crc_errors": "Interface CRC errors: check the cable.",
   "smart.warn.attribute_failed": "An attribute went below its threshold.",
+  "smart.failed_past": "Went under the threshold in the past, not now: {attributes}. Often the airflow temperature of a drive that once ran hot; worth knowing, not a failure.",
   "smart.warn.worn_out": "The drive is almost worn out.",
   "smart.warn.media_errors": "The drive reported media errors.",
   "smart.warn.critical_warning": "The drive raised a critical warning.",

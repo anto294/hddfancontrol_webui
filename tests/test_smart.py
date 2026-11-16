@@ -140,3 +140,27 @@ def test_drive_identity() -> None:
     assert summary["catalog"] == {"brand": "Seagate", "line": "IronWolf", "use": "nas", "recording": "CMR"}
     ssd = summarize({**ATA, "rotation_rate": 0}, 0)
     assert ssd["rpm"] is None and ssd["catalog"]["use"] == "ssd"
+
+
+def test_attribute_failed_in_the_past_is_not_a_warning() -> None:
+    """An attribute under its threshold in the past only is listed, without a warning; now is a warning."""
+    from hddfancontrol_webui.smart import failed_now
+
+    data = json.loads(json.dumps(ATA))
+    data["ata_smart_attributes"]["table"][1]["when_failed"] = "past"
+    summary = summarize(data, 0)
+    name = data["ata_smart_attributes"]["table"][1]["name"]
+    assert "attribute_failed" not in summary["warnings"]
+    assert summary["failed_past"] == [name]
+    assert summary["attributes"][1]["failed_now"] is False
+    data["ata_smart_attributes"]["table"][1]["when_failed"] = "now"
+    summary = summarize(data, 0)
+    assert "attribute_failed" in summary["warnings"] and summary["failed_past"] == []
+    assert [failed_now(w) for w in ("", None, "past", "In_the_past", "now", "FAILING_NOW")] == [
+        False,
+        False,
+        False,
+        False,
+        True,
+        True,
+    ]

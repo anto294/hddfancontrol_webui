@@ -444,6 +444,10 @@ table.list {
   color: var(--danger);
 }
 
+.list tr.failed-past td {
+  color: var(--warn);
+}
+
 .form-table input[type="number"] {
   width: 6.5rem;
 }

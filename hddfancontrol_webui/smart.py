@@ -43,6 +43,21 @@ STATUS_ERROR = "error"
 
 
 # ---------------------------
+#   failed_now
+# ---------------------------
+def failed_now(when_failed: str | None) -> bool:
+    """Whether the when_failed of an attribute means it is under its threshold now.
+
+    smartctl says "now", or "past" for an attribute that went under its
+    threshold once and came back (often the airflow temperature of a drive
+    that ran hot): that is history, not a failure. Anything else that is
+    not empty counts as now.
+    """
+    when = (when_failed or "").strip().lower()
+    return bool(when) and when not in ("past", "in_the_past")
+
+
+# ---------------------------
 #   _messages
 # ---------------------------
 def _messages(data: dict[str, Any]) -> list[str]:
@@ -72,6 +87,7 @@ def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
         "power_cycles": data.get("power_cycle_count"),
         "warnings": [],
         "attributes": [],
+        "failed_past": [],
     }
     # What the drive is: from the drive database of smartctl, the drive itself and drivedb.py.
     rpm = data.get("rotation_rate")
@@ -103,6 +119,7 @@ def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
                 "thresh": attribute.get("thresh"),
                 "raw": attribute.get("raw", {}).get("string", raw),
                 "failed": attribute.get("when_failed", ""),
+                "failed_now": failed_now(attribute.get("when_failed")),
             }
         )
         if attr_id in WATCHED_ATTRIBUTES:
@@ -111,8 +128,10 @@ def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
                 summary["warnings"].append(WATCHED_ATTRIBUTES[attr_id])
         elif attr_id in COUNTERS:
             summary[COUNTERS[attr_id]] = raw
-        if attribute.get("when_failed"):
+        if failed_now(attribute.get("when_failed")):
             summary["warnings"].append("attribute_failed")
+        elif attribute.get("when_failed"):
+            summary["failed_past"].append(attribute.get("name") or str(attr_id))
 
     nvme = data.get("nvme_smart_health_information_log")
     if isinstance(nvme, dict):

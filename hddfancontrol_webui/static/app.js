@@ -633,6 +633,7 @@ function smartCard(device, data) {
     card.append(el("p", { class: "warning small", text: t("drive.max_over_limit", { max: fmtTemp(state.settings.drive_temp_max), limit: fmtTemp(limit) }) }));
   }
   for (const warning of data.warnings || []) card.append(el("p", { class: "warning small", text: t(`smart.warn.${warning}`) }));
+  if (data.failed_past && data.failed_past.length) card.append(el("p", { class: "muted small", text: t("smart.failed_past", { attributes: data.failed_past.join(", ") }) }));
   for (const message of data.messages || []) card.append(el("p", { class: "error small", text: message }));
   const note = data.asleep ? t("smart.asleep_note") : "";
   card.append(el("p", { class: "muted small", text: `${t("smart.updated", { time: fmtTime(data.time) })} ${note}` }));
@@ -640,7 +641,9 @@ function smartCard(device, data) {
     const attrs = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.value"), t("smart.worst"), t("smart.thresh"), t("smart.raw")));
     for (const attr of data.attributes) {
       const line = row(String(attr.id), attr.name, String(attr.value ?? ""), String(attr.worst ?? ""), String(attr.thresh ?? ""), String(attr.raw ?? ""));
-      if (attr.failed) line.className = "failed";
+      // Data saved before failed_now existed: any when_failed counts.
+      const now = attr.failed_now ?? Boolean(attr.failed);
+      if (attr.failed) line.className = now ? "failed" : "failed-past";
       attrs.append(line);
     }
     card.append(el("details", {}, el("summary", { text: t("smart.attributes") }), attrs));

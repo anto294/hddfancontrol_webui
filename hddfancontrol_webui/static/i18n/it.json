@@ -116,6 +116,7 @@
   "smart.warn.spin_retries": "Il disco ha avuto bisogno di più tentativi per avviarsi.",
   "smart.warn.crc_errors": "Errori CRC dell'interfaccia: controlla il cavo.",
   "smart.warn.attribute_failed": "Un attributo è sceso sotto la sua soglia.",
+  "smart.failed_past": "Sceso sotto la soglia in passato, non ora: {attributes}. Spesso è la temperatura dell'aria di un disco che una volta ha scaldato troppo: da sapere, non è un guasto.",
   "smart.warn.worn_out": "L'SSD è quasi a fine vita.",
   "smart.warn.media_errors": "Il disco ha segnalato errori del supporto.",
   "smart.warn.critical_warning": "Il disco ha segnalato un avviso critico.",
