@@ -33,11 +33,13 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 
 - **Keep the drives cool and the NAS quiet:** the fans follow the hottest drive, either along a curve between two temperatures, or in the auto mode, which keeps the drives at a target with as little fan speed as it needs.
 - **Find out which fan is which:** in manual control, move the slider of any PWM output and watch the speed change; each output gets its previous setting back when you leave. The curve and auto modes drive only the fans you choose.
+- **Set it up without knowing how:** on the first start a guided setup asks one question at a time: which drives to keep cool, which fans cool them (an Identify button runs a fan at full speed for 10 seconds so you can hear which one it is), how cool to keep the drives, whether idle drives may sleep, and a password.
 - **Set up the fans without a shell:** the PWM test finds the value at which each fan starts and stops, and copies them into the settings.
 - **Let the drives sleep:** hd-idle spins them down after an idle time, which you can set per drive. Nothing in the web UI wakes a sleeping drive.
 - **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
 - **Keep an eye on the drives:** SMART health, power-on hours, reallocated and pending sectors, CRC errors, NVMe wear.
 - **Name things:** "Front fan", "Parity drive" instead of `pwm2` and `sdc`.
+- **See it at a glance:** tiles with the hottest drive and the average fan speed, a colored bar per drive and per fan, fan icons that turn with the fans.
 - In English and Italian (it follows the browser, or pick one in the header), with a light and a dark theme, on a phone as well.
 
 ## Requirements
@@ -99,6 +101,8 @@ On bare metal, `sensors-detect --auto` does not run at start, because on a real 
 
 ## First setup
 
+On the first start, with no drive and no fan chosen, the web UI opens the **guided setup**: follow it and you are done. You can open it again from the header at any time. To set things up by hand instead:
+
 1. **Security:** set a username and a password, in the compose file or in the **Security** tab.
 2. **Fans:** check that the **Fans** tab lists your fan chip and its PWM outputs. If it does not, see [Troubleshooting](#troubleshooting).
 3. **PWM test:** in **PWM test**, tick the outputs with a fan and start the test. Each fan stops and starts several times, for a few minutes per fan, then **Use these values in the settings** copies what it found.
@@ -130,7 +134,7 @@ hd-idle spins the chosen drives down after an idle time: one for every drive, an
 - Set a password. Without one, anyone who reaches the port can stop the fans; the web UI says so at the top of every page.
 - Credentials set in the web UI are stored as a scrypt hash in `/config/auth.json`. `WEBUI_USERNAME` and `WEBUI_PASSWORD` win over them, and cannot be changed from the web UI.
 - A login gives an HttpOnly, SameSite=Strict session cookie, valid for 7 days or until the container restarts. Scripts can use HTTP Basic authentication. A failed login waits one second.
-- Every change needs a header that other sites cannot send, and every value is checked before it reaches a command line or a file: only `/dev` paths for drives, only the fans chosen in the settings for manual control, only PWM files that exist on the host for the PWM test.
+- Every change needs a header that other sites cannot send, and every value is checked before it reaches a command line or a file: only `/dev` paths for drives, only PWM files that exist on the host for manual control and the PWM test.
 - The web UI has no HTTPS of its own. To reach it from outside your network, put it behind a reverse proxy with HTTPS, or a VPN.
 
 ## Environment variables

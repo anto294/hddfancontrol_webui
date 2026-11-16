@@ -7,6 +7,24 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- A guided setup for first-time users. It opens by itself on the first
+  start (no drive and no fan chosen yet), and from the header at any time.
+  One question per step: the drives to keep cool, the fans that cool them
+  (with an Identify button that runs one fan at full speed for 10 seconds),
+  an optional PWM test, a temperature preset (quiet, balanced, cool),
+  sleep for idle drives, and a password. Nothing is saved until the last
+  step.
+- Icons on the tabs, card titles, buttons and banners.
+
+### Changed
+
+- The overview shows tiles with the hottest drive, the average fan speed and
+  the drives spinning, and a colored bar for each drive temperature (green,
+  amber, red along the configured range) and for each fan, whose icon turns
+  with its speed.
+
 ## [0.2.0] - 2026-11-16
 
 ### Added
