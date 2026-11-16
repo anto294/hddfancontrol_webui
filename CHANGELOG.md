@@ -34,6 +34,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- "Back to environment variables" asks for a second click within 5 seconds
+  before it deletes the saved settings, which cannot be undone.
 - Manual control has a slider for every PWM output again, chosen in the
   settings or not, so that you can find out which fan each one drives before
   choosing them. Every output you move gets its previous setting back when

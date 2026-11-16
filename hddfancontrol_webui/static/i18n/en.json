@@ -11,6 +11,7 @@
   "action.restart": "Restart",
   "action.save": "Save and apply",
   "action.reset": "Back to environment variables",
+  "action.reset_confirm": "Confirm: delete the saved settings",
   "action.start_test": "Start test",
   "action.cancel_test": "Cancel test",
   "action.use_results": "Use these values in the settings",

@@ -11,6 +11,7 @@
   "action.restart": "Riavvia",
   "action.save": "Salva e applica",
   "action.reset": "Torna alle variabili d'ambiente",
+  "action.reset_confirm": "Conferma: cancella le impostazioni salvate",
   "action.start_test": "Avvia test",
   "action.cancel_test": "Annulla test",
   "action.use_results": "Usa questi valori nelle impostazioni",

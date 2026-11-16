@@ -799,7 +799,27 @@ async function saveSettings(event) {
   pollStatus();
 }
 
+// Deleting the saved settings cannot be undone: the first click only arms the
+// button for a few seconds, the second one deletes.
+let resetArmed = null;
+
+function disarmReset() {
+  clearTimeout(resetArmed);
+  resetArmed = null;
+  const button = $("reset-settings");
+  button.textContent = t("action.reset");
+  button.className = "secondary";
+}
+
 async function resetSettings() {
+  const button = $("reset-settings");
+  if (resetArmed === null) {
+    button.textContent = t("action.reset_confirm");
+    button.className = "danger";
+    resetArmed = setTimeout(disarmReset, 5000);
+    return;
+  }
+  disarmReset();
   const result = $("save-result");
   try {
     const data = await api("DELETE", "/api/settings");
