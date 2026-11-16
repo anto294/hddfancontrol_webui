@@ -390,7 +390,7 @@ function renderFans() {
         );
         group.append(line);
       }
-      const range = line.querySelector("input");
+      const range = line.querySelector("input[type=range]");
       if (!state.dragging.has(pwm.path) && document.activeElement !== range && pwm.value !== null) {
         range.value = pwm.value;
         line.querySelector(".pct").textContent = fmtPct(pwm.value);
