@@ -442,3 +442,12 @@ async def test_pwm_test_starts_again_under_the_lock(setup: tuple[Supervisor, Pat
         assert supervisor.test.running and not supervisor.hddfancontrol.active
     await wait_for(lambda: not supervisor.test.running and supervisor.hddfancontrol.active)
     await supervisor.stop()
+
+
+async def test_set_pwm_while_manual_control_restarts(setup: tuple[Supervisor, Path]) -> None:
+    """A value sent while manual control is on but its controller is not running yet is Busy, not a crash."""
+    supervisor, _ = setup
+    supervisor.manual = True
+    with pytest.raises(Busy):
+        supervisor.set_pwm(PWM1, 10)
+    supervisor.manual = False

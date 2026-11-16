@@ -60,6 +60,13 @@ Log = Callable[[str], None]
 
 
 # ---------------------------
+#   NotManual
+# ---------------------------
+class NotManual(RuntimeError):
+    """A manual value came while manual control is not running (yet, or any more)."""
+
+
+# ---------------------------
 #   speed_to_pwm
 # ---------------------------
 def speed_to_pwm(speed: float, pwm: Pwm, running: bool) -> int:
@@ -292,7 +299,7 @@ class FanController:
             # Checked under the lock: stop() gives the fans back under it too,
             # so no value lands after they were given back.
             if self.mode != "manual":
-                raise RuntimeError("Not in manual control")
+                raise NotManual("Not in manual control")
             if self.safety:
                 # Hot drives: the fans stay at full speed.
                 return

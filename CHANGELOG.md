@@ -43,6 +43,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - New settings or a restart sent in the instant a PWM test ended could
   start a second hddfancontrol next to the first. The end of the test now
   holds the same lock as every other change.
+- Moving a fan slider while manual control was starting gave an
+  unexplained server error; it is now refused as "not in manual control".
 
 ## [0.5.1] - 2026-11-16
 

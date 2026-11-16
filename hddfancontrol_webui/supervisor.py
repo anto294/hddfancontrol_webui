@@ -42,7 +42,7 @@ from .const import (
     SOURCE_WEBUI,
     STOP_TIMEOUT,
 )
-from .fancontrol import PWM_MAX, FanController
+from .fancontrol import PWM_MAX, FanController, NotManual
 from .hardware import Hardware
 from .settings import SOURCE_FILE, Settings, SettingsStore, hddfancontrol_args, hdidle_args
 
@@ -551,7 +551,11 @@ class Supervisor:
         if not self.manual:
             raise Busy("Not in manual control")
         self.touch_manual()
-        self.fans.set_manual(path, value)
+        try:
+            self.fans.set_manual(path, value)
+        except NotManual as err:
+            # Manual control is starting (or ending): the controller does not run it right now.
+            raise Busy(str(err)) from err
 
     def _refuse_during_test(self) -> None:
         """Raise Busy while a PWM test runs."""
