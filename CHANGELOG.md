@@ -7,6 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- Alerts for a monitored drive that is not on the host any more
+  (unplugged, dead, dropped by its controller) and for a drive whose SMART
+  data cannot be read.
+
 ### Changed
 
 - The temperature limit of a drive is called the highest *recommended*

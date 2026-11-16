@@ -11,6 +11,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from hddfancontrol_webui.alerts import Alerts, render
+from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
 from hddfancontrol_webui.monitor import FAN_STALL_SECONDS, Monitor
 from hddfancontrol_webui.notify import NotifyError, send
@@ -197,6 +198,28 @@ def test_conditions_safety_smart_missing(tmp_path: Path, fake_sys: Path, fake_de
     assert "safety" in monitor.conditions({"fans": {"error": "boom", "auto": {}}})
     monitor._labels = lambda: {}
     assert monitor._fan_name(PWM1) == "nct6798 pwm1"
+    monitor.history.close()
+
+
+def test_conditions_missing_drive_and_unreadable_smart(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """A monitored drive gone from the host, or whose SMART data cannot be read, raises an alert."""
+    gone = "/dev/disk/by-id/ata-Gone_123"
+    nvme = "/dev/disk/by-id/nvme-Samsung_980_S64"
+    monitor = conditions_monitor(tmp_path, fake_sys, fake_dev)
+    monitor._settings = lambda: from_dict({"drives": [DRIVE], "monitor_drives": [DRIVE, gone, nvme, "/dev/sda"]})
+    monitor.history.save_smart(gone, {"status": "error", "messages": ["No such device"]})
+    monitor.history.save_smart(nvme, {"status": "error", "messages": ["Smartctl open device failed"]})
+    found = monitor.conditions({})
+    assert found["missing:" + gone] == ("drive_missing", {"drive": "ata-Gone_123"})
+    assert "smart_error:" + gone not in found  # missing says it all
+    assert found["smart_error:" + nvme] == (
+        "smart_error",
+        {"drive": "Samsung 980 (nvme0n1)", "error": "Smartctl open device failed"},
+    )
+    assert "missing:/dev/sda" not in found and "missing:" + DRIVE not in found
+    # Without any drive in /dev, nothing is said about missing drives.
+    monitor.hardware = Hardware(tmp_path / "nothing", fake_sys)
+    assert not any(key.startswith("missing:") for key in monitor.conditions({}))
     monitor.history.close()
 
 

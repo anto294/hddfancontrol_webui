@@ -326,6 +326,8 @@
   "settings.notify_sent": "Sent: check that it arrived.",
   "action.notify_test": "Send a test message",
   "alert.fans_missing": "The fan chip is not found any more, so these fans are not controlled: {fans}. Choose them again in Settings.",
+  "alert.drive_missing": "{drive} is not on the host any more: unplugged, dead, or dropped by its controller. Check it, or remove it from the monitored drives in Settings.",
+  "alert.smart_error": "{drive}: the SMART data cannot be read ({error}).",
   "settings.curve_now": "Hottest drive now: {temp}",
   "settings.backup": "Backup",
   "settings.backup_help": "Export saves the settings and the names of drives and fans to a file; import checks such a file, then saves and applies it, as Save and apply does. Fans and drives are kept by path: after moving to another machine, check them.",

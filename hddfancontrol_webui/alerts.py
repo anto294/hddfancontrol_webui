@@ -40,7 +40,18 @@ KIND_SMART_FAILING = "smart_failing"
 KIND_SMART_WARNING = "smart_warning"
 KIND_SAFETY = "safety"
 KIND_FANS_MISSING = "fans_missing"
-KINDS = (KIND_DRIVE_HOT, KIND_FAN_STALLED, KIND_SMART_FAILING, KIND_SMART_WARNING, KIND_SAFETY, KIND_FANS_MISSING)
+KIND_DRIVE_MISSING = "drive_missing"
+KIND_SMART_ERROR = "smart_error"
+KINDS = (
+    KIND_DRIVE_HOT,
+    KIND_FAN_STALLED,
+    KIND_SMART_FAILING,
+    KIND_SMART_WARNING,
+    KIND_SAFETY,
+    KIND_FANS_MISSING,
+    KIND_DRIVE_MISSING,
+    KIND_SMART_ERROR,
+)
 
 # Params that change at every sample: they are not part of what was taken note of.
 VOLATILE_PARAMS = ("temp", "percent")

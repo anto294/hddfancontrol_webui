@@ -283,6 +283,10 @@ class Hardware:
                 return candidate
         return None
 
+    def dev_exists(self, path: str) -> bool:
+        """Whether a /dev path (a by-id link or a device) leads to something now."""
+        return (self._dev / path.removeprefix("/dev/")).exists()
+
     def pwm_paths(self) -> set[str]:
         """Return the paths of every PWM output, to check what a client asks to test."""
         return {pwm.path for device in self.hwmons() for pwm in device.pwms}

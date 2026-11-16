@@ -13,9 +13,11 @@ from typing import Any
 from .aio import cancel_and_wait
 from .alerts import (
     KIND_DRIVE_HOT,
+    KIND_DRIVE_MISSING,
     KIND_FAN_STALLED,
     KIND_FANS_MISSING,
     KIND_SAFETY,
+    KIND_SMART_ERROR,
     KIND_SMART_FAILING,
     KIND_SMART_WARNING,
     Alerts,
@@ -25,7 +27,7 @@ from .const import RECORD_PERIOD
 from .hardware import Hardware
 from .history import History
 from .settings import Settings
-from .smart import STATUS_STANDBY, failed_now, read_smart
+from .smart import STATUS_ERROR, STATUS_STANDBY, failed_now, read_smart
 from .templog import TempLog
 
 PURGE_PERIOD = 3600.0
@@ -333,11 +335,34 @@ class Monitor:
             found["safety"] = (KIND_SAFETY, {})
 
         by_id = {i: drive for drive in drives.values() for i in drive.ids}
+        # A monitored drive that is not on the host any more (unplugged, dead,
+        # dropped by its controller). Without any drive listed, /dev is not
+        # readable here: that says nothing about the drives.
+        missing = set()
+        if drives:
+            for device in settings.monitor_drives:
+                if not self.hardware.dev_exists(device):
+                    missing.add(device)
+                    name = self._drive_name([device], os.path.basename(device))
+                    found[f"missing:{device}"] = (KIND_DRIVE_MISSING, {"drive": name})
         for device, data in self.smart().items():
+            if device in missing:
+                continue
+            drive = by_id.get(device)
+            if data.get("status") == STATUS_ERROR:
+                fallback = f"{drive.model} ({drive.name})" if drive else os.path.basename(device)
+                messages = data.get("messages") or []
+                found[f"smart_error:{device}"] = (
+                    KIND_SMART_ERROR,
+                    {
+                        "drive": self._drive_name(drive.ids if drive else [device], fallback),
+                        "error": "; ".join(messages)[:200],
+                    },
+                )
+                continue
             kind = {"failing": KIND_SMART_FAILING, "warning": KIND_SMART_WARNING}.get(data.get("status", ""))
             if kind is None:
                 continue
-            drive = by_id.get(device)
             fallback = f"{drive.model} ({drive.name})" if drive else os.path.basename(device)
             # The counts make a new error show again an alert that was taken note of.
             counts = {field: data[field] for field in SMART_COUNTS if data.get(field)}

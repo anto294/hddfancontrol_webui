@@ -138,8 +138,9 @@ The web UI watches for:
 
 - a drive that drives the fans at or above the maximum temperature (the alert ends 2 °C under it);
 - a chosen fan that stops: 0 RPM for 2 minutes while its PWM value is well over its stop value (only fans that were seen turning, so a connector without a speed sensor never counts);
-- SMART saying that a monitored drive is failing, or reporting a problem;
-- drive temperatures that stop coming in, which puts every fan at full speed;
+- SMART saying that a monitored drive is failing, or reporting a problem (an attribute under its threshold only in the past is shown on the drive card, not raised);
+- a monitored drive that is not on the host any more, or whose SMART data cannot be read;
+- drive temperatures that stop coming in, or an error of the fan control itself, which put every fan at full speed;
 - a chosen fan whose chip is not found any more (see [Troubleshooting](#troubleshooting)).
 
 Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back), is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address.
