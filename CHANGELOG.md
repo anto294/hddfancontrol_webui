@@ -33,6 +33,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   hot) raised a lasting "attribute went below its threshold" warning. It
   is now listed on the drive card as information, in orange in the
   attribute table; only an attribute failing now is a warning.
+- Notifications were sent one by one inside the recording loop, with a
+  10 s timeout each: with the server down and several alerts at once, the
+  history and the stalled-fan check paused for a minute or more. They now
+  go through a queue with their own sender, in order.
 
 ## [0.5.1] - 2026-11-16
 

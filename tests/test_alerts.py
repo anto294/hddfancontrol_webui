@@ -64,10 +64,12 @@ async def test_alerts_start_and_end() -> None:
     hot = {"hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})}
     await alerts.update(hot)
     await alerts.update(hot)
+    await alerts.flush()
     assert len(sent) == 1 and sent[0][3] is True and "51 °C" in sent[0][2] and "massima" in sent[0][2]
     assert logs == ["ALERT: sda is at 51 °C, at or above the maximum of 50 °C."]
     assert alerts.status()[0]["kind"] == "drive_hot"
     await alerts.update({})
+    await alerts.flush()
     assert sent[1][3] is False and sent[1][2].startswith("Tornato alla normalità")
     assert logs[1].startswith("Over: ") and alerts.status() == []
     await alerts.test()
@@ -89,7 +91,44 @@ async def test_alerts_without_address_or_with_a_failing_one() -> None:
         await alerts.test()
     settings = Settings(notify_url="https://x.example/")
     await alerts.update({})
+    await alerts.flush()
     assert logs[-1] == "WARNING: cannot send the notification: down"
+    await alerts.stop()
+
+
+async def test_slow_notifications_do_not_hold_the_monitor_up() -> None:
+    """update() returns at once; messages go out in order; a full queue drops and logs."""
+    import asyncio
+
+    from hddfancontrol_webui import alerts as alerts_module
+
+    gate = asyncio.Event()
+    sent: list[str] = []
+    logs: list[str] = []
+
+    async def slow(url: str, fmt: str, text: str, urgent: bool) -> None:
+        await gate.wait()
+        if "boom" in text:
+            raise ValueError("odd")
+        sent.append(text)
+
+    settings = Settings(notify_url="https://x.example/")
+    alerts = Alerts(lambda: settings, logs.append, slow)
+    conditions = {f"hot:sd{c}": ("drive_hot", {"drive": f"sd{c}", "temp": "51", "max": "50"}) for c in "abc"}
+    await asyncio.wait_for(alerts.update(conditions), 1)
+    assert sent == []
+    await alerts.update({"hot:boom": ("drive_hot", {"drive": "boom", "temp": "51", "max": "50"})})
+    gate.set()
+    await alerts.flush()
+    # The three starts, then (boom failing in between) the three ends.
+    assert [text.split()[0] for text in sent] == ["sda", "sdb", "sdc", "Back", "Back", "Back"]
+    assert any("ValueError" in line for line in logs)
+    # A queue that is full while the server hangs.
+    alerts._queue = asyncio.Queue(1)
+    await alerts.update({"x": ("safety", {}), "y": ("safety", {}), "z": ("safety", {})})
+    assert any("dropped" in line for line in logs)
+    await alerts.stop()
+    assert alerts_module.QUEUE_SIZE == 100
 
 
 def test_render_falls_back_to_english() -> None:

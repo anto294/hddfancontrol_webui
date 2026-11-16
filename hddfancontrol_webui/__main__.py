@@ -145,6 +145,7 @@ def build() -> tuple[web.Application, int]:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         await monitor.stop()
+        await alerts.stop()
         await supervisor.stop()
         history.close()
 

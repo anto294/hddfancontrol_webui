@@ -12,6 +12,9 @@ params without the values that change at every sample), so the alert shows
 again when it gets worse (a new SMART error). A note is deleted when its
 alert ends (a drive or fan that is gone ends its alerts), so the same
 problem coming back is shown again.
+
+Notifications go through a queue with one sender task, in order: a slow or
+dead server never holds up the monitor that raises the alerts.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from .aio import cancel_and_wait
 from .history import History
 from .notify import NotifyError, send
 from .settings import Settings
@@ -42,9 +46,12 @@ KINDS = (KIND_DRIVE_HOT, KIND_FAN_STALLED, KIND_SMART_FAILING, KIND_SMART_WARNIN
 VOLATILE_PARAMS = ("temp", "percent")
 # Warnings of the web UI itself, not alerts, that can be taken note of too.
 BANNER_KEYS = ("banner:no_auth",)
+# Messages waiting to be sent; more than this while the server is down are dropped.
+QUEUE_SIZE = 100
 
 Condition = tuple[str, dict[str, Any]]
 Sender = Callable[[str, str, str, bool], Awaitable[None]]
+Message = tuple[str, str, str, bool]
 
 
 # ---------------------------
@@ -99,6 +106,8 @@ class Alerts:
         self.active: dict[str, dict[str, Any]] = {}
         # key -> signature of the alert when it was taken note of.
         self.acks: dict[str, str] = store.notes() if store is not None else {}
+        self._queue: asyncio.Queue[Message] = asyncio.Queue(QUEUE_SIZE)
+        self._worker: asyncio.Task[None] | None = None
 
     @staticmethod
     def signature(params: dict[str, Any]) -> str:
@@ -144,17 +153,42 @@ class Alerts:
             await self._notify(f"alert.{alert['kind']}", alert["params"], urgent=False)
 
     async def _notify(self, key: str, params: dict[str, Any], urgent: bool) -> None:
-        """Send one alert, or its end; a failure is logged, never raised."""
+        """Queue one alert, or its end, in the language of the settings; never waits for the server."""
         settings = self._settings()
         if not settings.notify_url:
             return
         text = render(settings.notify_language, key, params)
         if not urgent:
             text = render(settings.notify_language, "alert.over", {"text": text})
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._send_queued(), name="notify")
         try:
-            await self._send(settings.notify_url, settings.notify_format, text, urgent)
-        except NotifyError as err:
-            self._log(f"WARNING: cannot send the notification: {err}")
+            self._queue.put_nowait((settings.notify_url, settings.notify_format, text, urgent))
+        except asyncio.QueueFull:
+            self._log("WARNING: too many notifications waiting, one is dropped")
+
+    async def _send_queued(self) -> None:
+        """Send the queued messages one after the other; a failure is logged, never raised."""
+        while True:
+            url, fmt, text, urgent = await self._queue.get()
+            try:
+                await self._send(url, fmt, text, urgent)
+            except NotifyError as err:
+                self._log(f"WARNING: cannot send the notification: {err}")
+            except Exception as err:  # the sender must go on
+                self._log(f"WARNING: cannot send the notification: {err!r}")
+            finally:
+                self._queue.task_done()
+
+    async def flush(self) -> None:
+        """Wait until every queued message was sent or failed."""
+        await self._queue.join()
+
+    async def stop(self) -> None:
+        """Stop the sender; messages still queued are dropped."""
+        if self._worker is not None:
+            await cancel_and_wait(self._worker)
+            self._worker = None
 
     async def test(self) -> None:
         """Send a test message with the settings in force. Raise NotifyError."""
