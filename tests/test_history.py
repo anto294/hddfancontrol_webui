@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -75,4 +76,22 @@ def test_failed_record_does_not_block_the_next(tmp_path: Path) -> None:
     history._db = real
     history.record(NOW, [("temp", "sda", 40.0)])
     assert history.query(1, now=NOW)["series"][0]["points"] == [[NOW, 40.0]]
+    history.close()
+
+
+def test_history_cleans_itself(tmp_path: Path) -> None:
+    """Empty series go with the purge; SMART data of drives not kept is forgotten."""
+    history = History(tmp_path / "history.db")
+    history.record(1000, [("temp", "/dev/disk/by-id/gone", 40.0)])
+    history.record(int(time.time()), [("temp", "/dev/disk/by-id/here", 41.0)])
+    history.purge(1)
+    assert [s["name"] for s in history.query(24 * 365 * 60)["series"]] == ["/dev/disk/by-id/here"]
+    history.record(int(time.time()), [("temp", "/dev/disk/by-id/gone", 39.0)])  # it can come back
+    assert len(history.query(1)["series"]) == 2
+    history.save_smart("/dev/a", {"status": "ok"})
+    history.save_smart("/dev/b", {"status": "ok"})
+    assert history.forget_smart({"/dev/a"}) == 1 and list(history.smart()) == ["/dev/a"]
+    history.save_note("k", "s")
+    history.delete_notes(["k", "other"])
+    assert history.notes() == {}
     history.close()

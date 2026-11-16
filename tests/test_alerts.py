@@ -11,6 +11,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from hddfancontrol_webui.alerts import Alerts, render
+from hddfancontrol_webui.history import History
 from hddfancontrol_webui.monitor import FAN_STALL_SECONDS, Monitor
 from hddfancontrol_webui.notify import NotifyError, send
 from hddfancontrol_webui.settings import Settings, from_dict
@@ -159,9 +160,10 @@ def test_conditions_safety_smart_missing(tmp_path: Path, fake_sys: Path, fake_de
 
 
 async def test_notes_on_alerts(tmp_path: Path) -> None:
-    """A note hides an alert until it gets worse or ends; it survives a restart."""
+    """A note hides an alert until it gets worse or ends; it survives a restart in the database."""
     settings = Settings()
-    alerts = Alerts(lambda: settings, lambda _: None, config_dir=tmp_path)
+    store = History(tmp_path / "history.db")
+    alerts = Alerts(lambda: settings, lambda _: None, store=store)
     smart = {"drive": "sda", "warnings": ["crc_errors"], "counts": {"crc_errors": 5}}
     await alerts.update(
         {"smart:a": ("smart_warning", smart), "hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})}
@@ -173,7 +175,7 @@ async def test_notes_on_alerts(tmp_path: Path) -> None:
     )
     assert all(a["acknowledged"] for a in alerts.status())  # a new temperature is the same alert
 
-    again = Alerts(lambda: settings, lambda _: None, config_dir=tmp_path)
+    again = Alerts(lambda: settings, lambda _: None, store=store)
     assert set(again.acks) == {"smart:a", "hot:sda", "banner:no_auth"}
     worse = {**smart, "counts": {"crc_errors": 6}}
     await again.update({"smart:a": ("smart_warning", worse)})
@@ -181,9 +183,8 @@ async def test_notes_on_alerts(tmp_path: Path) -> None:
     assert "hot:sda" not in again.acks and "banner:no_auth" in again.acks  # the hot alert ended
     again.unack("banner:no_auth")
     again.unack("banner:no_auth")
-    assert json.loads((tmp_path / "alerts.json").read_text()) == {"smart:a": again.acks["smart:a"]}
-    (tmp_path / "alerts.json").write_text("[1]")
-    assert Alerts(lambda: settings, lambda _: None, config_dir=tmp_path).acks == {}
+    assert set(store.notes()) == {"smart:a"}
+    store.close()
 
 
 def test_render_smart_problems() -> None:

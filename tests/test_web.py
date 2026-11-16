@@ -380,7 +380,7 @@ async def test_alert_notes_api(make_client: ClientMaker, tmp_path: Path) -> None
     response = await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": True}, headers=FETCH)
     assert response.status == 404  # this app has no alerts
     supervisor = client.app[SUPERVISOR]
-    alerts = Alerts(lambda: supervisor.settings, lambda _: None, config_dir=tmp_path / "config")
+    alerts = Alerts(lambda: supervisor.settings, lambda _: None, store=client.app[MONITOR].history)
     client.app[MONITOR].alerts = alerts
     for body in ({"key": 1, "acknowledged": True}, {"key": "x"}, []):
         response = await client.put("/api/alerts/ack", json=body, headers=FETCH)

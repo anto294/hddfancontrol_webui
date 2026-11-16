@@ -2,7 +2,11 @@
 
 The database is /config/history.db. A series is one thing measured over time:
 the temperature of a drive or a hwmon input, or the PWM (in %) or the speed
-(in RPM) of a fan. Every sample is a time in seconds and a value.
+(in RPM) of a fan. Every sample is a time in seconds and a value. It also
+keeps the notes taken on alerts (alerts.py).
+
+It cleans itself: purge() deletes old samples and the series left without
+any, and forget_smart() the SMART data of drives no longer monitored.
 
 Long windows are answered by averaging the samples of equal time buckets in
 SQL, so a month never sends more than HISTORY_MAX_POINTS points per series.
@@ -41,6 +45,11 @@ CREATE TABLE IF NOT EXISTS smart (
     device TEXT PRIMARY KEY,
     ts INTEGER NOT NULL,
     data TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alert_notes (
+    key TEXT PRIMARY KEY,
+    signature TEXT NOT NULL,
+    ts INTEGER NOT NULL
 );
 """
 
@@ -94,10 +103,18 @@ class History:
             self._db.execute("COMMIT")
 
     def purge(self, days: int, now: float | None = None) -> int:
-        """Delete the samples older than days, and return how many."""
+        """Delete the samples older than days, then the series left empty; return how many samples."""
         limit = int((now or time.time()) - days * 86400)
         with self._lock:
-            return self._db.execute("DELETE FROM samples WHERE ts < ?", (limit,)).rowcount
+            deleted = self._db.execute("DELETE FROM samples WHERE ts < ?", (limit,)).rowcount
+            # A drive or fan gone for longer than the history leaves an empty series behind.
+            empty = self._db.execute(
+                "SELECT id, kind, name FROM series WHERE NOT EXISTS (SELECT 1 FROM samples WHERE series = series.id)"
+            ).fetchall()
+            for series_id, kind, name in empty:
+                self._db.execute("DELETE FROM series WHERE id = ?", (series_id,))
+                self._series.pop((kind, name), None)
+            return deleted
 
     def query(self, hours: float, now: float | None = None) -> dict[str, Any]:
         """Return every series of the last hours, averaged into at most HISTORY_MAX_POINTS buckets."""
@@ -134,3 +151,28 @@ class History:
         with self._lock:
             rows = self._db.execute("SELECT device, ts, data FROM smart").fetchall()
         return {device: {"time": ts, **json.loads(data)} for device, ts, data in rows}
+
+    def forget_smart(self, keep: set[str]) -> int:
+        """Delete the SMART data of every drive not in keep (no longer monitored or gone); return how many."""
+        with self._lock:
+            devices = [row[0] for row in self._db.execute("SELECT device FROM smart")]
+            gone = [(device,) for device in devices if device not in keep]
+            self._db.executemany("DELETE FROM smart WHERE device = ?", gone)
+            return len(gone)
+
+    def notes(self) -> dict[str, str]:
+        """Return the notes taken on alerts, as key -> signature."""
+        with self._lock:
+            return dict(self._db.execute("SELECT key, signature FROM alert_notes").fetchall())
+
+    def save_note(self, key: str, signature: str) -> None:
+        """Keep a note on an alert."""
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO alert_notes (key, signature, ts) VALUES (?, ?, ?)", (key, signature, int(time.time()))
+            )
+
+    def delete_notes(self, keys: list[str]) -> None:
+        """Forget the notes on these alerts."""
+        with self._lock:
+            self._db.executemany("DELETE FROM alert_notes WHERE key = ?", [(key,) for key in keys])

@@ -221,7 +221,10 @@ class Monitor:
                 status = self._status() if self._status is not None else {}
                 await self.alerts.update(await asyncio.to_thread(self.conditions, status))
             if time.monotonic() - last_purge >= PURGE_PERIOD:
-                await asyncio.to_thread(self.history.purge, self._settings().history_days)
+                settings = self._settings()
+                await asyncio.to_thread(self.history.purge, settings.history_days)
+                # SMART data of a drive no longer monitored (or gone) is not shown: drop it.
+                await asyncio.to_thread(self.history.forget_smart, set(settings.monitor_drives))
                 last_purge = time.monotonic()
             await asyncio.sleep(RECORD_PERIOD)
 

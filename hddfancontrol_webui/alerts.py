@@ -7,9 +7,11 @@ address is set, sent in the language of the settings, with the texts of the
 web UI (static/i18n, keys alert.<kind>).
 
 An alert can be taken note of: the web UI then hides it. The note is kept
-in /config/alerts.json with the signature of the alert (its params without
-the values that change at every sample), so the alert shows again when it
-gets worse (a new SMART error) or when it ends and comes back.
+in the database (table alert_notes) with the signature of the alert (its
+params without the values that change at every sample), so the alert shows
+again when it gets worse (a new SMART error). A note is deleted when its
+alert ends (a drive or fan that is gone ends its alerts), so the same
+problem coming back is shown again.
 """
 
 from __future__ import annotations
@@ -22,9 +24,9 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from .history import History
 from .notify import NotifyError, send
 from .settings import Settings
-from .storage import write_atomic
 
 I18N_DIR = Path(__file__).parent / "static" / "i18n"
 
@@ -40,7 +42,6 @@ KINDS = (KIND_DRIVE_HOT, KIND_FAN_STALLED, KIND_SMART_FAILING, KIND_SMART_WARNIN
 VOLATILE_PARAMS = ("temp", "percent")
 # Warnings of the web UI itself, not alerts, that can be taken note of too.
 BANNER_KEYS = ("banner:no_auth",)
-ACK_FILE = "alerts.json"
 
 Condition = tuple[str, dict[str, Any]]
 Sender = Callable[[str, str, str, bool], Awaitable[None]]
@@ -85,51 +86,42 @@ class Alerts:
         settings: Callable[[], Settings],
         log: Callable[[str], None],
         sender: Sender = send,
-        config_dir: Path | None = None,
+        store: History | None = None,
     ) -> None:
         """Read the address and language from settings(), log with log, send with sender.
 
-        With config_dir, the notes taken survive a restart in alerts.json.
+        With store, the notes taken survive a restart in its database.
         """
         self._settings = settings
         self._log = log
         self._send = sender
-        self._ack_path = None if config_dir is None else config_dir / ACK_FILE
+        self._store = store
         self.active: dict[str, dict[str, Any]] = {}
         # key -> signature of the alert when it was taken note of.
-        self.acks: dict[str, str] = {}
-        if self._ack_path is not None:
-            try:
-                data = json.loads(self._ack_path.read_text(encoding="utf-8"))
-                self.acks = {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
-            except (OSError, ValueError):
-                self.acks = {}
+        self.acks: dict[str, str] = store.notes() if store is not None else {}
 
     @staticmethod
     def signature(params: dict[str, Any]) -> str:
         """What an alert is about, without the values that change at every sample."""
         return json.dumps({k: v for k, v in params.items() if k not in VOLATILE_PARAMS}, sort_keys=True)
 
-    def _save_acks(self) -> None:
-        """Keep the notes taken. Blocking."""
-        if self._ack_path is not None:
-            write_atomic(self._ack_path, json.dumps(self.acks, indent=2))
-
     def ack(self, key: str) -> bool:
         """Take note of an active alert, or of a warning of the web UI. Blocking. False if unknown."""
         if key in self.active:
-            self.acks[key] = self.signature(self.active[key]["params"])
+            signature = self.signature(self.active[key]["params"])
         elif key in BANNER_KEYS:
-            self.acks[key] = ""
+            signature = ""
         else:
             return False
-        self._save_acks()
+        self.acks[key] = signature
+        if self._store is not None:
+            self._store.save_note(key, signature)
         return True
 
     def unack(self, key: str) -> None:
         """Show again what was taken note of. Blocking."""
-        if self.acks.pop(key, None) is not None:
-            self._save_acks()
+        if self.acks.pop(key, None) is not None and self._store is not None:
+            self._store.delete_notes([key])
 
     async def update(self, conditions: dict[str, Condition]) -> None:
         """Raise the alerts that start now and end those that are over."""
@@ -144,8 +136,8 @@ class Alerts:
         dropped = [k for k in self.acks if k not in BANNER_KEYS and k not in conditions]
         for key in dropped:
             del self.acks[key]
-        if dropped:
-            await asyncio.to_thread(self._save_acks)
+        if dropped and self._store is not None:
+            await asyncio.to_thread(self._store.delete_notes, dropped)
         for key in [k for k in self.active if k not in conditions]:
             alert = self.active.pop(key)
             self._log("Over: " + render("en", f"alert.{alert['kind']}", alert["params"]))

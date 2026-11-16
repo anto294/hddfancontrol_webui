@@ -10,10 +10,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Added
 
 - "Noted, hide" on the alert banners and on the warning about the missing
-  password: the banner goes, the note is kept in `/config/alerts.json` for
-  every browser, and a line says how many are hidden, with a button to show
-  them again. An alert shows again when it gets worse (one more SMART error)
-  or when it ends and comes back.
+  password: the banner goes, the note is kept in the database for every
+  browser, and a line says how many are hidden, with a button to show them
+  again. An alert shows again when it gets worse (one more SMART error) or
+  when it ends and comes back; a drive or fan that is gone takes its notes
+  with it.
+- The database cleans itself: the hourly purge also deletes the series left
+  without samples (drives and fans gone for longer than the history) and
+  the SMART data of drives no longer monitored.
 
 ### Changed
 
