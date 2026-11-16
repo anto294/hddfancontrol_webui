@@ -1006,6 +1006,54 @@ async function testNotify() {
   }
 }
 
+// A backup is one JSON file with the saved settings and the names.
+const BACKUP_KIND = "hddfancontrol-webui-backup";
+
+async function exportSettings() {
+  const data = await api("GET", "/api/settings");
+  const labels = await api("GET", "/api/labels");
+  const doc = { kind: BACKUP_KIND, version: 1, exported: new Date().toISOString(), settings: data.settings, labels };
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
+  const link = el("a", { href: URL.createObjectURL(blob), download: `hddfancontrol-settings-${new Date().toISOString().slice(0, 10)}.json` });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+async function importSettings(file) {
+  const result = $("backup-result");
+  result.className = "small error";
+  let doc;
+  try {
+    doc = JSON.parse(await file.text());
+  } catch {
+    result.textContent = t("error.backup_invalid");
+    return;
+  }
+  if (!doc || doc.kind !== BACKUP_KIND || typeof doc.settings !== "object") {
+    result.textContent = t("error.backup_invalid");
+    return;
+  }
+  try {
+    // The server checks the settings as if they were typed in the form.
+    const data = await api("PUT", "/api/settings", doc.settings);
+    state.settings = data.settings;
+    state.settingsSource = data.source;
+    for (const [key, label] of Object.entries(doc.labels || {})) {
+      if (typeof label === "string") state.labels = await api("PUT", "/api/labels", { key, label });
+    }
+  } catch (error) {
+    if (error.data && error.data.problems) showProblems(error.data.problems);
+    result.textContent = errorText(error);
+    return;
+  }
+  renderSettings();
+  result.textContent = t("settings.imported");
+  result.className = "small ok";
+  pollStatus();
+}
+
 // ---------------------------------------------------------------------------
 // PWM test
 // ---------------------------------------------------------------------------
@@ -1209,6 +1257,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   $("reset-settings").addEventListener("click", resetSettings);
   $("notify-test").addEventListener("click", testNotify);
+  $("export-settings").addEventListener("click", () => exportSettings().catch((error) => alertBanner(errorText(error))));
+  $("import-settings").addEventListener("click", () => $("import-file").click());
+  $("import-file").addEventListener("change", async () => {
+    const file = $("import-file").files[0];
+    $("import-file").value = "";
+    if (file) await importSettings(file);
+  });
   $("pwmtest-start").addEventListener("click", startPwmTest);
   $("pwmtest-cancel").addEventListener("click", cancelPwmTest);
   $("pwmtest-use").addEventListener("click", usePwmResults);

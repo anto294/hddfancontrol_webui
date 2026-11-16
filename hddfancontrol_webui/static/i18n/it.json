@@ -322,5 +322,11 @@
   "settings.notify_sent": "Inviato: controlla che sia arrivato.",
   "action.notify_test": "Invia un messaggio di prova",
   "alert.fans_missing": "Il chip delle ventole non si trova più, quindi queste ventole non sono comandate: {fans}. Sceglile di nuovo in Impostazioni.",
-  "settings.curve_now": "Disco più caldo ora: {temp}"
+  "settings.curve_now": "Disco più caldo ora: {temp}",
+  "settings.backup": "Backup",
+  "settings.backup_help": "Esporta salva in un file le impostazioni e i nomi di dischi e ventole; Importa controlla un file del genere, poi lo salva e lo applica, come Salva e applica. Ventole e dischi sono identificati dal percorso: dopo il passaggio a un'altra macchina, controllali.",
+  "action.export": "Esporta",
+  "action.import": "Importa",
+  "settings.imported": "Importato e applicato.",
+  "error.backup_invalid": "Questo file non è un backup dell'interfaccia web di hddfancontrol."
 }

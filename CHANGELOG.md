@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Export and import of the settings and the names of drives and fans, as one
+  JSON file (Settings → Backup). An import is checked and applied like a
+  save.
+
 - A chart of the fan curve in Settings: speed for each drive temperature as
   the form stands, redrawn while you type, with the hottest drive as a dot
   (in auto mode, the target and the maximum).

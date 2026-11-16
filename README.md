@@ -39,6 +39,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - **Let the drives sleep:** hd-idle spins them down after an idle time, which you can set per drive. Nothing in the web UI wakes a sleeping drive.
 - **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
 - **Keep an eye on the drives:** SMART health, power-on hours, reallocated and pending sectors, CRC errors, NVMe wear.
+- **Keep a backup:** export the settings and the names to a file, and import them after a reinstall.
 - **Name things:** "Front fan", "Parity drive" instead of `pwm2` and `sdc`.
 - **Know when something is wrong:** a drive too hot, a fan that stopped, a SMART problem: a banner, a log line and, if you want, a message on your phone through ntfy, Gotify or a webhook.
 - **See it at a glance:** tiles with the hottest drive and the average fan speed, a colored bar per drive and per fan, fan icons that turn with the fans.

@@ -259,6 +259,17 @@
             <span data-i18n="settings.restore_fan_settings"></span></label>
         </article>
 
+        <article class="card">
+          <h2 data-icon="backup" data-i18n="settings.backup"></h2>
+          <p class="muted small" data-i18n="settings.backup_help"></p>
+          <div class="actions">
+            <button type="button" id="export-settings" class="secondary" data-icon="download" data-i18n="action.export"></button>
+            <button type="button" id="import-settings" class="secondary" data-icon="upload" data-i18n="action.import"></button>
+            <input type="file" id="import-file" accept="application/json,.json" hidden>
+            <span id="backup-result" class="small"></span>
+          </div>
+        </article>
+
         <div class="actions sticky">
           <button type="submit" data-i18n="action.save"></button>
           <button type="button" id="reset-settings" class="secondary" data-i18n="action.reset"></button>
