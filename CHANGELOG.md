@@ -7,6 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- The highest operating temperature a drive is made for stayed empty: it
+  is in the SCT temperature history, which smartctl now reads too
+  (`-l scttemp`).
+
 ## [0.5.0] - 2026-11-16
 
 ### Added

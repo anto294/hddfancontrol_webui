@@ -107,7 +107,7 @@ async def test_read_smart(make_script: ScriptMaker) -> None:
     """smartctl runs with -n standby and its JSON is summarized."""
     smartctl = make_script(
         "smartctl",
-        "assert sys.argv[1:7] == ['-j', '-a', '-l', 'scttempsts', '-n', 'standby'], sys.argv\n" f"print({json.dumps(ATA)!r})",
+        "assert sys.argv[1:7] == ['-j', '-a', '-l', 'scttemp', '-n', 'standby'], sys.argv\n" f"print({json.dumps(ATA)!r})",
     )
     good = await read_smart("/dev/sda", smartctl)
     assert good["model"] == "ST4000VN006-3CW104"
@@ -133,6 +133,10 @@ def test_drive_identity() -> None:
     assert summary["family"] == "Seagate IronWolf" and summary["rpm"] == 5400
     assert (summary["link_max"], summary["link_now"], summary["protocol"]) == ("6.0 Gb/s", "3.0 Gb/s", "ATA")
     assert (summary["temp_limit"], summary["temp_lifetime_max"]) == (70, 52)
+    history = {**data, "ata_sct_temperature_history": {"temperature": {"op_limit_max": 60}}}
+    assert summarize(history, 0)["temp_limit"] == 60
+    plain = {**ATA, "temperature": {"current": 30, "op_limit_max": 55}}
+    assert summarize(plain, 0)["temp_limit"] == 55
     assert summary["catalog"] == {"brand": "Seagate", "line": "IronWolf", "use": "nas", "recording": "CMR"}
     ssd = summarize({**ATA, "rotation_rate": 0}, 0)
     assert ssd["rpm"] is None and ssd["catalog"]["use"] == "ssd"
