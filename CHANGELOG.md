@@ -9,6 +9,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- What each drive is, on its card in the Drives tab: brand, product line,
+  use (NAS, enterprise, desktop, surveillance, SSD) and recording (CMR or
+  SMR, with a warning for SMR) from a small catalog of model numbers; the
+  family from the drive database of smartctl; speed, form factor; the
+  connection (SATA, SAS, NVMe or USB, link speed, and whether it hangs on a
+  board SATA port or an HBA such as mpt3sas); and, from the drive itself,
+  the highest operating temperature it is made for and the highest it ever
+  reached. The card warns when the maximum of the settings is above what
+  the drive is made for.
+
 - "Noted, hide" on the alert banners and on the warning about the missing
   password: the banner goes, the note is kept in the database for every
   browser, and a line says how many are hidden, with a button to show them

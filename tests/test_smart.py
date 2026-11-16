@@ -107,7 +107,7 @@ async def test_read_smart(make_script: ScriptMaker) -> None:
     """smartctl runs with -n standby and its JSON is summarized."""
     smartctl = make_script(
         "smartctl",
-        "assert sys.argv[1:5] == ['-j', '-a', '-n', 'standby'], sys.argv\n" f"print({json.dumps(ATA)!r})",
+        "assert sys.argv[1:7] == ['-j', '-a', '-l', 'scttempsts', '-n', 'standby'], sys.argv\n" f"print({json.dumps(ATA)!r})",
     )
     good = await read_smart("/dev/sda", smartctl)
     assert good["model"] == "ST4000VN006-3CW104"
@@ -116,3 +116,23 @@ async def test_read_smart(make_script: ScriptMaker) -> None:
         assert result["status"] == "error"
     hung = await read_smart("/dev/sda", make_script("hung", "time.sleep(30)"), limit_s=0.2)
     assert hung["status"] == "error" and "did not answer" in hung["messages"][0]
+
+
+def test_drive_identity() -> None:
+    """Family, speed, form factor, link and the temperature limits the drive reports."""
+    data = {
+        **ATA,
+        "model_family": "Seagate IronWolf",
+        "rotation_rate": 5400,
+        "form_factor": {"name": "3.5 inches"},
+        "device": {"protocol": "ATA"},
+        "interface_speed": {"max": {"string": "6.0 Gb/s"}, "current": {"string": "3.0 Gb/s"}},
+        "ata_sct_status": {"temperature": {"op_limit_max": 70, "lifetime_max": 52}},
+    }
+    summary = summarize(data, 0)
+    assert summary["family"] == "Seagate IronWolf" and summary["rpm"] == 5400
+    assert (summary["link_max"], summary["link_now"], summary["protocol"]) == ("6.0 Gb/s", "3.0 Gb/s", "ATA")
+    assert (summary["temp_limit"], summary["temp_lifetime_max"]) == (70, 52)
+    assert summary["catalog"] == {"brand": "Seagate", "line": "IronWolf", "use": "nas", "recording": "CMR"}
+    ssd = summarize({**ATA, "rotation_rate": 0}, 0)
+    assert ssd["rpm"] is None and ssd["catalog"]["use"] == "ssd"

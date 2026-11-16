@@ -335,5 +335,22 @@
   "alert.hidden": "{count} avvisi di cui hai preso nota sono nascosti.",
   "alert.show_hidden": "Mostra",
   "alert.hide_hidden": "Nascondi",
-  "alert.hidden_one": "1 avviso di cui hai preso nota è nascosto."
+  "alert.hidden_one": "1 avviso di cui hai preso nota è nascosto.",
+
+  "smart.family": "Famiglia",
+  "smart.connection": "Collegamento",
+  "smart.rpm": "Velocità di rotazione",
+  "smart.form_factor": "Formato",
+  "smart.temp_limit": "Temperatura massima di esercizio (dichiarata dal disco)",
+  "smart.temp_lifetime_max": "Temperatura più alta mai raggiunta",
+  "drive.link_max": "max {speed}",
+  "drive.ctrl_board": "porta SATA della scheda madre (ahci)",
+  "drive.ctrl_hba": "HBA ({driver})",
+  "drive.use.nas": "NAS",
+  "drive.use.enterprise": "Enterprise",
+  "drive.use.desktop": "Desktop",
+  "drive.use.surveillance": "Videosorveglianza",
+  "drive.use.ssd": "SSD",
+  "drive.smr_hint": "Registrazione SMR (shingled): lenta nelle scritture prolungate, poco adatta a ZFS e alle ricostruzioni RAID.",
+  "drive.max_over_limit": "La temperatura massima delle impostazioni ({max}) supera quella per cui è fatto questo disco ({limit})."
 }

@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from .const import SMARTCTL_BIN
+from .drivedb import lookup
 
 # ATA attributes that should stay at 0 on a healthy drive.
 WATCHED_ATTRIBUTES = {
@@ -53,7 +54,7 @@ def _messages(data: dict[str, Any]) -> list[str]:
 #   summarize
 # ---------------------------
 def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
-    """Reduce the JSON of 'smartctl -j -a' to what the web UI shows."""
+    """Reduce the JSON of 'smartctl -j -a -l scttempsts' to what the web UI shows."""
     messages = _messages(data)
     if exit_code & EXIT_OPEN_FAILED and "smart_status" not in data:
         if any("STANDBY" in m.upper() or "SLEEP" in m.upper() for m in messages):
@@ -72,6 +73,21 @@ def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
         "warnings": [],
         "attributes": [],
     }
+    # What the drive is: from the drive database of smartctl, the drive itself and drivedb.py.
+    rpm = data.get("rotation_rate")
+    sct = data.get("ata_sct_status", {}).get("temperature", {})
+    speed = data.get("interface_speed", {})
+    summary.update(
+        family=data.get("model_family", ""),
+        rpm=rpm if isinstance(rpm, int) and rpm > 0 else None,
+        form_factor=data.get("form_factor", {}).get("name", ""),
+        protocol=data.get("device", {}).get("protocol", ""),
+        link_max=speed.get("max", {}).get("string", ""),
+        link_now=speed.get("current", {}).get("string", ""),
+        temp_limit=sct.get("op_limit_max"),
+        temp_lifetime_max=sct.get("lifetime_max"),
+        catalog=lookup(summary["model"], None if rpm is None else rpm > 0),
+    )
     for attribute in data.get("ata_smart_attributes", {}).get("table", []):
         attr_id = attribute.get("id")
         raw = attribute.get("raw", {}).get("value")
@@ -126,6 +142,9 @@ async def read_smart(device: str, smartctl: str = SMARTCTL_BIN, limit_s: float =
             smartctl,
             "-j",
             "-a",
+            # The temperature limits the drive was made for, and the highest it has seen.
+            "-l",
+            "scttempsts",
             "-n",
             "standby",
             device,

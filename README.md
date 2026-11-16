@@ -38,7 +38,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - **Set up the fans without a shell:** the PWM test finds the value at which each fan starts and stops, and copies them into the settings.
 - **Let the drives sleep:** hd-idle spins them down after an idle time, which you can set per drive. Nothing in the web UI wakes a sleeping drive.
 - **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
-- **Keep an eye on the drives:** SMART health, power-on hours, reallocated and pending sectors, CRC errors, NVMe wear.
+- **Keep an eye on the drives:** SMART health, power-on hours, reallocated and pending sectors, CRC errors, NVMe wear; and what each drive is: brand and line, NAS or desktop, CMR or SMR, how it is connected (board SATA port, HBA, NVMe, USB, link speed) and the temperature it is made for.
 - **Keep a backup:** export the settings and the names to a file, and import them after a reinstall.
 - **Name things:** "Front fan", "Parity drive" instead of `pwm2` and `sdc`.
 - **Know when something is wrong:** a drive too hot, a fan that stopped, a SMART problem: a banner, a log line and, if you want, a message on your phone through ntfy, Gotify or a webhook.

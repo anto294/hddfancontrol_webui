@@ -1202,3 +1202,15 @@ button.link {
 .chart .now.hot {
   fill: var(--danger);
 }
+
+/* Drives: brand, line, use and recording */
+.identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.5rem;
+}
+
+.identity:empty {
+  display: none;
+}
