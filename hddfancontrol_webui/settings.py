@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .const import FAN_CMD_NOOP, SETTINGS_FILE
+from .storage import write_atomic
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -533,13 +534,8 @@ class SettingsStore:
             return Settings()
 
     def save(self, settings: Settings) -> None:
-        """Write the file in one step, so a crash never leaves half a file."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        with tmp.open("w", encoding="utf-8") as handle:
-            json.dump(settings.to_dict(), handle, indent=2)
-            handle.write("\n")
-        os.replace(tmp, self.path)
+        """Write the file in one step, so a crash never leaves half a file. Blocking."""
+        write_atomic(self.path, json.dumps(settings.to_dict(), indent=2) + "\n")
         self.error = None
 
     def reset(self) -> None:

@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 import unicodedata
 from pathlib import Path
 
 from .settings import is_dev_path, is_sys_path
+from .storage import write_atomic
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,9 +77,6 @@ class Labels:
                 labels.pop(key, None)
             if len(labels) > MAX_LABELS:
                 raise LabelError("too_many_labels")
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(labels, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            os.replace(tmp, self.path)
+            write_atomic(self.path, json.dumps(labels, indent=2, ensure_ascii=False) + "\n")
             self._labels = labels
             return dict(labels)

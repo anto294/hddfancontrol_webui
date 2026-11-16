@@ -24,6 +24,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .storage import write_atomic
+
 AUTH_FILE = "auth.json"
 SESSION_COOKIE = "hfc_session"
 SESSION_LIFETIME = 7 * 86400
@@ -167,13 +169,8 @@ class AuthStore:
             raise AuthError("password_too_short")
         salt = secrets.token_bytes(16)
         data = {"username": username, "salt": salt.hex(), "hash": _hash(password, salt).hex()}
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
         # Readable only by root: the hash is not the password, but still.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(data, handle)
-        os.replace(tmp, self.path)
+        write_atomic(self.path, json.dumps(data), mode=0o600)
         self._file = data
         self._sessions.clear()
 

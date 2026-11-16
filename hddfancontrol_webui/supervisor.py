@@ -378,7 +378,7 @@ class Supervisor:
         """Save new settings and restart with them."""
         async with self._lock:
             self._refuse_during_test()
-            self.store.save(settings)
+            await asyncio.to_thread(self.store.save, settings)
             self.settings, self.source = settings, SOURCE_FILE
             self._log("Settings saved, restarting")
             await self._restart()
@@ -387,8 +387,8 @@ class Supervisor:
         """Go back to the settings of the environment and restart."""
         async with self._lock:
             self._refuse_during_test()
-            self.store.reset()
-            self.settings, self.source = self.store.load()
+            await asyncio.to_thread(self.store.reset)
+            self.settings, self.source = await asyncio.to_thread(self.store.load)
             self._log("Saved settings deleted, using the environment variables")
             await self._restart()
 
