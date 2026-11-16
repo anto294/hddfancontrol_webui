@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -210,6 +211,10 @@ class FanController:
         self.safety = False
         self.auto = _AutoState()
         self._settings = Settings()
+        # The API sets manual values from a worker thread while the safety
+        # loop runs in the event loop: checking safety and writing must be one
+        # step, or a value could land just after the fans went to full speed.
+        self._manual_lock = threading.Lock()
 
     @property
     def active(self) -> bool:
@@ -234,10 +239,11 @@ class FanController:
         """Set one PWM output in manual control."""
         if self.mode != "manual":
             raise RuntimeError("Not in manual control")
-        if self.safety:
-            # Hot drives: the fans stay at full speed.
-            return
-        self.writer.write(path, value)
+        with self._manual_lock:
+            if self.safety:
+                # Hot drives: the fans stay at full speed.
+                return
+            self.writer.write(path, value)
 
     async def stop(self) -> None:
         """Stop and give the fans back."""
@@ -298,11 +304,12 @@ class FanController:
         while True:
             hottest = _hottest(self._latest(), hwmons)
             if hottest is not None and hottest >= settings.drive_temp_max and not self.safety:
-                self.safety = True
+                with self._manual_lock:
+                    self.safety = True
+                    for path in list(self.writer.values) + [p.path for p in settings.pwms]:
+                        with contextlib.suppress(OSError):
+                            self.writer.write(path, PWM_MAX)
                 self._log(f"WARNING: a drive is at {hottest:g} °C, every fan goes to full speed")
-                for path in list(self.writer.values) + [p.path for p in settings.pwms]:
-                    with contextlib.suppress(OSError):
-                        self.writer.write(path, PWM_MAX)
             # The temperatures change only once per interval of hddfancontrol.
             await asyncio.sleep(settings.interval_s)
 
