@@ -1,0 +1,353 @@
+"use strict";
+
+// The Settings tab: the form, the curve chart, reset, notifications and backup.
+// Loaded after app.js, whose helpers and state it uses; see app.js for the rules.
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+function numberInput(name, value, attrs = {}) {
+  return el("input", { type: "number", name, value: value ?? "", ...attrs });
+}
+
+function renderModeHelp() {
+  const mode = $("settings-form").control_mode.value;
+  $("mode-help").textContent = t(`settings.mode_help_${mode}`);
+  renderCurve();
+}
+
+// The fan speed for each drive temperature, as the form now stands, with
+// the hottest drive of the last sample as a dot. Curve mode: the minimum
+// speed up to the minimum temperature, full speed from the maximum, a line
+// in between. Auto mode: the speed is found by feedback, so only the target
+// and the maximum (full speed) are drawn.
+function renderCurve() {
+  const box = $("curve-chart");
+  const form = $("settings-form");
+  const low = Number(form.drive_temp_min.value);
+  const high = Number(form.drive_temp_max.value);
+  const target = Number(form.target_temp.value);
+  const minSpeed = Math.max(0, Math.min(100, Number(form.min_fan_speed_prct.value)));
+  box.replaceChildren();
+  if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) return;
+  const width = Math.max(box.clientWidth, 300);
+  const height = 170;
+  const pad = { left: 44, right: 14, top: 10, bottom: 26 };
+  const from = Math.floor(low - 10);
+  const to = Math.ceil(high + 8);
+  const x = (temp) => pad.left + ((temp - from) / (to - from)) * (width - pad.left - pad.right);
+  const y = (pct) => pad.top + (1 - pct / 100) * (height - pad.top - pad.bottom);
+  const chart = svg("svg", { viewBox: `0 0 ${width} ${height}`, width, height });
+  for (const pct of [0, 50, 100]) {
+    chart.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: y(pct), y2: y(pct), class: "gridline" }));
+    const label = svg("text", { x: pad.left - 6, y: y(pct) + 4, class: "axis", "text-anchor": "end" });
+    label.textContent = `${pct}%`;
+    chart.append(label);
+  }
+  for (const temp of niceTicks(from, to, 6)) {
+    const label = svg("text", { x: x(temp), y: height - 8, class: "axis", "text-anchor": "middle" });
+    label.textContent = `${temp}°`;
+    chart.append(label);
+  }
+  const auto = form.control_mode.value === "auto";
+  if (auto) {
+    for (const [temp, cls] of [[target, "marker target"], [high, "marker max"]]) {
+      if (!Number.isFinite(temp)) continue;
+      chart.append(svg("line", { x1: x(temp), x2: x(temp), y1: y(0), y2: y(100), class: cls }));
+    }
+    chart.append(svg("path", { d: `M${x(high)},${y(100)}H${width - pad.right}`, class: "series c1" }));
+  } else {
+    chart.append(svg("path", { d: `M${x(from)},${y(minSpeed)}H${x(low)}L${x(high)},${y(100)}H${width - pad.right}`, class: "series c1" }));
+  }
+  const temps = state.status && state.status.latest ? Object.values(state.status.latest.temps).filter((v) => v !== null) : [];
+  // In auto mode the dot sits at the speed the controller chose, when it runs.
+  const autoSpeed = state.status && state.status.fans.auto.speed !== null ? state.status.fans.auto.speed * 100 : null;
+  if (temps.length && (!auto || autoSpeed !== null)) {
+    const hottest = Math.max(...temps);
+    const curve = hottest <= low ? minSpeed : hottest >= high ? 100 : minSpeed + ((100 - minSpeed) * (hottest - low)) / (high - low);
+    const cx = x(Math.max(from, Math.min(to, hottest)));
+    const dot = svg("circle", { cx, cy: y(auto ? autoSpeed : curve), r: 5, class: `now ${tempLevel(hottest)}` });
+    const title = svg("title");
+    title.textContent = t("settings.curve_now", { temp: fmtTemp(hottest) });
+    dot.append(title);
+    chart.append(dot);
+  }
+  box.append(chart);
+}
+
+function renderSettings() {
+  const settings = state.settings;
+  if (!settings) return;
+  const form = $("settings-form");
+  $("settings-source").textContent = t(`settings.source_${state.settingsSource}`);
+  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "verbosity", "spin_down_time_s", "spin_down_command", "notify_url", "notify_format", "notify_language"]) {
+    form[name].value = settings[name];
+  }
+  form.restore_fan_settings.checked = settings.restore_fan_settings;
+  renderModeHelp();
+
+  // Drives: one row per drive found, with the name to use and its own spin down time.
+  const drives = $("drive-list");
+  drives.replaceChildren(
+    headRow(t("settings.drive_controls"), t("settings.drive_monitor"), t("settings.drive"), t("labels.label"), t("settings.drive_name"), t("settings.spin_down_own")),
+  );
+  const known = new Set();
+  for (const drive of state.hardware.drives) {
+    drive.ids.forEach((id) => known.add(id));
+    const controls = drive.ids.find((id) => settings.drives.includes(id));
+    const monitored = drive.ids.find((id) => settings.monitor_drives.includes(id));
+    const chosen = controls || monitored;
+    const select = el("select", { name: "drive_id" }, ...drive.ids.map((id) => el("option", { value: id, text: shortPath(id), selected: id === chosen })));
+    const own = chosen && chosen in settings.spin_down_drives ? settings.spin_down_drives[chosen] : "";
+    drives.append(
+      el(
+        "tr",
+        { "data-drive": drive.name },
+        el("td", {}, el("input", { type: "checkbox", name: "drive_use", checked: Boolean(controls), "aria-label": `${t("settings.drive_controls")} · ${drive.name}` })),
+        el("td", {}, el("input", { type: "checkbox", name: "drive_monitor", checked: Boolean(monitored), "aria-label": `${t("settings.drive_monitor")} · ${drive.name}` })),
+        el("td", {}, el("strong", { text: drive.name }), " ", el("span", { class: "muted small", text: `${drive.model} · ${fmtBytes(drive.size_bytes)}${drive.rotational === false ? " · SSD" : ""}` })),
+        el("td", {}, labelInput(chosen || drive.ids[0], driveLabelById(drive.ids[0]))),
+        el("td", {}, select),
+        el("td", {}, numberInput("drive_spin", own, { min: 0, max: 86400, placeholder: settings.spin_down_time_s, "aria-label": t("settings.spin_down_own") })),
+      ),
+    );
+  }
+  $("other-drives").value = settings.drives.filter((d) => !known.has(d)).join(" ");
+
+  // Fans: every PWM output found, and the configured ones that are missing.
+  const pwms = $("pwm-list");
+  pwms.replaceChildren(headRow("", t("fans.output"), t("settings.start"), t("settings.stop"), t("fans.speed")));
+  const configured = new Map(settings.pwms.map((pwm) => [pwm.path, pwm]));
+  const rows = allPwms().map((pwm) => ({ path: pwm.path, label: pwmLabel(pwm.path), rpm: pwm.rpm }));
+  for (const path of configured.keys()) {
+    if (!rows.some((r) => r.path === path)) rows.push({ path, label: `${path} (${t("settings.not_found")})`, rpm: null });
+  }
+  for (const item of rows) {
+    const pwm = configured.get(item.path);
+    pwms.append(
+      el(
+        "tr",
+        { "data-path": item.path },
+        el("td", {}, el("input", { type: "checkbox", name: "pwm_use", checked: Boolean(pwm), "aria-label": item.path })),
+        el("td", {}, el("strong", { text: item.label }), el("br"), el("small", { class: "muted", text: item.path })),
+        el("td", {}, numberInput("pwm_start", pwm ? pwm.start : "", { min: 0, max: 255, placeholder: "200" })),
+        el("td", {}, numberInput("pwm_stop", pwm ? pwm.stop : "", { min: 0, max: 255, placeholder: "75" })),
+        el("td", { text: fmtRpm(item.rpm) }),
+      ),
+    );
+  }
+
+  // Extra hwmon temperatures.
+  const hwmons = $("hwmon-list");
+  hwmons.replaceChildren(headRow("", t("settings.sensor"), t("settings.now"), t("settings.temp_min"), t("settings.temp_max")));
+  const chosen = new Map(settings.hwmons.map((h) => [h.path, h]));
+  const inputs = state.hardware.hwmons.flatMap((device) => device.temps.map((temp) => ({ ...temp, chip: device.name || device.hwmon })));
+  for (const path of chosen.keys()) {
+    if (!inputs.some((i) => i.path === path)) inputs.push({ path, label: t("settings.not_found"), chip: "", celsius: null });
+  }
+  for (const input of inputs) {
+    const hwmon = chosen.get(input.path);
+    hwmons.append(
+      el(
+        "tr",
+        { "data-path": input.path },
+        el("td", {}, el("input", { type: "checkbox", name: "hwmon_use", checked: Boolean(hwmon), "aria-label": input.path })),
+        el("td", {}, el("strong", { text: `${input.chip} · ${input.label}` }), el("br"), el("small", { class: "muted", text: input.path })),
+        el("td", { text: fmtTemp(input.celsius) }),
+        el("td", {}, numberInput("hwmon_min", hwmon ? hwmon.temp_min : "", { step: 0.5, min: 0, max: 120 })),
+        el("td", {}, numberInput("hwmon_max", hwmon ? hwmon.temp_max : "", { step: 0.5, min: 0, max: 120 })),
+      ),
+    );
+  }
+}
+
+function optionalNumber(value) {
+  return value === "" ? null : Number(value);
+}
+
+function collectSettings() {
+  const form = $("settings-form");
+  const doc = {};
+  for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "spin_down_time_s"]) {
+    doc[name] = form[name].value === "" ? null : Number(form[name].value);
+  }
+  for (const name of ["control_mode", "verbosity", "spin_down_command", "notify_url", "notify_format", "notify_language"]) doc[name] = form[name].value;
+  doc.restore_fan_settings = form.restore_fan_settings.checked;
+
+  doc.drives = [];
+  doc.spin_down_drives = {};
+  // Monitored drives that are not on the host now stay monitored.
+  const found = new Set(state.hardware.drives.flatMap((drive) => drive.ids));
+  doc.monitor_drives = (state.settings ? state.settings.monitor_drives : []).filter((id) => !found.has(id));
+  for (const line of $("drive-list").querySelectorAll("tr[data-drive]")) {
+    const id = line.querySelector("[name=drive_id]").value;
+    if (line.querySelector("[name=drive_monitor]").checked) doc.monitor_drives.push(id);
+    if (!line.querySelector("[name=drive_use]").checked) continue;
+    doc.drives.push(id);
+    const own = line.querySelector("[name=drive_spin]").value;
+    if (own !== "") doc.spin_down_drives[id] = Number(own);
+  }
+  for (const other of $("other-drives").value.split(/\s+/).filter(Boolean)) {
+    doc.drives.push(other);
+    if (state.settings && other in state.settings.spin_down_drives) doc.spin_down_drives[other] = state.settings.spin_down_drives[other];
+  }
+
+  doc.pwms = [];
+  for (const line of $("pwm-list").querySelectorAll("tr[data-path]")) {
+    if (!line.querySelector("[name=pwm_use]").checked) continue;
+    doc.pwms.push({
+      path: line.dataset.path,
+      start: optionalNumber(line.querySelector("[name=pwm_start]").value),
+      stop: optionalNumber(line.querySelector("[name=pwm_stop]").value),
+    });
+  }
+
+  doc.hwmons = [];
+  for (const line of $("hwmon-list").querySelectorAll("tr[data-path]")) {
+    if (!line.querySelector("[name=hwmon_use]").checked) continue;
+    const hwmon = { path: line.dataset.path };
+    const low = optionalNumber(line.querySelector("[name=hwmon_min]").value);
+    const high = optionalNumber(line.querySelector("[name=hwmon_max]").value);
+    if (low !== null) hwmon.temp_min = low;
+    if (high !== null) hwmon.temp_max = high;
+    doc.hwmons.push(hwmon);
+  }
+  return doc;
+}
+
+function showProblems(problems) {
+  for (const node of document.querySelectorAll("[data-error]")) node.textContent = "";
+  for (const problem of problems) {
+    const exact = document.querySelector(`[data-error="${CSS.escape(problem.field)}"]`);
+    const target = exact || document.querySelector(`[data-error="${CSS.escape(problem.field.split(".")[0])}"]`);
+    const text = t(`error.${problem.code}`, problem.params || {});
+    if (target) target.textContent = target.textContent ? `${target.textContent} ${text}` : `${problem.field}: ${text}`;
+  }
+}
+
+async function loadSettings() {
+  const data = await api("GET", "/api/settings");
+  state.settings = data.settings;
+  state.settingsSource = data.source;
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  const result = $("save-result");
+  result.textContent = "";
+  showProblems([]);
+  try {
+    const data = await api("PUT", "/api/settings", collectSettings());
+    state.settings = data.settings;
+    state.settingsSource = data.source;
+    renderSettings();
+    result.textContent = t("settings.saved");
+    result.className = "small ok";
+  } catch (error) {
+    if (error.data && error.data.problems) showProblems(error.data.problems);
+    result.textContent = errorText(error);
+    result.className = "small error";
+  }
+  pollStatus();
+}
+
+// Deleting the saved settings cannot be undone: the first click only arms the
+// button for a few seconds, the second one deletes.
+let resetArmed = null;
+
+function disarmReset() {
+  clearTimeout(resetArmed);
+  resetArmed = null;
+  const button = $("reset-settings");
+  button.textContent = t("action.reset");
+  button.className = "secondary";
+}
+
+async function resetSettings() {
+  const button = $("reset-settings");
+  if (resetArmed === null) {
+    button.textContent = t("action.reset_confirm");
+    button.className = "danger";
+    resetArmed = setTimeout(disarmReset, 5000);
+    return;
+  }
+  disarmReset();
+  const result = $("save-result");
+  try {
+    const data = await api("DELETE", "/api/settings");
+    state.settings = data.settings;
+    state.settingsSource = data.source;
+    renderSettings();
+    result.textContent = t("settings.reset_done");
+    result.className = "small ok";
+  } catch (error) {
+    result.textContent = errorText(error);
+    result.className = "small error";
+  }
+}
+
+async function testNotify() {
+  const result = $("notify-result");
+  const button = $("notify-test");
+  button.disabled = true;
+  result.textContent = "";
+  try {
+    await api("POST", "/api/notify/test");
+    result.textContent = t("settings.notify_sent");
+    result.className = "small ok";
+  } catch (error) {
+    result.textContent = errorText(error);
+    result.className = "small error";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// A backup is one JSON file with the saved settings and the names.
+const BACKUP_KIND = "hddfancontrol-webui-backup";
+
+async function exportSettings() {
+  const data = await api("GET", "/api/settings");
+  const labels = await api("GET", "/api/labels");
+  const doc = { kind: BACKUP_KIND, version: 1, exported: new Date().toISOString(), settings: data.settings, labels };
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
+  const link = el("a", { href: URL.createObjectURL(blob), download: `hddfancontrol-settings-${new Date().toISOString().slice(0, 10)}.json` });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+async function importSettings(file) {
+  const result = $("backup-result");
+  result.className = "small error";
+  let doc;
+  try {
+    doc = JSON.parse(await file.text());
+  } catch {
+    result.textContent = t("error.backup_invalid");
+    return;
+  }
+  if (!doc || doc.kind !== BACKUP_KIND || typeof doc.settings !== "object") {
+    result.textContent = t("error.backup_invalid");
+    return;
+  }
+  try {
+    // The server checks the settings as if they were typed in the form.
+    const data = await api("PUT", "/api/settings", doc.settings);
+    state.settings = data.settings;
+    state.settingsSource = data.source;
+    for (const [key, label] of Object.entries(doc.labels || {})) {
+      if (typeof label === "string") state.labels = await api("PUT", "/api/labels", { key, label });
+    }
+  } catch (error) {
+    if (error.data && error.data.problems) showProblems(error.data.problems);
+    result.textContent = errorText(error);
+    return;
+  }
+  renderSettings();
+  result.textContent = t("settings.imported");
+  result.className = "small ok";
+  pollStatus();
+}

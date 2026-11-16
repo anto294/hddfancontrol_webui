@@ -1,0 +1,165 @@
+"use strict";
+
+// The Fans tab (manual control) and the PWM test.
+// Loaded after app.js, whose helpers and state it uses; see app.js for the rules.
+
+// ---------------------------------------------------------------------------
+// Fans: manual control
+// ---------------------------------------------------------------------------
+
+function renderFansState() {
+  const status = state.status;
+  if (!status) return;
+  const button = $("manual-toggle");
+  button.textContent = status.manual ? t("action.leave_manual") : t("action.enter_manual");
+  button.className = status.manual ? "danger" : "";
+  button.disabled = status.pwm_test.running || status.read_only;
+  $("manual-safety").hidden = !status.fans.safety;
+  const reason = status.fans.safety_reason;
+  $("manual-safety").textContent = reason === "stale" ? t("fans.safety_stale") : reason === "error" ? t("fans.safety_error") : t("fans.safety");
+  for (const input of document.querySelectorAll("#fan-list input[type=range]")) {
+    input.disabled = !status.manual || status.fans.safety;
+  }
+}
+
+function sendPwm(path, value) {
+  clearTimeout(state.pending.get(path));
+  state.pending.set(
+    path,
+    setTimeout(async () => {
+      try {
+        await api("PUT", "/api/manual/pwm", { path, value });
+      } catch (error) {
+        alertBanner(errorText(error));
+      }
+    }, 120),
+  );
+}
+
+function renderFans() {
+  const list = $("fan-list");
+  const manual = state.status ? state.status.manual : false;
+  const configured = new Set((state.settings ? state.settings.pwms : []).map((pwm) => pwm.path));
+  for (const device of state.hardware.hwmons) {
+    if (device.pwms.length === 0) continue;
+    let group = list.querySelector(`[data-hwmon="${device.hwmon}"]`);
+    if (!group) {
+      group = el("div", { class: "fan-group", "data-hwmon": device.hwmon }, el("h3", { text: `${device.name || "?"} (${device.hwmon})` }));
+      list.append(group);
+    }
+    for (const pwm of device.pwms) {
+      let line = group.querySelector(`[data-path="${pwm.path}"]`);
+      if (!line) {
+        const range = el("input", { type: "range", min: 0, max: 255, step: 1, "aria-label": pwm.path });
+        range.addEventListener("pointerdown", () => state.dragging.add(pwm.path));
+        range.addEventListener("pointerup", () => state.dragging.delete(pwm.path));
+        range.addEventListener("input", () => {
+          line.querySelector(".pct").textContent = fmtPct(Number(range.value));
+          sendPwm(pwm.path, Number(range.value));
+        });
+        line = el(
+          "div",
+          { class: "fan-line", "data-path": pwm.path },
+          el(
+            "div",
+            { class: "fan-name" },
+            el("strong", { text: shortPath(pwm.path) }),
+            el("span", { class: "badge" }),
+            labelInput(pwm.path, state.labels[pwm.path]),
+            el("small", { class: "muted", text: pwm.path }),
+          ),
+          range,
+          el("span", { class: "pct" }),
+          el("span", { class: "rpm" }),
+        );
+        group.append(line);
+      }
+      const range = line.querySelector("input[type=range]");
+      if (!state.dragging.has(pwm.path) && document.activeElement !== range && pwm.value !== null) {
+        range.value = pwm.value;
+        line.querySelector(".pct").textContent = fmtPct(pwm.value);
+      }
+      range.disabled = !manual || (state.status && state.status.fans.safety);
+      line.querySelector(".rpm").textContent = fmtRpm(pwm.rpm);
+      const badge = line.querySelector(".badge");
+      badge.textContent = configured.has(pwm.path) ? t("fans.configured") : "";
+      badge.hidden = !configured.has(pwm.path);
+    }
+  }
+  if (!list.children.length) list.replaceChildren(el("p", { class: "muted", text: t("banner.no_pwm") }));
+}
+
+async function toggleManual() {
+  const enabled = !(state.status && state.status.manual);
+  try {
+    await api("PUT", "/api/manual", { enabled });
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  await pollStatus();
+  await pollHardware();
+}
+
+// ---------------------------------------------------------------------------
+// PWM test
+// ---------------------------------------------------------------------------
+
+function renderPwmTestList() {
+  const list = $("pwmtest-list");
+  const checked = new Set([...list.querySelectorAll("input:checked")].map((i) => i.value));
+  list.replaceChildren(
+    ...allPwms().map((pwm) =>
+      el("label", { class: "check" }, el("input", { type: "checkbox", value: pwm.path, checked: checked.has(pwm.path) }), `${pwmLabel(pwm.path)} — ${fmtRpm(pwm.rpm)}`),
+    ),
+  );
+}
+
+function renderPwmTest() {
+  const test = state.status.pwm_test;
+  $("pwmtest-start").disabled = test.running || state.status.read_only;
+  $("pwmtest-cancel").disabled = !test.running;
+  const table = $("pwmtest-results");
+  table.replaceChildren(headRow(t("fans.output"), t("pwmtest.status"), t("settings.start"), t("settings.stop")));
+  for (const path of test.paths) {
+    const result = test.results[path] || { status: "pending" };
+    const status = t(`pwmtest.${result.status}`) + (result.error ? ` (${result.error})` : "") + (test.current === path ? " …" : "");
+    table.append(row(pwmLabel(path), status, String(result.start ?? "–"), String(result.stop ?? "–")));
+  }
+  $("pwmtest-use").disabled = !Object.values(test.results).some((r) => r.status === "done");
+}
+
+async function startPwmTest() {
+  const paths = [...$("pwmtest-list").querySelectorAll("input:checked")].map((i) => i.value);
+  if (!paths.length) return;
+  try {
+    await api("POST", "/api/pwm-test", { paths });
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  pollStatus();
+}
+
+async function cancelPwmTest() {
+  try {
+    await api("DELETE", "/api/pwm-test");
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+  pollStatus();
+}
+
+function usePwmResults() {
+  showTab("settings");
+  const results = state.status.pwm_test.results;
+  for (const [path, result] of Object.entries(results)) {
+    if (result.status !== "done") continue;
+    const line = $("pwm-list").querySelector(`tr[data-path="${CSS.escape(path)}"]`);
+    if (!line) continue;
+    line.querySelector("[name=pwm_use]").checked = true;
+    line.querySelector("[name=pwm_start]").value = result.start;
+    line.querySelector("[name=pwm_stop]").value = result.stop;
+  }
+  const result = $("save-result");
+  result.textContent = t("pwmtest.review");
+  result.className = "small";
+}
