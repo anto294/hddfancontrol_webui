@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .aio import cancel_and_wait
 from .const import (
     HDDFANCONTROL_BIN,
     HDIDLE_BIN,
@@ -179,9 +180,7 @@ class Daemon:
         """Stop the program and wait until it has exited."""
         task, self._task = self._task, None
         if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            await cancel_and_wait(task)
         self.state = MODE_STOPPED
         self.pid = None
 
@@ -432,9 +431,7 @@ class Supervisor:
         """Stop the PWM test, if one runs. Everything starts again."""
         task = self._test_task
         if task is not None and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            await cancel_and_wait(task)
 
     async def _test_one(self, path: str, log: Callable[[str], None]) -> None:
         """Run 'hddfancontrol pwm-test' on one PWM output and keep its result."""

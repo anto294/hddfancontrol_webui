@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .aio import cancel_and_wait
 from .settings import Pwm, Settings
 
 _LOGGER = logging.getLogger(__name__)
@@ -249,9 +250,7 @@ class FanController:
         """Stop and give the fans back."""
         task, self._task = self._task, None
         if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            await cancel_and_wait(task)
         try:
             self.writer.restore()
         except OSError as err:

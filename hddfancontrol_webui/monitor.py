@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
+from .aio import cancel_and_wait
 from .const import RECORD_PERIOD
 from .hardware import Hardware
 from .history import History
@@ -55,10 +55,7 @@ class Monitor:
     async def stop(self) -> None:
         """Stop the background loops."""
         for task in self._tasks:
-            task.cancel()
-        for task in self._tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            await cancel_and_wait(task)
         self._tasks = []
 
     def record_once(self) -> int:
