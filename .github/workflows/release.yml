@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  bare-metal:
+    # The bare metal tarballs: the static hddfancontrol, hd-idle and sdparm
+    # of the image, the Python wheel, the systemd unit and install.sh. Release
+    # notes are written by hand from CHANGELOG.md when the release is
+    # created, so this job only builds and attaches the assets.
+    name: Bare metal tarball (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+          - arch: armv7
+            platform: linux/arm/v7
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Validate tag and derive version
+        run: |
+          VERSION="${TAG#v}"
+          # X.Y.Z with an optional beta suffix, e.g. 1.5.0 or 1.5.0b1.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(b[0-9]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not a valid version (expected vX.Y.Z or vX.Y.ZbN)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the static programs
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: binaries
+          platforms: ${{ matrix.platform }}
+          outputs: type=local,dest=${{ runner.temp }}/bin
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Build the wheel
+        run: |
+          sed -i "s/^version = \"0.0.0\"/version = \"$VERSION\"/" pyproject.toml
+          grep -q "^version = \"$VERSION\"" pyproject.toml
+          python -m pip install --upgrade build
+          python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+
+      - name: Pack the tarball
+        run: |
+          NAME="hddfancontrol-webui-$VERSION-linux-${{ matrix.arch }}"
+          DIR="$RUNNER_TEMP/$NAME"
+          mkdir -p "$DIR/bin"
+          install -m 0755 "$RUNNER_TEMP"/bin/hddfancontrol "$RUNNER_TEMP"/bin/hd-idle "$RUNNER_TEMP"/bin/sdparm "$DIR/bin/"
+          file "$DIR"/bin/* | tee /dev/stderr | grep -q "statically linked"
+          cp "$RUNNER_TEMP"/dist/*.whl packaging/install.sh packaging/hddfancontrol-webui.service packaging/env.example LICENSE README.md "$DIR/"
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/$NAME.tar.gz" "$NAME"
+          (cd "$RUNNER_TEMP" && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
+
+      - name: Attach to the release
+        run: gh release upload "$TAG" "$RUNNER_TEMP/$NAME.tar.gz" "$RUNNER_TEMP/$NAME.tar.gz.sha256" --clobber

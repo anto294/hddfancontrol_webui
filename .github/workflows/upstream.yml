@@ -1,0 +1,46 @@
+name: Upstream versions
+
+on:
+  schedule:
+    # Weekly: hddfancontrol and hd-idle are pinned in the Dockerfile, and
+    # Dependabot cannot see them.
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  check:
+    name: Check hddfancontrol and hd-idle releases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Open an issue for each newer release
+        run: |
+          check() {
+            arg="$1" repo="$2"
+            pinned=$(sed -n "s/^ARG $arg=//p" Dockerfile)
+            latest=$(gh api "repos/$repo/releases/latest" --jq .tag_name)
+            echo "$repo: pinned $pinned, latest $latest"
+            [ "$pinned" = "$latest" ] && return 0
+            title="Update $repo to $latest"
+            if gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[].number' | grep -q .; then
+              echo "An issue is already open: $title"
+              return 0
+            fi
+            gh issue create --title "$title" --label dependencies --body \
+              "The Dockerfile pins \`$arg=$pinned\`, and [$repo](https://github.com/$repo/releases/tag/$latest) released \`$latest\`. Read its changes, update the ARG, check that the command line in \`settings.py\` still matches, and add an entry to CHANGELOG.md."
+          }
+          check HDDFANCONTROL_VERSION desbma/hddfancontrol
+          check HDIDLE_VERSION adelolmo/hd-idle

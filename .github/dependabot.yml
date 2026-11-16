@@ -1,0 +1,39 @@
+version: 2
+updates:
+  # Keep GitHub Actions versions current (Node runtime deprecations, fixes).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - github_actions
+    commit-message:
+      prefix: "CI"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Base images of the Dockerfile (alpine, golang). hddfancontrol, hd-idle
+  # and sdparm are checked by upstream.yml.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "Docker"
+
+  # aiohttp, for the bare metal package.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: "Python"

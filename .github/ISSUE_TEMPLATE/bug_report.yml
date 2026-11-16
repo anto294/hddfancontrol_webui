@@ -1,0 +1,74 @@
+name: Bug report
+description: Something doesn't work the way it should
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the web UI, go to ...
+        2. Set ...
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options:
+        - TrueNAS SCALE (Custom App / Docker)
+        - Docker or Docker Compose on another system
+        - Bare metal (release tarball and install.sh)
+        - From source
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown at the bottom of the web UI, or the image tag.
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: Operating system and version
+      placeholder: TrueNAS SCALE 25.10.1, Debian 13, Unraid 7.1, ...
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Mainboard and fan chip
+      description: The chip name is shown in the Fans tab (nct6798, it8728, ...).
+      placeholder: ASRock B550M Pro4, nct6779
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Fan control mode
+      options:
+        - Curve (minimum / maximum)
+        - Auto (target temperature)
+        - Manual control
+        - Not set up yet
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: From the Logs tab, `docker logs`, or `journalctl -u hddfancontrol-webui`.
+      render: shell
