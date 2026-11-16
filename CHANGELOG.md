@@ -12,8 +12,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A web UI for hddfancontrol 2.1.2 and hd-idle 1.21, in English and Italian.
 - Three fan control modes: the curve of hddfancontrol between a minimum and a
   maximum temperature; an auto mode that keeps the hottest drive near a
-  target; and manual control with a slider per PWM output, to find which fan
-  is which. Hot drives put every fan at full speed in any mode.
+  target; and manual control with a slider per chosen fan, to find which fan
+  is which. Only the fans chosen in the settings are ever written; the other
+  PWM outputs are only shown. Hot drives put every fan at full speed in any
+  mode.
 - The PWM test of hddfancontrol, from the web UI, with its values copied into
   the settings.
 - A spin down time per drive.

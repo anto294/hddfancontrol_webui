@@ -13,7 +13,7 @@ from conftest import ScriptMaker
 from hddfancontrol_webui import supervisor as supervisor_module
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.settings import SettingsStore, from_dict
-from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, Supervisor
+from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, NotSelected, Supervisor
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 CONFIG = {
@@ -126,6 +126,9 @@ async def test_manual_mode(setup: tuple[Supervisor, Path], fake_sys: Path) -> No
     assert supervisor.mode == "manual"
     supervisor.set_pwm(PWM1, 99)
     assert (fake_sys / "class/hwmon/hwmon2/pwm1").read_text().strip() == "99"
+    with pytest.raises(NotSelected):
+        supervisor.set_pwm("/sys/class/hwmon/hwmon2/pwm2", 10)
+    assert (fake_sys / "class/hwmon/hwmon2/pwm2").read_text().strip() == "255"
     await wait_for(lambda: "--fan-cmd" in read(calls))
     await supervisor.set_manual(False)
     assert (fake_sys / "class/hwmon/hwmon2/pwm1_enable").read_text().strip() == "5"

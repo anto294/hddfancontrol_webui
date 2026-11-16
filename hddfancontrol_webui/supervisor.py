@@ -60,6 +60,13 @@ class Busy(RuntimeError):
 
 
 # ---------------------------
+#   NotSelected
+# ---------------------------
+class NotSelected(ValueError):
+    """The PWM output is not one of the fans chosen in the settings."""
+
+
+# ---------------------------
 #   LogBuffer
 # ---------------------------
 class LogBuffer:
@@ -375,9 +382,11 @@ class Supervisor:
             await self._restart()
 
     def set_pwm(self, path: str, value: int) -> None:
-        """Set a PWM output in manual control."""
+        """Set a PWM output in manual control. Only the fans chosen in the settings can be set."""
         if not self.manual:
             raise Busy("Not in manual control")
+        if all(pwm.path != path for pwm in self.settings.pwms):
+            raise NotSelected(path)
         self.fans.set_manual(path, value)
 
     def _refuse_during_test(self) -> None:

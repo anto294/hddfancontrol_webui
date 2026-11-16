@@ -33,7 +33,7 @@ from .labels import LabelError, Labels
 from .monitor import Monitor
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsError, from_dict
-from .supervisor import Busy, Supervisor
+from .supervisor import Busy, NotSelected, Supervisor
 from .templog import TempLog
 
 _LOGGER = logging.getLogger(__name__)
@@ -456,6 +456,8 @@ async def put_manual_pwm(request: web.Request) -> web.Response:
         await asyncio.to_thread(request.app[SUPERVISOR].set_pwm, path, value)
     except Busy:
         return _json_error(409, "not_manual")
+    except NotSelected:
+        return _json_error(409, "pwm_not_selected")
     except OSError as err:
         return _json_error(500, "write_failed", [{"field": "path", "code": "write_failed", "params": {"error": str(err)}}])
     return web.json_response({"ok": True})

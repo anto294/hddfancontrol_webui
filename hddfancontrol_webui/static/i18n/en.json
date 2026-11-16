@@ -59,7 +59,8 @@
   "overview.restarts": "{count} restarts",
 
   "fans.title": "Fans",
-  "fans.intro": "Every PWM output of the host. In manual control, move a slider and watch the speed to find which fan it drives. Manual control is never saved: a restart goes back to automatic control.",
+  "fans.intro": "Every PWM output of the host. Only the fans chosen in Settings are ever controlled: in manual control, move their sliders and watch the speed to find which fan each one drives. The other outputs are only shown. Manual control is never saved: a restart goes back to automatic control.",
+  "fans.not_controlled": "not controlled: choose it in Settings",
   "fans.safety": "A drive reached the maximum temperature: the fans stay at full speed.",
   "fans.output": "Output",
   "fans.speed": "Speed",
@@ -217,6 +218,7 @@
   "error.password_too_short": "The password needs at least 8 characters.",
   "error.password_mismatch": "The two passwords differ.",
   "error.unknown_pwm": "This PWM output does not exist on the host.",
+  "error.pwm_not_selected": "This fan is not chosen in Settings: it is never controlled.",
   "error.not_manual": "Enter manual control first.",
   "error.write_failed": "Cannot write the PWM file.",
   "error.network": "The web UI cannot reach the server.",

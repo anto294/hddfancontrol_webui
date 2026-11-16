@@ -334,7 +334,7 @@ function renderFansState() {
   button.disabled = status.pwm_test.running;
   $("manual-safety").hidden = !status.fans.safety;
   for (const input of document.querySelectorAll("#fan-list input[type=range]")) {
-    input.disabled = !status.manual || status.fans.safety;
+    input.disabled = input.hidden || !status.manual || status.fans.safety;
   }
 }
 
@@ -384,7 +384,7 @@ function renderFans() {
             labelInput(pwm.path, state.labels[pwm.path]),
             el("small", { class: "muted", text: pwm.path }),
           ),
-          range,
+          el("div", { class: "fan-control" }, range, el("span", { class: "muted small readonly", text: t("fans.not_controlled") })),
           el("span", { class: "pct" }),
           el("span", { class: "rpm" }),
         );
@@ -395,7 +395,11 @@ function renderFans() {
         range.value = pwm.value;
         line.querySelector(".pct").textContent = fmtPct(pwm.value);
       }
-      range.disabled = !manual || (state.status && state.status.fans.safety);
+      // Only the fans chosen in the settings get a slider: the others are never written.
+      const chosen = configured.has(pwm.path);
+      range.hidden = !chosen;
+      line.querySelector(".readonly").hidden = chosen;
+      range.disabled = !chosen || !manual || (state.status && state.status.fans.safety);
       line.querySelector(".rpm").textContent = fmtRpm(pwm.rpm);
       const badge = line.querySelector(".badge");
       badge.textContent = configured.has(pwm.path) ? t("fans.configured") : "";

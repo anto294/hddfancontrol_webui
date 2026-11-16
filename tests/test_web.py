@@ -185,8 +185,10 @@ async def test_settings_api(make_client: ClientMaker) -> None:
 
 
 async def test_manual_api(make_client: ClientMaker, fake_sys: Path) -> None:
-    """Manual control only accepts real PWM files and valid values."""
+    """Manual control only accepts the chosen PWM files and valid values."""
     client = await make_client()
+    fans = [{"path": PWM1, "start": 200, "stop": 75}, {"path": "/sys/class/hwmon/hwmon2/pwm2", "start": 200, "stop": 75}]
+    assert (await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans[:1]}, headers=FETCH)).status == 200
     assert (await client.put("/api/manual/pwm", json={"path": PWM1, "value": 10}, headers=FETCH)).status == 409
     assert (await client.put("/api/manual", json={"enabled": "yes"}, headers=FETCH)).status == 400
     assert (await client.put("/api/manual", json={"enabled": True}, headers=FETCH)).status == 200
@@ -197,6 +199,11 @@ async def test_manual_api(make_client: ClientMaker, fake_sys: Path) -> None:
     assert (await client.put("/api/manual/pwm", json={"path": PWM1, "value": True}, headers=FETCH)).status == 400
     assert (await client.put("/api/manual/pwm", json={"path": PWM1, "value": 77}, headers=FETCH)).status == 200
     assert (fake_sys / "class/hwmon/hwmon2/pwm1").read_text().strip() == "77"
+    other = await client.put("/api/manual/pwm", json={"path": "/sys/class/hwmon/hwmon2/pwm2", "value": 1}, headers=FETCH)
+    assert other.status == 409 and (await other.json())["error"] == "pwm_not_selected"
+    assert (fake_sys / "class/hwmon/hwmon2/pwm2").read_text().strip() == "255"
+    assert (await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans}, headers=FETCH)).status == 200
+    assert (await client.put("/api/manual", json={"enabled": True}, headers=FETCH)).status == 200
     (fake_sys / "class/hwmon/hwmon2/pwm2").chmod(0o400)
     denied = await client.put("/api/manual/pwm", json={"path": "/sys/class/hwmon/hwmon2/pwm2", "value": 1}, headers=FETCH)
     assert denied.status in (200, 500)

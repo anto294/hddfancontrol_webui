@@ -59,7 +59,8 @@
   "overview.restarts": "{count} riavvii",
 
   "fans.title": "Ventole",
-  "fans.intro": "Tutte le uscite PWM dell'host. In controllo manuale muovi un cursore e guarda la velocità per capire quale ventola comanda. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico.",
+  "fans.intro": "Tutte le uscite PWM dell'host. Vengono comandate solo le ventole scelte nelle impostazioni: in controllo manuale muovi i loro cursori e guarda la velocità per capire quale ventola comanda ciascuno. Le altre uscite vengono solo mostrate. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico.",
+  "fans.not_controlled": "non comandata: sceglila nelle impostazioni",
   "fans.safety": "Un disco ha raggiunto la temperatura massima: le ventole restano al massimo.",
   "fans.output": "Uscita",
   "fans.speed": "Velocità",
@@ -217,6 +218,7 @@
   "error.password_too_short": "La password deve avere almeno 8 caratteri.",
   "error.password_mismatch": "Le due password sono diverse.",
   "error.unknown_pwm": "Questa uscita PWM non esiste sull'host.",
+  "error.pwm_not_selected": "Questa ventola non è scelta nelle impostazioni: non viene mai comandata.",
   "error.not_manual": "Passa prima al controllo manuale.",
   "error.write_failed": "Impossibile scrivere il file PWM.",
   "error.network": "La web UI non raggiunge il server.",
