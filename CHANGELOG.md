@@ -7,6 +7,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- The footer of the Docker image showed the version with two v's (vv0.2.0):
+  the image gets the release tag, and the page added another v.
+
 ## [0.3.0] - 2026-11-16
 
 ### Added

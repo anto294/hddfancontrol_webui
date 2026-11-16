@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from importlib import metadata
 from pathlib import Path
 
@@ -11,9 +12,13 @@ from pathlib import Path
 #   _version
 # ---------------------------
 def _version() -> str:
-    """The version: APP_VERSION in the image, the package version on bare metal, else "dev"."""
+    """The version without a leading "v": APP_VERSION in the image, the package version on bare metal, else "dev".
+
+    The image gets the release tag (v0.3.0) as APP_VERSION; the web UI adds
+    the "v" itself.
+    """
     if os.environ.get("APP_VERSION"):
-        return os.environ["APP_VERSION"]
+        return re.sub(r"^v(?=\d)", "", os.environ["APP_VERSION"])
     try:
         version = metadata.version("hddfancontrol-webui")
     except metadata.PackageNotFoundError:

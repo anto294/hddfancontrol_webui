@@ -380,7 +380,8 @@ function renderHeader() {
   const pill = $("mode");
   pill.textContent = t(`mode.${status.mode}`);
   pill.dataset.mode = status.mode;
-  $("version").textContent = status.version === "dev" ? "dev" : `v${status.version}`;
+  // Releases are numbers (0.3.0); "dev" and "edge-<commit>" are shown as they are.
+  $("version").textContent = /^\d/.test(status.version) ? `v${status.version}` : status.version;
   $("logout").hidden = !status.auth.enabled;
 }
 
