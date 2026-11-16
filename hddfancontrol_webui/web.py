@@ -97,6 +97,10 @@ async def security_headers(request: web.Request, handler: Handler) -> web.Stream
     response.headers.setdefault("X-Frame-Options", "DENY")
     if request.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
+    else:
+        # Keep the pages and static files, but ask every time (a cheap 304):
+        # after an update the browser must not run the old app.js.
+        response.headers.setdefault("Cache-Control", "no-cache")
     if isinstance(response, web.HTTPException):
         raise response
     return response

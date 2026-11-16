@@ -113,10 +113,14 @@ async def test_login_flow(make_client: ClientMaker) -> None:
     page = await client.get("/", allow_redirects=False)
     assert page.status == 302 and page.headers["Location"] == "/login"
     assert (await client.get("/login")).status == 200
-    assert (await client.get("/static/style.css")).status == 200
+    style = await client.get("/static/style.css")
+    assert style.status == 200
+    assert style.headers["Cache-Control"] == "no-cache"
     assert (await client.get("/static/i18n/it.json")).status == 200
     assert (await client.get("/static/app.js", allow_redirects=False)).status == 302
-    assert (await client.get("/api/status")).status == 401
+    unauthorized = await client.get("/api/status")
+    assert unauthorized.status == 401
+    assert unauthorized.headers["Cache-Control"] == "no-store"
     assert (await client.get("/healthz")).status == 200
 
     wrong = await client.post("/api/login", json={"username": "anto", "password": "nope"}, headers=FETCH)
