@@ -61,10 +61,12 @@ async def test_smart_reads_only_monitored_drives(tmp_path: Path, fake_sys: Path,
     settings = from_dict({"drives": ["nvme"], "monitor_drives": [DRIVE]})
     monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings, reader)
     monitor.history.save_smart("/dev/disk/by-id/ata-Old", {"status": "ok"})
-    assert list(await monitor.refresh_smart()) == [DRIVE]
+    smart = await monitor.refresh_smart()
+    assert list(smart) == [DRIVE]
     assert read == [DRIVE]
     monitor._settings = Settings
-    assert await monitor.refresh_smart() == {} and read == [DRIVE]
+    smart = await monitor.refresh_smart()
+    assert smart == {} and read == [DRIVE]
     monitor.history.close()
 
 

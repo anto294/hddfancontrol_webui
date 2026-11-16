@@ -87,14 +87,16 @@ async def test_open_ui_and_headers(make_client: ClientMaker) -> None:
     assert response.status == 200
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
     assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert (await client.get("/healthz")).status == 200
+    response = await client.get("/healthz")
+    assert response.status == 200
     login = await client.get("/login", allow_redirects=False)
     assert login.status == 302 and login.headers["Location"] == "/"
     status = await (await client.get("/api/status")).json()
     assert status["auth"]["enabled"] is False
     assert status["latest"]["temps"] == {"sda": 41.0}
     assert status["mode"] == "waiting"
-    assert (await client.get("/api/status")).headers["Cache-Control"] == "no-store"
+    response = await client.get("/api/status")
+    assert response.headers["Cache-Control"] == "no-store"
     missing = await client.get("/nope")
     assert missing.status == 404 and "Content-Security-Policy" in missing.headers
 
@@ -102,9 +104,12 @@ async def test_open_ui_and_headers(make_client: ClientMaker) -> None:
 async def test_csrf(make_client: ClientMaker) -> None:
     """A change without the header, or from another origin, is refused."""
     client = await make_client()
-    assert (await client.post("/api/restart")).status == 403
-    assert (await client.post("/api/restart", headers={**FETCH, "Origin": "http://evil.example"})).status == 403
-    assert (await client.post("/api/restart", headers=FETCH)).status == 200
+    response = await client.post("/api/restart")
+    assert response.status == 403
+    response = await client.post("/api/restart", headers={**FETCH, "Origin": "http://evil.example"})
+    assert response.status == 403
+    response = await client.post("/api/restart", headers=FETCH)
+    assert response.status == 200
 
 
 async def test_login_flow(make_client: ClientMaker) -> None:
@@ -112,28 +117,35 @@ async def test_login_flow(make_client: ClientMaker) -> None:
     client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
     page = await client.get("/", allow_redirects=False)
     assert page.status == 302 and page.headers["Location"] == "/login"
-    assert (await client.get("/login")).status == 200
+    response = await client.get("/login")
+    assert response.status == 200
     style = await client.get("/static/style.css")
     assert style.status == 200
     assert style.headers["Cache-Control"] == "no-cache"
-    assert (await client.get("/static/i18n/it.json")).status == 200
-    assert (await client.get("/static/app.js", allow_redirects=False)).status == 302
+    response = await client.get("/static/i18n/it.json")
+    assert response.status == 200
+    response = await client.get("/static/app.js", allow_redirects=False)
+    assert response.status == 302
     unauthorized = await client.get("/api/status")
     assert unauthorized.status == 401
     assert unauthorized.headers["Cache-Control"] == "no-store"
-    assert (await client.get("/healthz")).status == 200
+    response = await client.get("/healthz")
+    assert response.status == 200
 
     wrong = await client.post("/api/login", json={"username": "anto", "password": "nope"}, headers=FETCH)
     assert wrong.status == 401
-    assert (await client.post("/api/login", json=[], headers=FETCH)).status == 400
+    response = await client.post("/api/login", json=[], headers=FETCH)
+    assert response.status == 400
     ok = await client.post("/api/login", json={"username": "anto", "password": "a-long-password"}, headers=FETCH)
     assert ok.status == 200
     cookie = ok.headers["Set-Cookie"]
     assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
-    assert (await client.get("/api/status")).status == 200
+    response = await client.get("/api/status")
+    assert response.status == 200
 
     await client.post("/api/logout", headers=FETCH)
-    assert (await client.get("/api/status")).status == 401
+    response = await client.get("/api/status")
+    assert response.status == 401
 
 
 async def test_basic_auth(make_client: ClientMaker) -> None:
@@ -141,8 +153,10 @@ async def test_basic_auth(make_client: ClientMaker) -> None:
     client = await make_client({"WEBUI_PASSWORD": "a-long-password"})
     good = "Basic " + base64.b64encode(b"admin:a-long-password").decode()
     bad = "Basic " + base64.b64encode(b"admin:x").decode()
-    assert (await client.get("/api/status", headers={"Authorization": good})).status == 200
-    assert (await client.get("/api/status", headers={"Authorization": bad})).status == 401
+    response = await client.get("/api/status", headers={"Authorization": good})
+    assert response.status == 200
+    response = await client.get("/api/status", headers={"Authorization": bad})
+    assert response.status == 401
 
 
 async def test_credentials_from_the_ui(make_client: ClientMaker) -> None:
@@ -150,14 +164,17 @@ async def test_credentials_from_the_ui(make_client: ClientMaker) -> None:
     client = await make_client()
     bad = await client.put("/api/auth", json={"username": "anto", "password": "short"}, headers=FETCH)
     assert (await bad.json())["error"] == "password_too_short"
-    assert (await client.put("/api/auth", json={"username": 1}, headers=FETCH)).status == 400
+    response = await client.put("/api/auth", json={"username": 1}, headers=FETCH)
+    assert response.status == 400
     ok = await client.put("/api/auth", json={"username": "anto", "password": "a-long-password"}, headers=FETCH)
     assert ok.status == 200 and (await ok.json())["source"] == "file"
     # The caller stays logged in with the new session.
-    assert (await client.get("/api/auth")).status == 200
+    response = await client.get("/api/auth")
+    assert response.status == 200
     wrong = await client.delete("/api/auth", json={"current": "nope"}, headers=FETCH)
     assert (await wrong.json())["error"] == "wrong_password"
-    assert (await client.delete("/api/auth", json={"current": 5}, headers=FETCH)).status == 400
+    response = await client.delete("/api/auth", json={"current": 5}, headers=FETCH)
+    assert response.status == 400
     removed = await client.delete("/api/auth", json={"current": "a-long-password"}, headers=FETCH)
     assert (await removed.json())["enabled"] is False
 
@@ -188,41 +205,58 @@ async def test_manual_api(make_client: ClientMaker, fake_sys: Path) -> None:
     """Manual control only accepts the chosen PWM files and valid values."""
     client = await make_client()
     fans = [{"path": PWM1, "start": 200, "stop": 75}, {"path": "/sys/class/hwmon/hwmon2/pwm2", "start": 200, "stop": 75}]
-    assert (await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans[:1]}, headers=FETCH)).status == 200
-    assert (await client.put("/api/manual/pwm", json={"path": PWM1, "value": 10}, headers=FETCH)).status == 409
-    assert (await client.put("/api/manual", json={"enabled": "yes"}, headers=FETCH)).status == 400
-    assert (await client.put("/api/manual", json={"enabled": True}, headers=FETCH)).status == 200
-    assert (
-        await client.put("/api/manual/pwm", json={"path": "/sys/class/hwmon/hwmon2/name", "value": 1}, headers=FETCH)
-    ).status == 400
-    assert (await client.put("/api/manual/pwm", json={"path": PWM1, "value": 256}, headers=FETCH)).status == 400
-    assert (await client.put("/api/manual/pwm", json={"path": PWM1, "value": True}, headers=FETCH)).status == 400
-    assert (await client.put("/api/manual/pwm", json={"path": PWM1, "value": 77}, headers=FETCH)).status == 200
+    response = await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans[:1]}, headers=FETCH)
+    assert response.status == 200
+    response = await client.put("/api/manual/pwm", json={"path": PWM1, "value": 10}, headers=FETCH)
+    assert response.status == 409
+    response = await client.put("/api/manual", json={"enabled": "yes"}, headers=FETCH)
+    assert response.status == 400
+    response = await client.put("/api/manual", json={"enabled": True}, headers=FETCH)
+    assert response.status == 200
+    response = await client.put("/api/manual/pwm", json={"path": "/sys/class/hwmon/hwmon2/name", "value": 1}, headers=FETCH)
+    assert response.status == 400
+    response = await client.put("/api/manual/pwm", json={"path": PWM1, "value": 256}, headers=FETCH)
+    assert response.status == 400
+    response = await client.put("/api/manual/pwm", json={"path": PWM1, "value": True}, headers=FETCH)
+    assert response.status == 400
+    response = await client.put("/api/manual/pwm", json={"path": PWM1, "value": 77}, headers=FETCH)
+    assert response.status == 200
     assert (fake_sys / "class/hwmon/hwmon2/pwm1").read_text().strip() == "77"
     other = await client.put("/api/manual/pwm", json={"path": "/sys/class/hwmon/hwmon2/pwm2", "value": 1}, headers=FETCH)
     assert other.status == 409 and (await other.json())["error"] == "pwm_not_selected"
     assert (fake_sys / "class/hwmon/hwmon2/pwm2").read_text().strip() == "255"
-    assert (await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans}, headers=FETCH)).status == 200
-    assert (await client.put("/api/manual", json={"enabled": True}, headers=FETCH)).status == 200
+    response = await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans}, headers=FETCH)
+    assert response.status == 200
+    response = await client.put("/api/manual", json={"enabled": True}, headers=FETCH)
+    assert response.status == 200
     (fake_sys / "class/hwmon/hwmon2/pwm2").chmod(0o400)
     denied = await client.put("/api/manual/pwm", json={"path": "/sys/class/hwmon/hwmon2/pwm2", "value": 1}, headers=FETCH)
     assert denied.status in (200, 500)
-    assert (await client.put("/api/manual", json={"enabled": False}, headers=FETCH)).status == 200
+    response = await client.put("/api/manual", json={"enabled": False}, headers=FETCH)
+    assert response.status == 200
 
 
 async def test_pwm_test_api(make_client: ClientMaker) -> None:
     """Only PWM files of the host can be tested, and a second test is refused."""
     client = await make_client()
-    assert (await client.post("/api/pwm-test", json={"paths": []}, headers=FETCH)).status == 400
+    response = await client.post("/api/pwm-test", json={"paths": []}, headers=FETCH)
+    assert response.status == 400
     unknown = await client.post("/api/pwm-test", json={"paths": ["/sys/power/state"]}, headers=FETCH)
     assert (await unknown.json())["error"] == "unknown_pwm"
-    assert (await client.post("/api/pwm-test", json={"paths": [PWM1]}, headers=FETCH)).status == 200
-    assert (await client.post("/api/pwm-test", json={"paths": [PWM1]}, headers=FETCH)).status == 409
-    assert (await client.put("/api/settings", json={}, headers=FETCH)).status == 409
-    assert (await client.delete("/api/settings", headers=FETCH)).status == 409
-    assert (await client.put("/api/manual", json={"enabled": True}, headers=FETCH)).status == 409
-    assert (await client.post("/api/restart", headers=FETCH)).status == 409
-    assert (await client.delete("/api/pwm-test", headers=FETCH)).status == 200
+    response = await client.post("/api/pwm-test", json={"paths": [PWM1]}, headers=FETCH)
+    assert response.status == 200
+    response = await client.post("/api/pwm-test", json={"paths": [PWM1]}, headers=FETCH)
+    assert response.status == 409
+    response = await client.put("/api/settings", json={}, headers=FETCH)
+    assert response.status == 409
+    response = await client.delete("/api/settings", headers=FETCH)
+    assert response.status == 409
+    response = await client.put("/api/manual", json={"enabled": True}, headers=FETCH)
+    assert response.status == 409
+    response = await client.post("/api/restart", headers=FETCH)
+    assert response.status == 409
+    response = await client.delete("/api/pwm-test", headers=FETCH)
+    assert response.status == 200
 
 
 async def test_read_endpoints(make_client: ClientMaker) -> None:
@@ -230,17 +264,25 @@ async def test_read_endpoints(make_client: ClientMaker) -> None:
     client = await make_client()
     hardware = await (await client.get("/api/hardware")).json()
     assert hardware["hwmons"][0]["pwms"][0]["path"] == PWM1
-    assert (await client.get("/api/history?hours=x")).status == 400
-    assert (await client.get("/api/history?hours=0")).status == 400
-    assert "series" in await (await client.get("/api/history?hours=24")).json()
-    assert await (await client.get("/api/smart")).json() == {}
-    assert await (await client.post("/api/smart", headers=FETCH)).json() == {}
+    response = await client.get("/api/history?hours=x")
+    assert response.status == 400
+    response = await client.get("/api/history?hours=0")
+    assert response.status == 400
+    history = await (await client.get("/api/history?hours=24")).json()
+    assert "series" in history
+    smart = await (await client.get("/api/smart")).json()
+    assert smart == {}
+    smart = await (await client.post("/api/smart", headers=FETCH)).json()
+    assert smart == {}
     nvme = "/dev/disk/by-id/nvme-Samsung_980_S64"
-    assert (await client.put("/api/settings", json={"monitor_drives": [nvme]}, headers=FETCH)).status == 200
+    response = await client.put("/api/settings", json={"monitor_drives": [nvme]}, headers=FETCH)
+    assert response.status == 200
     smart = await (await client.post("/api/smart", headers=FETCH)).json()
     assert list(smart) == [nvme] and smart[nvme]["model"] == "M"
-    assert list(await (await client.get("/api/smart")).json()) == [nvme]
-    assert (await client.get("/api/logs?after=x")).status == 400
+    smart = await (await client.get("/api/smart")).json()
+    assert list(smart) == [nvme]
+    response = await client.get("/api/logs?after=x")
+    assert response.status == 400
     logs = await (await client.get("/api/logs?after=0")).json()
     assert "lines" in logs
     scan = await client.post("/api/sensors/scan", headers=FETCH)
@@ -250,12 +292,14 @@ async def test_read_endpoints(make_client: ClientMaker) -> None:
 async def test_labels_api(make_client: ClientMaker) -> None:
     """Labels are set without restarting anything, and checked."""
     client = await make_client()
-    assert await (await client.get("/api/labels")).json() == {}
+    labels = await (await client.get("/api/labels")).json()
+    assert labels == {}
     saved = await client.put("/api/labels", json={"key": PWM1, "label": "Front fan"}, headers=FETCH)
     assert await saved.json() == {PWM1: "Front fan"}
     bad = await client.put("/api/labels", json={"key": "/etc/x", "label": "a"}, headers=FETCH)
     assert (await bad.json())["error"] == "invalid_label_key"
-    assert (await client.put("/api/labels", json={"key": PWM1}, headers=FETCH)).status == 400
+    response = await client.put("/api/labels", json={"key": PWM1}, headers=FETCH)
+    assert response.status == 400
 
 
 # ---------------------------

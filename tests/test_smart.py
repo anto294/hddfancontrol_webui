@@ -109,7 +109,8 @@ async def test_read_smart(make_script: ScriptMaker) -> None:
         "smartctl",
         "assert sys.argv[1:5] == ['-j', '-a', '-n', 'standby'], sys.argv\n" f"print({json.dumps(ATA)!r})",
     )
-    assert (await read_smart("/dev/sda", smartctl))["model"] == "ST4000VN006-3CW104"
-    assert (await read_smart("/dev/sda", make_script("bad", "print('nope')")))["status"] == "error"
-    assert (await read_smart("/dev/sda", make_script("list", "print('[]')")))["status"] == "error"
-    assert (await read_smart("/dev/sda", "/nonexistent/smartctl"))["status"] == "error"
+    good = await read_smart("/dev/sda", smartctl)
+    assert good["model"] == "ST4000VN006-3CW104"
+    for program in (make_script("bad", "print('nope')"), make_script("list", "print('[]')"), "/nonexistent/smartctl"):
+        result = await read_smart("/dev/sda", program)
+        assert result["status"] == "error"
