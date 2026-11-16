@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-16
+
 ### Added
 
 - What each drive is, on its card in the Drives tab: brand, product line,
@@ -18,7 +20,6 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the highest operating temperature it is made for and the highest it ever
   reached. The card warns when the maximum of the settings is above what
   the drive is made for.
-
 - "Noted, hide" on the alert banners and on the warning about the missing
   password: the banner goes, the note is kept in the database for every
   browser, and a line says how many are hidden, with a button to show them
@@ -172,7 +173,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.4.0...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.5.0...main
+[0.5.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.2.0...v0.3.0
