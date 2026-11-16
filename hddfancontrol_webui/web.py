@@ -67,6 +67,22 @@ AUTH: web.AppKey[AuthStore] = web.AppKey("auth", AuthStore)
 LABELS: web.AppKey[Labels] = web.AppKey("labels", Labels)
 SENSOR_SCAN: web.AppKey[SensorScan] = web.AppKey("sensor_scan")
 STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
+PASSWORD_CHECKS: web.AppKey[asyncio.Semaphore] = web.AppKey("password_checks", asyncio.Semaphore)
+
+
+# ---------------------------
+#   _password_work
+# ---------------------------
+async def _password_work(request: web.Request, func: Callable[..., Any], *args: Any) -> Any:
+    """Run a password check or change in a thread, one at a time.
+
+    Each scrypt hash takes 16 MiB. Without a limit, a burst of wrong logins
+    (no session needed) runs one per worker thread and can push the
+    container past its memory limit, and an OOM kill leaves the fans
+    without control. One at a time also slows down guessing.
+    """
+    async with request.app[PASSWORD_CHECKS]:
+        return await asyncio.to_thread(func, *args)
 
 
 # ---------------------------
@@ -120,7 +136,7 @@ async def authentication(request: web.Request, handler: Handler) -> web.StreamRe
         return await handler(request)
     header = request.headers.get("Authorization", "")
     if header:
-        if await asyncio.to_thread(auth.check_basic, header):
+        if await _password_work(request, auth.check_basic, header):
             return await handler(request)
         await asyncio.sleep(AUTH_FAILURE_DELAY)
     if path.startswith("/api/"):
@@ -194,7 +210,7 @@ async def post_login(request: web.Request) -> web.Response:
     password = data.get("password") if isinstance(data, dict) else None
     if not isinstance(username, str) or not isinstance(password, str):
         return _json_error(400, "invalid_document")
-    if not await asyncio.to_thread(auth.check, username, password):
+    if not await _password_work(request, auth.check, username, password):
         await asyncio.sleep(AUTH_FAILURE_DELAY)
         return _json_error(401, "wrong_credentials")
     response = web.json_response({"ok": True})
@@ -239,8 +255,8 @@ async def put_auth(request: web.Request) -> web.Response:
     if not isinstance(data, dict) or not all(isinstance(data.get(k, ""), str) for k in ("username", "password", "current")):
         return _json_error(400, "invalid_document")
     try:
-        await asyncio.to_thread(
-            auth.set_credentials, data.get("username", ""), data.get("password", ""), data.get("current", "")
+        await _password_work(
+            request, auth.set_credentials, data.get("username", ""), data.get("password", ""), data.get("current", "")
         )
     except AuthError as err:
         if err.code == "wrong_password":
@@ -273,7 +289,7 @@ async def delete_auth(request: web.Request) -> web.Response:
     if not isinstance(current, str):
         return _json_error(400, "invalid_document")
     try:
-        await asyncio.to_thread(auth.clear_credentials, current)
+        await _password_work(request, auth.clear_credentials, current)
     except AuthError as err:
         if err.code == "wrong_password":
             await asyncio.sleep(AUTH_FAILURE_DELAY)
@@ -550,6 +566,7 @@ def create_app(
     app[LABELS] = labels
     app[SENSOR_SCAN] = sensor_scan or default_scan
     app[STATE] = {"sensors": SensorReport()}
+    app[PASSWORD_CHECKS] = asyncio.Semaphore(1)
     router = app.router
     router.add_get("/", index)
     router.add_get("/login", login_page)

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
+import threading
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -24,7 +27,7 @@ from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import SUPERVISOR, create_app
+from hddfancontrol_webui.web import AUTH, SUPERVISOR, create_app
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -323,3 +326,25 @@ async def test_read_only_api(make_client: ClientMaker) -> None:
     assert manual.status == 409 and (await manual.json())["error"] == "read_only"
     test = await client.post("/api/pwm-test", json={"paths": [PWM1]}, headers=FETCH)
     assert test.status == 409 and (await test.json())["error"] == "read_only"
+
+
+async def test_password_checks_run_one_at_a_time(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A burst of logins never runs two scrypt checks at once."""
+    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
+    lock = threading.Lock()
+    running = {"now": 0, "most": 0}
+
+    def slow_check(username: str, password: str) -> bool:
+        with lock:
+            running["now"] += 1
+            running["most"] = max(running["most"], running["now"])
+        time.sleep(0.02)
+        with lock:
+            running["now"] -= 1
+        return True
+
+    monkeypatch.setattr(client.server.app[AUTH], "check", slow_check)
+    body = {"username": "anto", "password": "a-long-password"}
+    answers = await asyncio.gather(*(client.post("/api/login", json=body, headers=FETCH) for _ in range(5)))
+    assert all(answer.status == 200 for answer in answers)
+    assert running["most"] == 1
