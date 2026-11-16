@@ -23,6 +23,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Manual control has a slider for every PWM output again, chosen in the
+  settings or not, so that you can find out which fan each one drives before
+  choosing them. Every output you move gets its previous setting back when
+  you leave manual control; the curve and auto modes still drive only the
+  chosen fans.
 - HTTP requests are no longer logged: the page polls the API every few
   seconds, and those lines buried everything else in `docker logs`. Set
   `WEBUI_ACCESS_LOG=true` to log them again.

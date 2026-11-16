@@ -62,8 +62,7 @@
   "overview.restarts": "{count} riavvii",
 
   "fans.title": "Ventole",
-  "fans.intro": "Tutte le uscite PWM dell'host. Vengono comandate solo le ventole scelte nelle impostazioni: in controllo manuale muovi i loro cursori e guarda la velocità per capire quale ventola comanda ciascuno. Le altre uscite vengono solo mostrate. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico.",
-  "fans.not_controlled": "non comandata: sceglila nelle impostazioni",
+  "fans.intro": "Tutte le uscite PWM dell'host. In controllo manuale muovi un cursore qualsiasi e guarda la velocità per capire quale ventola comanda; ogni uscita che muovi torna come prima quando esci dal controllo manuale. Le modalità curva e auto comandano solo le ventole scelte nelle impostazioni. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico.",
   "fans.safety": "Un disco ha raggiunto la temperatura massima: le ventole restano al massimo.",
   "fans.safety_stale": "Nessuna temperatura recente dei dischi: le ventole restano al massimo. Esci dal controllo manuale per tornare al controllo automatico.",
   "fans.output": "Uscita",
@@ -225,7 +224,6 @@
   "error.password_too_short": "La password deve avere almeno 8 caratteri.",
   "error.password_mismatch": "Le due password sono diverse.",
   "error.unknown_pwm": "Questa uscita PWM non esiste sull'host.",
-  "error.pwm_not_selected": "Questa ventola non è scelta nelle impostazioni: non viene mai comandata.",
   "error.not_manual": "Passa prima al controllo manuale.",
   "error.read_only": "/sys è in sola lettura (il container non è privilegiato): le ventole non possono essere scritte.",
   "error.write_failed": "Impossibile scrivere il file PWM.",

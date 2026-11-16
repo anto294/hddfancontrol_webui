@@ -205,7 +205,7 @@ async def test_settings_api(make_client: ClientMaker) -> None:
 
 
 async def test_manual_api(make_client: ClientMaker, fake_sys: Path) -> None:
-    """Manual control only accepts the chosen PWM files and valid values."""
+    """Manual control accepts any PWM file of the host, and only valid values."""
     client = await make_client()
     fans = [{"path": PWM1, "start": 200, "stop": 75}, {"path": "/sys/class/hwmon/hwmon2/pwm2", "start": 200, "stop": 75}]
     response = await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans[:1]}, headers=FETCH)
@@ -226,8 +226,7 @@ async def test_manual_api(make_client: ClientMaker, fake_sys: Path) -> None:
     assert response.status == 200
     assert (fake_sys / "class/hwmon/hwmon2/pwm1").read_text().strip() == "77"
     other = await client.put("/api/manual/pwm", json={"path": "/sys/class/hwmon/hwmon2/pwm2", "value": 1}, headers=FETCH)
-    assert other.status == 409 and (await other.json())["error"] == "pwm_not_selected"
-    assert (fake_sys / "class/hwmon/hwmon2/pwm2").read_text().strip() == "255"
+    assert other.status == 200  # any output of the host, to find out which fan it drives
     response = await client.put("/api/settings", json={"drives": [DRIVE], "pwms": fans}, headers=FETCH)
     assert response.status == 200
     response = await client.put("/api/manual", json={"enabled": True}, headers=FETCH)

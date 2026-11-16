@@ -32,7 +32,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 ## What you can do with it
 
 - **Keep the drives cool and the NAS quiet:** the fans follow the hottest drive, either along a curve between two temperatures, or in the auto mode, which keeps the drives at a target with as little fan speed as it needs.
-- **Find out which fan is which:** move the slider of each chosen fan and watch the speed change. The PWM outputs you do not choose are only shown, never written.
+- **Find out which fan is which:** in manual control, move the slider of any PWM output and watch the speed change; each output gets its previous setting back when you leave. The curve and auto modes drive only the fans you choose.
 - **Set up the fans without a shell:** the PWM test finds the value at which each fan starts and stops, and copies them into the settings.
 - **Let the drives sleep:** hd-idle spins them down after an idle time, which you can set per drive. Nothing in the web UI wakes a sleeping drive.
 - **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
@@ -110,7 +110,7 @@ On bare metal, `sensors-detect --auto` does not run at start, because on a real 
 |---|---|---|
 | **Curve** | hddfancontrol, as in the upstream image: minimum speed up to the minimum temperature, full speed from the maximum, in proportion in between | Minimum and maximum temperature, minimum speed |
 | **Auto** | The web UI keeps the hottest drive near a target with as little speed as it needs, and adapts to load, season and case by itself | Target and maximum temperature, minimum speed |
-| **Manual** | You, with a slider per chosen fan, until you go back or the container restarts | — |
+| **Manual** | You, with a slider per PWM output, until you go back or the container restarts | — |
 
 The auto mode is a PI controller (feedback control, not machine learning). It speeds up at once when the drives warm, and slows down at most 10 % per check, so a short dip does not stop the fans. The extra temperature sensors of **Settings** count in the auto mode too, when they have a range: each asks for a speed in proportion between its minimum and maximum, as in the curve mode, and the fans run at the higher of that and what the drives need. A sensor without a range is used only by the curve mode, where hddfancontrol picks its range. In both the auto mode and manual control, hddfancontrol keeps running to read the drive temperatures without waking sleeping drives, and two safety rules apply: a drive at the maximum temperature puts every fan at full speed, and temperatures that stop coming in do too (in manual control, only when drives are chosen, so that you can find out which fan is which before choosing them). In manual control, full speed lasts until you leave it. When control ends, every PWM output gets its previous mode back.
 
