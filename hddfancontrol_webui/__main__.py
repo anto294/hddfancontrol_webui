@@ -144,7 +144,10 @@ def main() -> None:
     app, port = build()
     # A container listens on every interface; Docker decides what is published.
     host = os.environ.get("WEBUI_HOST", "0.0.0.0")  # noqa: S104  # nosec B104
-    web.run_app(app, host=host, port=port, print=None)
+    # The page polls the API every few seconds: one log line per request
+    # would bury everything else. Errors are still logged.
+    access_log = logging.getLogger("aiohttp.access") if _env_flag("WEBUI_ACCESS_LOG", False) else None
+    web.run_app(app, host=host, port=port, print=None, access_log=access_log)
 
 
 if __name__ == "__main__":

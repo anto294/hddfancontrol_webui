@@ -7,6 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- HTTP requests are no longer logged: the page polls the API every few
+  seconds, and those lines buried everything else in `docker logs`. Set
+  `WEBUI_ACCESS_LOG=true` to log them again.
+
 ## [0.1.0] - 2026-11-16
 
 First release.

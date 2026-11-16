@@ -143,6 +143,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `WEBUI_PORT` | `8080` | Port of the web UI |
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
+| `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request (the page polls every few seconds) |
 | `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |
 | `HDDFANCONTROL_BIN`, `HDIDLE_BIN`, `SMARTCTL_BIN`, `SENSORS_DETECT_BIN`, `MODPROBE_BIN` | from `PATH` | Programs to use |
 | `DRIVES` | — | Drives, separated by spaces: `/dev/disk/by-id/...` paths or interface names (`ata`) |
