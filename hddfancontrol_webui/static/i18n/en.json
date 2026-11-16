@@ -68,7 +68,7 @@
 
   "smart.title": "SMART data",
   "smart.intro": "Read with smartctl -n standby: a sleeping drive is not woken, and keeps its last data.",
-  "smart.none": "No SMART data yet.",
+  "smart.none": "No SMART data yet. Only the drives marked as monitored in Settings are read.",
   "smart.status.ok": "OK",
   "smart.status.warning": "Check",
   "smart.status.failing": "Failing",
@@ -127,8 +127,10 @@
   "settings.min_fan_speed_prct": "Minimum fan speed (%)",
   "settings.min_speed_warning": "Set the minimum speed to 0 only if other fans cool the case, or the case is built for passive cooling.",
   "settings.drives": "Drives",
-  "settings.drives_help": "The drives whose temperature drives the fans, and that hd-idle spins down. Use the stable names of /dev/disk/by-id.",
+  "settings.drives_help": "Fans: the drives whose temperature drives the fans and that hd-idle spins down. Monitored: the drives whose SMART data is read and shown in Drives. Use the stable names of /dev/disk/by-id.",
   "settings.drive": "Drive",
+  "settings.drive_controls": "Fans",
+  "settings.drive_monitor": "Monitored",
   "settings.drive_name": "Name to use",
   "settings.spin_down_own": "Own spin down (s)",
   "settings.other_drives": "Other drives",
@@ -192,6 +194,7 @@
 
   "error.invalid_document": "The request is not valid.",
   "error.invalid_drive": "Not a /dev path or an interface name.",
+  "error.invalid_dev_path": "Not a /dev path.",
   "error.duplicate": "Listed twice.",
   "error.invalid_sys_path": "Not a /sys path.",
   "error.invalid_number": "Not a number.",

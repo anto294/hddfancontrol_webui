@@ -21,7 +21,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A spin down time per drive.
 - History of drive temperatures, fan PWM and fan speed in SQLite, with charts
   from one hour to a year.
-- SMART data of every drive, read without waking sleeping drives.
+- SMART data of the drives you choose to monitor, which need not be the ones
+  that drive the fans, read without waking sleeping drives.
 - Names for drives and fans.
 - Username and password, set with environment variables or in the web UI.
 - Detection of the sensor chip modules, with the steps to load them on a

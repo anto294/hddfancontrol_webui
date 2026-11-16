@@ -113,6 +113,19 @@ def test_interface_selector_and_duplicates() -> None:
     assert problems({"drives": [DRIVE, DRIVE]}) == {"drives.1": "duplicate"}
 
 
+def test_monitored_drives() -> None:
+    """Monitored drives default to the /dev paths that drive the fans, and are checked."""
+    assert from_dict({"drives": [DRIVE, "nvme"]}).monitor_drives == (DRIVE,)
+    assert from_dict({"drives": [DRIVE], "monitor_drives": []}).monitor_drives == ()
+    assert from_dict({"drives": [], "monitor_drives": [DRIVE2]}).monitor_drives == (DRIVE2,)
+    assert problems({"monitor_drives": ["nvme", DRIVE, DRIVE]}) == {
+        "monitor_drives.0": "invalid_dev_path",
+        "monitor_drives.2": "duplicate",
+    }
+    assert from_dict(env_document({"DRIVES": DRIVE, "MONITOR_DRIVES": f"{DRIVE} {DRIVE2}"})).monitor_drives == (DRIVE, DRIVE2)
+    assert from_dict(env_document({"DRIVES": DRIVE, "MONITOR_DRIVES": ""})).monitor_drives == ()
+
+
 def test_pwm_checks() -> None:
     """PWM paths stay under /sys and values in 0..255."""
     found = problems(

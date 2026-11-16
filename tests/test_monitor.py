@@ -13,7 +13,7 @@ import pytest
 from hddfancontrol_webui import monitor as monitor_module
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
-from hddfancontrol_webui.monitor import Monitor, smart_devices
+from hddfancontrol_webui.monitor import Monitor
 from hddfancontrol_webui.settings import Settings, from_dict
 from hddfancontrol_webui.templog import TempLog
 
@@ -50,11 +50,22 @@ def test_record_once(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     monitor.history.close()
 
 
-def test_smart_devices(fake_sys: Path, fake_dev: Path) -> None:
-    """Configured drive paths, or every drive found."""
-    hardware = Hardware(fake_dev, fake_sys)
-    assert smart_devices(from_dict({"drives": [DRIVE, "nvme"]}), hardware) == [DRIVE]
-    assert smart_devices(Settings(), hardware) == ["/dev/disk/by-id/nvme-Samsung_980_S64", DRIVE]
+async def test_smart_reads_only_monitored_drives(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """Only the monitored drives are read and shown; nothing is read when none is."""
+    read: list[str] = []
+
+    async def reader(device: str) -> dict[str, Any]:
+        read.append(device)
+        return {"status": "ok"}
+
+    settings = from_dict({"drives": ["nvme"], "monitor_drives": [DRIVE]})
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings, reader)
+    monitor.history.save_smart("/dev/disk/by-id/ata-Old", {"status": "ok"})
+    assert list(await monitor.refresh_smart()) == [DRIVE]
+    assert read == [DRIVE]
+    monitor._settings = Settings
+    assert await monitor.refresh_smart() == {} and read == [DRIVE]
+    monitor.history.close()
 
 
 async def test_refresh_smart_keeps_data_of_sleeping_drives(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:

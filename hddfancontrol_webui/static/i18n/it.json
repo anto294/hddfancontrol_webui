@@ -68,7 +68,7 @@
 
   "smart.title": "Dati SMART",
   "smart.intro": "Letti con smartctl -n standby: un disco in standby non viene svegliato e mantiene gli ultimi dati.",
-  "smart.none": "Ancora nessun dato SMART.",
+  "smart.none": "Ancora nessun dato SMART. Vengono letti solo i dischi segnati come monitorati nelle impostazioni.",
   "smart.status.ok": "OK",
   "smart.status.warning": "Da controllare",
   "smart.status.failing": "In avaria",
@@ -127,8 +127,10 @@
   "settings.min_fan_speed_prct": "Velocità minima ventole (%)",
   "settings.min_speed_warning": "Imposta la velocità minima a 0 solo se altre ventole raffreddano il case, o se il case è progettato per il raffreddamento passivo.",
   "settings.drives": "Dischi",
-  "settings.drives_help": "I dischi la cui temperatura comanda le ventole e che hd-idle mette in standby. Usa i nomi stabili di /dev/disk/by-id.",
+  "settings.drives_help": "Ventole: i dischi la cui temperatura comanda le ventole e che hd-idle mette in standby. Monitorati: i dischi di cui si leggono e mostrano i dati SMART in Dischi. Usa i nomi stabili di /dev/disk/by-id.",
   "settings.drive": "Disco",
+  "settings.drive_controls": "Ventole",
+  "settings.drive_monitor": "Monitorato",
   "settings.drive_name": "Nome da usare",
   "settings.spin_down_own": "Standby proprio (s)",
   "settings.other_drives": "Altri dischi",
@@ -192,6 +194,7 @@
 
   "error.invalid_document": "La richiesta non è valida.",
   "error.invalid_drive": "Non è un percorso /dev né un nome di interfaccia.",
+  "error.invalid_dev_path": "Non è un percorso di /dev.",
   "error.duplicate": "Indicato due volte.",
   "error.invalid_sys_path": "Non è un percorso /sys.",
   "error.invalid_number": "Non è un numero.",

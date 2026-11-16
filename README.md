@@ -121,7 +121,7 @@ hd-idle spins the chosen drives down after an idle time: one for every drive, an
 ## History, SMART data and names
 
 - **History:** every 30 seconds the web UI stores the drive temperatures that hddfancontrol measured, and the PWM and speed of every fan, in `/config/history.db` (SQLite). It keeps 30 days by default; longer windows are averaged, so a chart never has more than 600 points per line.
-- **SMART:** `smartctl -a -n standby` reads every drive every 6 hours by default, and when you press **Read SMART now**. A drive asleep at that time is not woken and keeps its last data.
+- **SMART:** `smartctl -a -n standby` reads the drives marked as monitored in **Settings** (by default, the drives that drive the fans) every 6 hours by default, and when you press **Read SMART now**. A drive asleep at that time is not woken and keeps its last data.
 - **Names:** give a fan or a drive a name in the **Fans** tab or the drive list of **Settings**. Names are kept in `/config/labels.json`, and changing one does not restart fan control. Drives are named by their `/dev/disk/by-id` path, which does not change between boots.
 
 ## Security
@@ -146,6 +146,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |
 | `HDDFANCONTROL_BIN`, `HDIDLE_BIN`, `SMARTCTL_BIN`, `SENSORS_DETECT_BIN`, `MODPROBE_BIN` | from `PATH` | Programs to use |
 | `DRIVES` | — | Drives, separated by spaces: `/dev/disk/by-id/...` paths or interface names (`ata`) |
+| `MONITOR_DRIVES` | the `/dev` paths of `DRIVES` | Drives whose SMART data is read and shown, `/dev/disk/by-id/...` paths separated by spaces; set but empty, none |
 | `PWM` | — | Fans, as `PWM_PATH:START:STOP`, separated by spaces |
 | `CONTROL_MODE` | `curve` | `curve` or `auto` |
 | `DRIVE_TEMP_RANGE` | `30 50` | Minimum and maximum temperature, °C |

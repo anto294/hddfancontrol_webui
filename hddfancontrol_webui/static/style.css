@@ -288,6 +288,12 @@ table.list {
   width: 6.5rem;
 }
 
+/* Short words (column titles, drive names) must not break letter by letter. */
+.form-table th,
+.form-table td strong {
+  overflow-wrap: normal;
+}
+
 .attrs {
   font-size: 0.82rem;
 }

@@ -234,8 +234,12 @@ async def test_read_endpoints(make_client: ClientMaker) -> None:
     assert (await client.get("/api/history?hours=0")).status == 400
     assert "series" in await (await client.get("/api/history?hours=24")).json()
     assert await (await client.get("/api/smart")).json() == {}
+    assert await (await client.post("/api/smart", headers=FETCH)).json() == {}
+    nvme = "/dev/disk/by-id/nvme-Samsung_980_S64"
+    assert (await client.put("/api/settings", json={"monitor_drives": [nvme]}, headers=FETCH)).status == 200
     smart = await (await client.post("/api/smart", headers=FETCH)).json()
-    assert smart["/dev/disk/by-id/nvme-Samsung_980_S64"]["model"] == "M"
+    assert list(smart) == [nvme] and smart[nvme]["model"] == "M"
+    assert list(await (await client.get("/api/smart")).json()) == [nvme]
     assert (await client.get("/api/logs?after=x")).status == 400
     logs = await (await client.get("/api/logs?after=0")).json()
     assert "lines" in logs

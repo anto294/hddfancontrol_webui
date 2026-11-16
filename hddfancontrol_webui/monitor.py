@@ -22,17 +22,6 @@ SmartReader = Callable[[str], Awaitable[dict[str, Any]]]
 
 
 # ---------------------------
-#   smart_devices
-# ---------------------------
-def smart_devices(settings: Settings, hardware: Hardware) -> list[str]:
-    """The drives to read SMART data from: the configured ones, or every drive found."""
-    configured = [d for d in settings.drives if d.startswith("/")]
-    if configured:
-        return configured
-    return [drive.ids[0] for drive in hardware.drives() if drive.ids]
-
-
-# ---------------------------
 #   Monitor
 # ---------------------------
 class Monitor:
@@ -103,10 +92,15 @@ class Monitor:
                 last_purge = time.monotonic()
             await asyncio.sleep(RECORD_PERIOD)
 
+    def smart(self) -> dict[str, dict[str, Any]]:
+        """The last SMART data of the monitored drives. Blocking: SQLite."""
+        monitored = self._settings().monitor_drives
+        return {device: data for device, data in self.history.smart().items() if device in monitored}
+
     async def refresh_smart(self) -> dict[str, dict[str, Any]]:
-        """Read every drive now. A sleeping drive keeps its previous data, marked as asleep."""
+        """Read the monitored drives now. A sleeping drive keeps its previous data, marked as asleep."""
         async with self._smart_lock:
-            devices = await asyncio.to_thread(smart_devices, self._settings(), self.hardware)
+            devices = self._settings().monitor_drives
             previous = await asyncio.to_thread(self.history.smart)
             for device in devices:
                 data = await self._smart_reader(device)
@@ -117,7 +111,7 @@ class Monitor:
                     await asyncio.to_thread(self.history.save_smart, device, old, previous[device]["time"])
                     continue
                 await asyncio.to_thread(self.history.save_smart, device, data)
-            return await asyncio.to_thread(self.history.smart)
+            return await asyncio.to_thread(self.smart)
 
     async def _smart_loop(self) -> None:
         """Read the SMART data every smart_interval_h hours; 0 means only on demand."""

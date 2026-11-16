@@ -106,6 +106,7 @@ class Settings:
     """
 
     drives: tuple[str, ...] = ()
+    monitor_drives: tuple[str, ...] = ()
     pwms: tuple[Pwm, ...] = ()
     drive_temp_min: float = 30.0
     drive_temp_max: float = 50.0
@@ -264,6 +265,20 @@ def from_dict(data: Any) -> Settings:
         else:
             drives.append(drive)
 
+    # The drives whose SMART data is read and shown. Without the key (an
+    # environment without MONITOR_DRIVES), the drives that drive the fans.
+    monitor_drives: list[str] = []
+    if "monitor_drives" not in data:
+        monitor_drives = [drive for drive in drives if drive.startswith("/")]
+    for index, drive in enumerate(check.items(data, "monitor_drives")):
+        name = f"monitor_drives.{index}"
+        if not isinstance(drive, str) or not is_dev_path(drive):
+            check.add(name, "invalid_dev_path")
+        elif drive in monitor_drives:
+            check.add(name, "duplicate")
+        else:
+            monitor_drives.append(drive)
+
     pwms: list[Pwm] = []
     for index, item in enumerate(check.items(data, "pwms")):
         prefix = f"pwms.{index}."
@@ -325,6 +340,7 @@ def from_dict(data: Any) -> Settings:
 
     settings = Settings(
         drives=tuple(drives),
+        monitor_drives=tuple(monitor_drives),
         pwms=tuple(pwms),
         drive_temp_min=temp_min if temp_min is not None else defaults.drive_temp_min,
         drive_temp_max=temp_max if temp_max is not None else defaults.drive_temp_max,
@@ -369,6 +385,8 @@ def env_document(env: Mapping[str, str]) -> dict[str, Any]:
     doc: dict[str, Any] = {}
     if env.get("DRIVES", "").strip():
         doc["drives"] = env["DRIVES"].split()
+    if "MONITOR_DRIVES" in env:
+        doc["monitor_drives"] = env["MONITOR_DRIVES"].split()
     if env.get("PWM", "").strip():
         pwms: list[Any] = []
         for token in env["PWM"].split():

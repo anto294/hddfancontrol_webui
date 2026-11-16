@@ -627,18 +627,23 @@ function renderSettings() {
 
   // Drives: one row per drive found, with the name to use and its own spin down time.
   const drives = $("drive-list");
-  drives.replaceChildren(headRow("", t("settings.drive"), t("labels.label"), t("settings.drive_name"), t("settings.spin_down_own")));
+  drives.replaceChildren(
+    headRow(t("settings.drive_controls"), t("settings.drive_monitor"), t("settings.drive"), t("labels.label"), t("settings.drive_name"), t("settings.spin_down_own")),
+  );
   const known = new Set();
   for (const drive of state.hardware.drives) {
     drive.ids.forEach((id) => known.add(id));
-    const chosen = drive.ids.find((id) => settings.drives.includes(id));
+    const controls = drive.ids.find((id) => settings.drives.includes(id));
+    const monitored = drive.ids.find((id) => settings.monitor_drives.includes(id));
+    const chosen = controls || monitored;
     const select = el("select", { name: "drive_id" }, ...drive.ids.map((id) => el("option", { value: id, text: shortPath(id), selected: id === chosen })));
     const own = chosen && chosen in settings.spin_down_drives ? settings.spin_down_drives[chosen] : "";
     drives.append(
       el(
         "tr",
         { "data-drive": drive.name },
-        el("td", {}, el("input", { type: "checkbox", name: "drive_use", checked: Boolean(chosen), "aria-label": drive.name })),
+        el("td", {}, el("input", { type: "checkbox", name: "drive_use", checked: Boolean(controls), "aria-label": `${t("settings.drive_controls")} · ${drive.name}` })),
+        el("td", {}, el("input", { type: "checkbox", name: "drive_monitor", checked: Boolean(monitored), "aria-label": `${t("settings.drive_monitor")} · ${drive.name}` })),
         el("td", {}, el("strong", { text: drive.name }), " ", el("span", { class: "muted small", text: `${drive.model} · ${fmtBytes(drive.size_bytes)}${drive.rotational === false ? " · SSD" : ""}` })),
         el("td", {}, labelInput(chosen || drive.ids[0], driveLabelById(drive.ids[0]))),
         el("td", {}, select),
@@ -710,9 +715,13 @@ function collectSettings() {
 
   doc.drives = [];
   doc.spin_down_drives = {};
+  // Monitored drives that are not on the host now stay monitored.
+  const found = new Set(state.hardware.drives.flatMap((drive) => drive.ids));
+  doc.monitor_drives = (state.settings ? state.settings.monitor_drives : []).filter((id) => !found.has(id));
   for (const line of $("drive-list").querySelectorAll("tr[data-drive]")) {
-    if (!line.querySelector("[name=drive_use]").checked) continue;
     const id = line.querySelector("[name=drive_id]").value;
+    if (line.querySelector("[name=drive_monitor]").checked) doc.monitor_drives.push(id);
+    if (!line.querySelector("[name=drive_use]").checked) continue;
     doc.drives.push(id);
     const own = line.querySelector("[name=drive_spin]").value;
     if (own !== "") doc.spin_down_drives[id] = Number(own);

@@ -327,15 +327,15 @@ async def get_history(request: web.Request) -> web.Response:
 #   get_smart
 # ---------------------------
 async def get_smart(request: web.Request) -> web.Response:
-    """The last SMART data of every drive."""
-    return web.json_response(await asyncio.to_thread(request.app[HISTORY].smart))
+    """The last SMART data of the monitored drives."""
+    return web.json_response(await asyncio.to_thread(request.app[MONITOR].smart))
 
 
 # ---------------------------
 #   post_smart
 # ---------------------------
 async def post_smart(request: web.Request) -> web.Response:
-    """Read the SMART data of every drive now. Sleeping drives are not woken."""
+    """Read the SMART data of the monitored drives now. Sleeping drives are not woken."""
     return web.json_response(await request.app[MONITOR].refresh_smart())
 
 
