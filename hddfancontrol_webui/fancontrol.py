@@ -198,6 +198,19 @@ class PwmWriter:
         self._file(path).write_text(f"{value}\n", encoding="utf-8")
         self.values[path] = value
 
+    def take(self, path: str) -> None:
+        """Put an output in manual mode without changing its value, saving its state the first time.
+
+        Some drivers (nct6775) refuse a PWM value while the chip itself drives
+        the output; hddfancontrol pwm-test writes values without switching
+        the mode first, so the PWM test takes the output with this.
+        """
+        if path not in self._saved:
+            enable = self._read(f"{path}_enable")
+            self._saved[path] = (enable, self._read(path))
+            if enable is not None and enable != str(ENABLE_MANUAL):
+                self._file(f"{path}_enable").write_text(f"{ENABLE_MANUAL}\n", encoding="utf-8")
+
     def restore(self) -> None:
         """Give every output back the mode, and in manual mode the value, it had."""
         for path, (enable, value) in self._saved.items():

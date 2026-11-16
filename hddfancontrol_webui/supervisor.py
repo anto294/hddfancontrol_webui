@@ -438,6 +438,12 @@ class Supervisor:
         log(f"Testing {path}. The fan stops and starts several times; this takes a few minutes.")
         result: dict[str, Any] = {"status": "running"}
         self.test.results[path] = result
+        try:
+            await asyncio.to_thread(self.fans.writer.take, path)
+        except OSError as err:
+            log(f"Cannot put {path} in manual mode: {err}")
+            result.update(status="failed", error=str(err))
+            return
 
         def watch(text: str) -> None:
             log(text)
@@ -486,6 +492,9 @@ class Supervisor:
             log("PWM test cancelled")
             raise
         finally:
+            # hddfancontrol pwm-test leaves the outputs in manual mode at its
+            # last value: give each one back the mode and value it had.
+            await asyncio.shield(asyncio.to_thread(self.fans.writer.restore))
             self.test.running = False
             self.test.current = None
             self.test.finished_at = datetime.now(UTC).isoformat()

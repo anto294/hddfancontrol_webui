@@ -14,6 +14,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   that are only monitored, written when a value changes and at least every
   10 minutes.
 
+### Fixed
+
+- The PWM test failed at once with "Resource busy" on an output that the
+  chip itself drove (nct6775 with `pwmN_enable` other than 1). The output is
+  now put in manual mode for the test, and given back the mode and value it
+  had when the test ends, however it ends.
+
 ### Changed
 
 - HTTP requests are no longer logged: the page polls the API every few

@@ -30,6 +30,10 @@ if log:
         handle.write(" ".join(sys.argv[1:]) + "\\n")
 if "pwm-test" in sys.argv:
     path = sys.argv[-1]
+    fake_sys = os.environ.get("FAKE_SYS")
+    if fake_sys and log:
+        with open(fake_sys + path.removeprefix("/sys") + "_enable") as enable, open(log, "a") as handle:
+            handle.write(f"enable during test: {enable.read().strip()}\\n")
     print(f"INFO Testing fan {path}, this may take a long time", flush=True)
     if path.endswith("pwm2"):
         print(f"ERROR Fan {path} test failed: no RPM change", flush=True)
@@ -164,6 +168,21 @@ async def test_pwm_test(setup: tuple[Supervisor, Path]) -> None:
     assert results[PWM1] == {"status": "done", "start": 180, "stop": 62}
     assert results["/sys/class/hwmon/hwmon2/pwm2"] == {"status": "failed", "error": "no RPM change"}
     await wait_for(lambda: supervisor.hddfancontrol.state == "running")
+    await supervisor.stop()
+
+
+async def test_pwm_test_takes_the_output_and_gives_it_back(
+    setup: tuple[Supervisor, Path], fake_sys: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An output driven by the chip is put in manual mode for the test, then given back."""
+    supervisor, calls = setup
+    monkeypatch.setenv("FAKE_SYS", str(fake_sys))
+    enable = fake_sys / "class/hwmon/hwmon2/pwm1_enable"
+    assert enable.read_text().strip() == "5"
+    await supervisor.start_pwm_test([PWM1])
+    await wait_for(lambda: not supervisor.test.running)
+    assert "enable during test: 1" in read(calls)
+    assert enable.read_text().strip() == "5"
     await supervisor.stop()
 
 
