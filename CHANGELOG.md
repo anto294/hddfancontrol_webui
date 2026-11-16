@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- The temperature limit of a drive is called the highest *recommended*
+  temperature, which is what the drive reports ("Min/Max recommended
+  Temperature" in smartctl): some drives give a value well under the
+  operating limit of their datasheet, such as 40 °C for a Seagate Exos X16.
+
 ## [0.5.1] - 2026-11-16
 
 ### Fixed

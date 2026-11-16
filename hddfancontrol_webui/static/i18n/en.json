@@ -341,7 +341,7 @@
   "smart.connection": "Connection",
   "smart.rpm": "Speed",
   "smart.form_factor": "Form factor",
-  "smart.temp_limit": "Highest operating temperature (from the drive)",
+  "smart.temp_limit": "Highest recommended temperature (from the drive)",
   "smart.temp_lifetime_max": "Highest temperature ever reached",
   "drive.link_max": "max {speed}",
   "drive.ctrl_board": "board SATA port (ahci)",
@@ -352,5 +352,5 @@
   "drive.use.surveillance": "Surveillance",
   "drive.use.ssd": "SSD",
   "drive.smr_hint": "SMR (shingled) recording: slow on sustained writes, a poor fit for ZFS and RAID rebuilds.",
-  "drive.max_over_limit": "The maximum temperature of the settings ({max}) is above what this drive is made for ({limit})."
+  "drive.max_over_limit": "The maximum temperature of the settings ({max}) is above the highest this drive recommends ({limit})."
 }

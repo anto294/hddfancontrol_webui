@@ -341,7 +341,7 @@
   "smart.connection": "Collegamento",
   "smart.rpm": "Velocità di rotazione",
   "smart.form_factor": "Formato",
-  "smart.temp_limit": "Temperatura massima di esercizio (dichiarata dal disco)",
+  "smart.temp_limit": "Temperatura massima consigliata (dichiarata dal disco)",
   "smart.temp_lifetime_max": "Temperatura più alta mai raggiunta",
   "drive.link_max": "max {speed}",
   "drive.ctrl_board": "porta SATA della scheda madre (ahci)",
@@ -352,5 +352,5 @@
   "drive.use.surveillance": "Videosorveglianza",
   "drive.use.ssd": "SSD",
   "drive.smr_hint": "Registrazione SMR (shingled): lenta nelle scritture prolungate, poco adatta a ZFS e alle ricostruzioni RAID.",
-  "drive.max_over_limit": "La temperatura massima delle impostazioni ({max}) supera quella per cui è fatto questo disco ({limit})."
+  "drive.max_over_limit": "La temperatura massima delle impostazioni ({max}) supera quella che questo disco consiglia ({limit})."
 }
