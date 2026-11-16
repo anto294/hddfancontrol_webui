@@ -54,6 +54,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   mode a failed probe of every drive dropped the fans to the minimum
   speed. The last temperature of a drive now keeps counting for five
   intervals after it turns empty, in the auto mode and in manual control.
+- A new SMART interval only applied after the old wait (up to a week). The
+  interval is now read again every minute.
 
 ### Security
 

@@ -49,6 +49,8 @@ SMART_COUNTS = (
 # Drive temperatures older than this say nothing about now (the safety
 # alert of the fan controller covers them).
 FRESH_SAMPLE_SECONDS = 600.0
+# How often the SMART loop looks at its interval.
+SMART_CHECK_PERIOD = 60.0
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -369,16 +371,21 @@ class Monitor:
             return await asyncio.to_thread(self.smart)
 
     async def _smart_loop(self) -> None:
-        """Read the SMART data every smart_interval_h hours; 0 means only on demand."""
-        await asyncio.sleep(60)
+        """Read the SMART data every smart_interval_h hours; 0 means only on demand.
+
+        The interval is read again every SMART_CHECK_PERIOD, so a new one
+        applies at once instead of after the old wait. The first read comes
+        SMART_CHECK_PERIOD after the start.
+        """
+        last: float | None = None
         while True:
+            await asyncio.sleep(SMART_CHECK_PERIOD)
             hours = self._settings().smart_interval_h
-            if hours > 0:
-                try:
-                    await self.refresh_smart()
-                    self._worked("SMART refresh")
-                except Exception as err:  # the loop must outlive any error
-                    self._failed("SMART refresh", err)
-                await asyncio.sleep(hours * 3600)
-            else:
-                await asyncio.sleep(600)
+            if hours <= 0 or (last is not None and time.monotonic() - last < hours * 3600):
+                continue
+            try:
+                await self.refresh_smart()
+                self._worked("SMART refresh")
+            except Exception as err:  # the loop must outlive any error
+                self._failed("SMART refresh", err)
+            last = time.monotonic()

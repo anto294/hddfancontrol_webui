@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -207,4 +208,40 @@ async def test_loops_survive_errors(tmp_path: Path, fake_sys: Path, fake_dev: Pa
     await real(0.1)
     assert any("recording works again" in line for line in lines)
     await monitor.stop()
+    monitor.history.close()
+
+
+async def test_smart_interval_change_applies_at_once(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shorter SMART interval applies at the next check, not after the old wait."""
+    real = asyncio.sleep
+    clock = {"now": 0.0}
+
+    async def tick(_: float) -> None:
+        clock["now"] += 60
+        await real(0.005)
+
+    reads: list[float] = []
+
+    async def reader(device: str) -> dict[str, Any]:
+        reads.append(clock["now"])
+        return {"status": "ok"}
+
+    monkeypatch.setattr(monitor_module.asyncio, "sleep", tick)
+    # Only the monitor's clock: the event loop keeps the real one.
+    fake_time = type("FakeTime", (), {"monotonic": staticmethod(lambda: clock["now"]), "time": staticmethod(time.time)})
+    monkeypatch.setattr(monitor_module, "time", fake_time)
+    settings = {"value": from_dict({"drives": [DRIVE], "smart_interval_h": 168})}
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings["value"], reader)
+    monitor._settings = lambda: settings["value"]
+    task = asyncio.create_task(monitor._smart_loop())
+    while not reads:
+        await real(0.005)
+    assert reads == [60.0]
+    settings["value"] = from_dict({"drives": [DRIVE], "smart_interval_h": 1})
+    while len(reads) < 2:
+        await real(0.005)
+    task.cancel()
+    assert reads[1] - reads[0] == 3600
     monitor.history.close()
