@@ -31,5 +31,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   release, bare metal tarballs with static hddfancontrol, hd-idle and sdparm,
   a systemd unit and `install.sh`.
 - The environment variables of fightforlife/docker_hddfancontrol.
+  `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
+  get their previous settings back instead of running at full speed.
 
 [Unreleased]: https://github.com/anto294/hddfancontrol_webui/commits/main

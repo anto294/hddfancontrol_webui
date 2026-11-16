@@ -102,7 +102,9 @@ class Settings:
     """Everything the two daemons are started with.
 
     The defaults are the defaults of hddfancontrol, and hd-idle's own idle
-    time for the spin down.
+    time for the spin down, except restore_fan_settings: when hddfancontrol
+    stops, the fans get their previous settings back instead of running at
+    full speed.
     """
 
     drives: tuple[str, ...] = ()
@@ -114,7 +116,7 @@ class Settings:
     interval_s: int = 20
     average: int = 1
     hwmons: tuple[Hwmon, ...] = ()
-    restore_fan_settings: bool = False
+    restore_fan_settings: bool = True
     verbosity: str = "INFO"
     spin_down_time_s: int = 600
     spin_down_command: str = "ata"

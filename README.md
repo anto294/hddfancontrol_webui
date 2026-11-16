@@ -155,7 +155,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `INTERVAL` | `20s` | Check interval (`10s`, `1min`, …) |
 | `AVERAGE` | `1` | Number of samples to average |
 | `HWMONS` | — | Other temperature inputs, as `PATH[:MIN:MAX]`, separated by spaces |
-| `RESTORE_FAN_SETTINGS` | `false` | When hddfancontrol stops, give the fans back their settings instead of full speed |
+| `RESTORE_FAN_SETTINGS` | `true` | When hddfancontrol stops, give the fans back their settings; `false` leaves them at full speed |
 | `VERBOSITY` | `INFO` | `TRACE`, `DEBUG`, `INFO`, `WARN` or `ERROR` |
 | `SPIN_DOWN_TIME_S` | `600` | Idle time before spin down, seconds; `0` turns hd-idle off |
 | `SPIN_DOWN_COMMAND` | `ata` | `ata` or `scsi` |
@@ -167,7 +167,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 Change the image to `ghcr.io/anto294/hddfancontrol_webui:latest`, add a `/config` volume and port 8080, and keep your environment variables. Three things behave differently:
 
 - **hd-idle spins down only the drives in `DRIVES`.** The upstream script set the idle time for every drive of the system.
-- **`RESTORE_FAN_SETTINGS=false` means false.** Upstream turned the option on whatever its value.
+- **`RESTORE_FAN_SETTINGS` is on unless you set it to `false`.** When hddfancontrol stops, the fans get their previous settings back; upstream left them at full speed unless the variable was set, and then turned the option on whatever its value. Set `RESTORE_FAN_SETTINGS=false` to keep the fans at full speed.
 - **A daemon that stops is started again**, with a growing delay, instead of the whole container stopping. Without `PWM`, the web UI waits for you to set the fans up, instead of waiting for a shell.
 
 ## Resource use

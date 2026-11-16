@@ -52,6 +52,9 @@ def test_defaults_are_those_of_hddfancontrol() -> None:
     assert settings == Settings()
     assert settings.drive_temp_min == 30 and settings.drive_temp_max == 50
     assert settings.min_fan_speed_prct == 20
+    assert settings.restore_fan_settings is True
+    assert "--restore-fan-settings" in hddfancontrol_args(settings, None)
+    assert "--restore-fan-settings" not in hddfancontrol_args(from_dict({"restore_fan_settings": False}), None)
     assert not settings.complete
 
 
