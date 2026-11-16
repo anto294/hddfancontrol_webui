@@ -394,3 +394,49 @@ async def test_alert_notes_api(make_client: ClientMaker, tmp_path: Path) -> None
     await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": False}, headers=FETCH)
     status = await (await client.get("/api/status")).json()
     assert status["acknowledged"] == []
+
+
+async def test_too_many_wrong_passwords(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An address that sends too many wrong passwords is refused without a check; a right one resets the count."""
+    from hddfancontrol_webui import web as web_module
+
+    monkeypatch.setattr(web_module, "AUTH_FAILURE_DELAY", 0)
+    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
+    limiter = client.app[web_module.LOGINS]
+    monkeypatch.setattr(limiter, "_max", 2)
+    good = {"username": "anto", "password": "a-long-password"}
+    bad = {"username": "anto", "password": "nope"}
+    assert (await client.post("/api/login", json=bad, headers=FETCH)).status == 401
+    assert (await client.post("/api/login", json=good, headers=FETCH)).status == 200
+    for _ in range(2):
+        assert (await client.post("/api/login", json=bad, headers=FETCH)).status == 401
+    blocked = await client.post("/api/login", json=good, headers=FETCH)
+    assert blocked.status == 429 and (await blocked.json())["error"] == "too_many_attempts"
+    client.session.cookie_jar.clear()  # no session: only the Basic credentials count
+    basic = "Basic " + base64.b64encode(b"anto:a-long-password").decode()
+    response = await client.get("/api/status", headers={"Authorization": basic})
+    assert response.status == 429
+    limiter.succeeded("127.0.0.1")
+    response = await client.get("/api/status", headers={"Authorization": basic})
+    assert response.status == 200
+
+
+def test_login_limiter_window_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Failures expire after the window; the table of addresses stays bounded."""
+    from hddfancontrol_webui import web as web_module
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(web_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(web_module, "LOGIN_MAX_ADDRESSES", 2)
+    limiter = web_module.LoginLimiter(max_failures=1, window=10)
+    limiter.failed("a")
+    assert limiter.blocked("a")
+    clock["now"] += 11
+    assert not limiter.blocked("a")
+    limiter.failed("b")
+    limiter.failed("c")
+    limiter.failed("d")  # the table is full of recent failures: not counted
+    assert limiter.blocked("b") and limiter.blocked("c") and not limiter.blocked("d")
+    clock["now"] += 11
+    limiter.failed("d")  # expired entries make room
+    assert limiter.blocked("d")

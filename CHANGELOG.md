@@ -55,6 +55,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   speed. The last temperature of a drive now keeps counting for five
   intervals after it turns empty, in the auto mode and in manual control.
 
+### Security
+
+- After 10 wrong passwords within 15 minutes, an address is refused (HTTP
+  429) until the 15 minutes are over, at the login page and for HTTP Basic
+  credentials, without running the password check. A right password
+  clears the count.
+
 ## [0.5.1] - 2026-11-16
 
 ### Fixed

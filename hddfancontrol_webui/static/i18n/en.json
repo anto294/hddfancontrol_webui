@@ -226,6 +226,7 @@
   "error.invalid_json": "The request is not valid JSON.",
   "error.unauthorized": "Log in again.",
   "error.wrong_credentials": "Wrong username or password.",
+  "error.too_many_attempts": "Too many wrong passwords from this address: try again in 15 minutes.",
   "error.auth_from_env": "The credentials come from the environment variables and cannot be changed here.",
   "error.wrong_password": "The current password is wrong.",
   "error.invalid_username": "The username cannot be empty or contain ':'.",

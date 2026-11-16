@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,11 @@ PUBLIC_PATHS = (
     "/static/apple-touch-icon.png",
 )
 PUBLIC_PREFIXES = ("/static/i18n/",)
+# After this many wrong passwords from one address within LOGIN_WINDOW
+# seconds, that address is refused without checking until the window ends.
+LOGIN_MAX_FAILURES = 10
+LOGIN_WINDOW = 900.0
+LOGIN_MAX_ADDRESSES = 10000
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 SensorScan = Callable[[], Awaitable[SensorReport]]
@@ -69,6 +75,54 @@ LABELS: web.AppKey[Labels] = web.AppKey("labels", Labels)
 SENSOR_SCAN: web.AppKey[SensorScan] = web.AppKey("sensor_scan")
 STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
 PASSWORD_CHECKS: web.AppKey[asyncio.Semaphore] = web.AppKey("password_checks", asyncio.Semaphore)
+
+
+# ---------------------------
+#   LoginLimiter
+# ---------------------------
+class LoginLimiter:
+    """Count the wrong passwords of each client address, and refuse one that sends too many.
+
+    The scrypt checks already run one at a time; this stops one address
+    from guessing for hours, and from keeping the checks busy for everyone
+    else. Behind a reverse proxy every client has the address of the proxy.
+    """
+
+    def __init__(self, max_failures: int = LOGIN_MAX_FAILURES, window: float = LOGIN_WINDOW) -> None:
+        """Allow max_failures wrong passwords per address within window seconds."""
+        self._max = max_failures
+        self._window = window
+        self._failures: dict[str, list[float]] = {}
+
+    def _recent(self, address: str, now: float) -> list[float]:
+        """The failures of address within the window."""
+        recent = [t for t in self._failures.get(address, []) if now - t < self._window]
+        if recent:
+            self._failures[address] = recent
+        else:
+            self._failures.pop(address, None)
+        return recent
+
+    def blocked(self, address: str) -> bool:
+        """Whether address sent too many wrong passwords lately."""
+        return len(self._recent(address, time.monotonic())) >= self._max
+
+    def failed(self, address: str) -> None:
+        """Count a wrong password of address."""
+        now = time.monotonic()
+        if address not in self._failures and len(self._failures) >= LOGIN_MAX_ADDRESSES:
+            for other in list(self._failures):
+                self._recent(other, now)
+            if len(self._failures) >= LOGIN_MAX_ADDRESSES:
+                return
+        self._failures.setdefault(address, []).append(now)
+
+    def succeeded(self, address: str) -> None:
+        """Forget the failures of address after a right password."""
+        self._failures.pop(address, None)
+
+
+LOGINS: web.AppKey[LoginLimiter] = web.AppKey("logins", LoginLimiter)
 
 
 # ---------------------------
@@ -137,8 +191,14 @@ async def authentication(request: web.Request, handler: Handler) -> web.StreamRe
         return await handler(request)
     header = request.headers.get("Authorization", "")
     if header:
+        logins = request.app[LOGINS]
+        address = request.remote or ""
+        if logins.blocked(address):
+            return _json_error(429, "too_many_attempts")
         if await _password_work(request, auth.check_basic, header):
+            logins.succeeded(address)
             return await handler(request)
+        logins.failed(address)
         await asyncio.sleep(AUTH_FAILURE_DELAY)
     if path.startswith("/api/"):
         return _json_error(401, "unauthorized")
@@ -211,9 +271,15 @@ async def post_login(request: web.Request) -> web.Response:
     password = data.get("password") if isinstance(data, dict) else None
     if not isinstance(username, str) or not isinstance(password, str):
         return _json_error(400, "invalid_document")
+    logins = request.app[LOGINS]
+    address = request.remote or ""
+    if logins.blocked(address):
+        return _json_error(429, "too_many_attempts")
     if not await _password_work(request, auth.check, username, password):
+        logins.failed(address)
         await asyncio.sleep(AUTH_FAILURE_DELAY)
         return _json_error(401, "wrong_credentials")
+    logins.succeeded(address)
     response = web.json_response({"ok": True})
     response.set_cookie(
         SESSION_COOKIE,
@@ -610,6 +676,7 @@ def create_app(
     app[SENSOR_SCAN] = sensor_scan or default_scan
     app[STATE] = {"sensors": SensorReport()}
     app[PASSWORD_CHECKS] = asyncio.Semaphore(1)
+    app[LOGINS] = LoginLimiter()
     router = app.router
     router.add_get("/", index)
     router.add_get("/login", login_page)
