@@ -1,0 +1,32 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- A web UI for hddfancontrol 2.1.2 and hd-idle 1.21, in English and Italian.
+- Three fan control modes: the curve of hddfancontrol between a minimum and a
+  maximum temperature; an auto mode that keeps the hottest drive near a
+  target; and manual control with a slider per PWM output, to find which fan
+  is which. Hot drives put every fan at full speed in any mode.
+- The PWM test of hddfancontrol, from the web UI, with its values copied into
+  the settings.
+- A spin down time per drive.
+- History of drive temperatures, fan PWM and fan speed in SQLite, with charts
+  from one hour to a year.
+- SMART data of every drive, read without waking sleeping drives.
+- Names for drives and fans.
+- Username and password, set with environment variables or in the web UI.
+- Detection of the sensor chip modules, with the steps to load them on a
+  TrueNAS SCALE host when the container cannot.
+- A multi-architecture Docker image (amd64, arm64, armv7) and, for every
+  release, bare metal tarballs with static hddfancontrol, hd-idle and sdparm,
+  a systemd unit and `install.sh`.
+- The environment variables of fightforlife/docker_hddfancontrol.
+
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/commits/main
