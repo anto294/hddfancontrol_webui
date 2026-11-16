@@ -85,7 +85,12 @@ class History:
         with self._lock:
             rows = [(self._series_id(kind, name), ts, value) for kind, name, value in values]
             self._db.execute("BEGIN")
-            self._db.executemany("INSERT OR IGNORE INTO samples (series, ts, value) VALUES (?, ?, ?)", rows)
+            try:
+                self._db.executemany("INSERT OR IGNORE INTO samples (series, ts, value) VALUES (?, ?, ?)", rows)
+            except sqlite3.Error:
+                # Left open, the transaction would make every later BEGIN fail.
+                self._db.execute("ROLLBACK")
+                raise
             self._db.execute("COMMIT")
 
     def purge(self, days: int, now: float | None = None) -> int:

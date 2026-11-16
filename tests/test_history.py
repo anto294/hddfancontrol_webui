@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from hddfancontrol_webui.const import HISTORY_MAX_POINTS
 from hddfancontrol_webui.history import History
@@ -48,4 +52,27 @@ def test_smart_store(tmp_path: Path) -> None:
     history.save_smart("/dev/a", {"status": "ok"}, ts=NOW)
     history.save_smart("/dev/a", {"status": "warning"}, ts=NOW + 5)
     assert history.smart() == {"/dev/a": {"time": NOW + 5, "status": "warning"}}
+    history.close()
+
+
+def test_failed_record_does_not_block_the_next(tmp_path: Path) -> None:
+    """A failed insert (a full disk, say) is rolled back, so later samples are still stored."""
+    history = History(tmp_path / "h.db")
+    real = history._db
+
+    class FullDisk:
+        """The connection, but the next executemany fails."""
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real, name)
+
+        def executemany(self, *args: Any) -> Any:
+            raise sqlite3.OperationalError("database or disk is full")
+
+    history._db = FullDisk()  # type: ignore[assignment]  # a stand-in for the connection
+    with pytest.raises(sqlite3.OperationalError):
+        history.record(NOW, [("temp", "sda", 40.0)])
+    history._db = real
+    history.record(NOW, [("temp", "sda", 40.0)])
+    assert history.query(1, now=NOW)["series"][0]["points"] == [[NOW, 40.0]]
     history.close()
