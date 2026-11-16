@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -292,3 +293,29 @@ async def test_manual_control_survives_an_error(fake_sys: Path, fast: None) -> N
     assert read(fake_sys, "pwm2") == "255"
     await fans.stop()
     assert fans.error is None
+
+
+async def test_manual_values_never_land_after_stop(fake_sys: Path, fast: None) -> None:
+    """Values set from worker threads while manual control ends are refused, never written after the restore."""
+    fans = FanController(PwmWriter(fake_sys), lambda: sample({"sda": 30.0, "coretemp.0/1": 50.0}), lambda _: None)
+    fans.start_manual(SETTINGS)
+    fans.set_manual(PWM1, 90)
+
+    def slider() -> bool:
+        """Move the slider until manual control has ended; True when a value was refused."""
+        end = time.monotonic() + 5
+        value = 0
+        while time.monotonic() < end:
+            try:
+                fans.set_manual(PWM1, value % 100)
+            except RuntimeError:
+                return True
+            value += 1
+        return False
+
+    threads = [asyncio.to_thread(slider) for _ in range(4)]
+    await asyncio.sleep(0.01)
+    *refused, _ = await asyncio.gather(*threads, fans.stop())
+    assert all(refused)
+    assert read(fake_sys, "pwm1_enable") == "5"
+    assert fans.writer.values == {}

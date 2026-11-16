@@ -37,6 +37,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   10 s timeout each: with the server down and several alerts at once, the
   history and the stalled-fan check paused for a minute or more. They now
   go through a queue with their own sender, in order.
+- A fan value set in the very moment manual control ended could be
+  written after the fans were given back, leaving that output in manual
+  mode at that value. The value is now refused once manual control ends.
 
 ## [0.5.1] - 2026-11-16
 

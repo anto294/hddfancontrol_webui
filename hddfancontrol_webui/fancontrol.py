@@ -288,9 +288,11 @@ class FanController:
 
     def set_manual(self, path: str, value: int) -> None:
         """Set one PWM output in manual control."""
-        if self.mode != "manual":
-            raise RuntimeError("Not in manual control")
         with self._manual_lock:
+            # Checked under the lock: stop() gives the fans back under it too,
+            # so no value lands after they were given back.
+            if self.mode != "manual":
+                raise RuntimeError("Not in manual control")
             if self.safety:
                 # Hot drives: the fans stay at full speed.
                 return
@@ -301,11 +303,12 @@ class FanController:
         task, self._task = self._task, None
         if task is not None:
             await cancel_and_wait(task)
-        try:
-            self.writer.restore()
-        except OSError as err:
-            self._log(f"Cannot restore the fans: {err}")
-        self.mode = None
+        with self._manual_lock:
+            self.mode = None
+            try:
+                self.writer.restore()
+            except OSError as err:
+                self._log(f"Cannot restore the fans: {err}")
         self.safety = False
         self.safety_reason = None
         self.error = None
