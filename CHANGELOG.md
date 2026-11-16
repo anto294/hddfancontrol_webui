@@ -7,15 +7,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-16
+
 ### Added
-
-- Export and import of the settings and the names of drives and fans, as one
-  JSON file (Settings → Backup). An import is checked and applied like a
-  save.
-
-- A chart of the fan curve in Settings: speed for each drive temperature as
-  the form stands, redrawn while you type, with the hottest drive as a dot
-  (in auto mode, the target and the maximum).
 
 - Alerts: a drive at the maximum temperature, a chosen fan that stops
   (0 RPM for 2 minutes with its PWM value well over its stop value, only for
@@ -25,6 +19,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   address in Settings → Notifications (or `NOTIFY_URL`), is sent to ntfy,
   Gotify or a JSON webhook, in English or Italian; so is its end. A button
   sends a test message.
+- A chart of the fan curve in Settings: speed for each drive temperature as
+  the form stands, redrawn while you type, with the hottest drive as a dot
+  (in auto mode, the target and the maximum).
+- Export and import of the settings and the names of drives and fans, as one
+  JSON file (Settings → Backup). An import is checked and applied like a
+  save.
 
 ### Changed
 
@@ -145,7 +145,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.3.1...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.4.0...main
+[0.4.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.1.0...v0.2.0
