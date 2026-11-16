@@ -1019,7 +1019,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // pollStatus shows the problem.
   }
   await Promise.all([pollStatus(), pollHardware(), pollLogs()]);
-  let first = "overview";
+  let first;
   try {
     first = localStorage.getItem("tab") || "overview";
   } catch {
