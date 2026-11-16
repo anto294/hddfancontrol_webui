@@ -251,30 +251,112 @@ function renderBanners() {
   if (status.fans.safety) box.append(banner("error", t(status.fans.safety_reason === "stale" ? "banner.safety_stale" : "banner.safety")));
 }
 
+// cool: below the minimum; mild and warm: the two halves of the range; hot: at the maximum.
+function tempLevel(value) {
+  const low = state.settings ? state.settings.drive_temp_min : 30;
+  const high = state.settings ? state.settings.drive_temp_max : 50;
+  if (value < low) return "cool";
+  if (value >= high) return "hot";
+  return value < (low + high) / 2 ? "mild" : "warm";
+}
+
+// A bar as an SVG: its width is an attribute, so the CSP (no style attributes) allows it.
+function bar(fraction, level) {
+  const clamped = Math.max(0, Math.min(1, fraction));
+  const node = svg("svg", { class: `bar ${level}`, viewBox: "0 0 100 8", preserveAspectRatio: "none", "aria-hidden": "true" });
+  node.append(svg("rect", { class: "track", x: 0, y: 0, width: 100, height: 8, rx: 4 }));
+  if (clamped > 0) node.append(svg("rect", { class: "fill", x: 0, y: 0, width: (clamped * 100).toFixed(1), height: 8, rx: 4 }));
+  return node;
+}
+
+// The fan icon turns faster with the speed; it stands still when the fan does.
+function spinClass(pwm) {
+  if (pwm.rpm === 0 || pwm.value === 0) return "still";
+  if (pwm.value === null) return "still";
+  const pct = (pwm.value * 100) / 255;
+  return pct < 40 ? "spin-slow" : pct < 75 ? "spin-mid" : "spin-fast";
+}
+
+function setStat(id, value, level = "") {
+  const node = $(id);
+  node.querySelector(".stat-value").textContent = value;
+  node.className = `stat ${level}`.trim();
+}
+
 function renderOverview() {
   const status = state.status;
   if (!status) return;
 
   const temps = $("drive-temps");
   temps.replaceChildren();
+  const values = [];
+  let asleep = 0;
   if (status.latest) {
     $("latest-time").textContent = t("overview.measured", { time: fmtTime(status.latest.time) });
+    const low = state.settings ? state.settings.drive_temp_min : 30;
+    const high = state.settings ? state.settings.drive_temp_max : 50;
+    // The bar runs from 10 degrees under the minimum to 5 over the maximum.
+    const from = low - 10;
+    const to = high + 5;
     for (const [name, value] of Object.entries(status.latest.temps)) {
-      temps.append(row(driveLabelByLogName(name), value === null ? el("span", { class: "badge muted", text: t("state.asleep") }) : fmtTemp(value)));
+      if (value === null) {
+        asleep += 1;
+        temps.append(
+          el("div", { class: "meter asleep" }, icon("moon"), el("span", { class: "meter-name", text: driveLabelByLogName(name) }), bar(0, "cool"), el("span", { class: "meter-value muted", text: t("state.asleep") })),
+        );
+        continue;
+      }
+      values.push(value);
+      const level = tempLevel(value);
+      temps.append(
+        el("div", { class: `meter ${level}` }, icon("drive"), el("span", { class: "meter-name", text: driveLabelByLogName(name) }), bar((value - from) / (to - from), level), el("span", { class: "meter-value", text: fmtTemp(value) })),
+      );
     }
   } else {
     $("latest-time").textContent = t("overview.no_temps");
   }
+  if (values.length) {
+    const hottest = Math.max(...values);
+    setStat("stat-hottest", fmtTemp(hottest), tempLevel(hottest));
+  } else {
+    setStat("stat-hottest", "–");
+  }
+  const total = values.length + asleep;
+  setStat("stat-drives", total ? `${values.length} / ${total}` : "–");
+  $("stat-drives").title = asleep ? t("overview.asleep_count", { count: asleep }) : "";
 
   const fans = $("fan-summary");
-  fans.replaceChildren(headRow(t("fans.output"), "PWM", t("fans.speed")));
   const configured = new Set((state.settings ? state.settings.pwms : []).map((pwm) => pwm.path));
   // The configured fans, or every PWM output when none of them is found.
   const matching = allPwms().filter((pwm) => configured.has(pwm.path));
   const shown = matching.length ? matching : allPwms();
+  // Lines are updated in place: building them again would restart the turning icons.
+  const lines = new Map([...fans.querySelectorAll(".meter[data-path]")].map((line) => [line.dataset.path, line]));
+  const order = [];
   for (const pwm of shown) {
-    fans.append(row(pwmLabel(pwm.path), fmtPct(pwm.value), fmtRpm(pwm.rpm)));
+    let line = lines.get(pwm.path);
+    if (!line) {
+      line = el(
+        "div",
+        { class: "meter fan", "data-path": pwm.path },
+        icon("fan"),
+        el("span", { class: "meter-name" }),
+        bar(0, "fan"),
+        el("span", { class: "meter-value" }, el("span", { class: "pct" }), el("small", { class: "muted rpm" })),
+      );
+    }
+    const fan = line.querySelector(".icon");
+    const spin = `icon icon-fan ${spinClass(pwm)}`;
+    if (fan.getAttribute("class") !== spin) fan.setAttribute("class", spin);
+    line.querySelector(".meter-name").textContent = pwmLabel(pwm.path);
+    line.querySelector(".bar").replaceWith(bar(pwm.value === null ? 0 : pwm.value / 255, "fan"));
+    line.querySelector(".pct").textContent = fmtPct(pwm.value);
+    line.querySelector(".rpm").textContent = fmtRpm(pwm.rpm);
+    order.push(line);
   }
+  fans.replaceChildren(...order);
+  const known = shown.filter((pwm) => pwm.value !== null);
+  setStat("stat-fans", known.length ? fmtPct(known.reduce((sum, pwm) => sum + pwm.value, 0) / known.length) : "–");
 
   const control = $("control");
   control.replaceChildren();

@@ -722,3 +722,196 @@ button.link {
     width: 4.5rem;
   }
 }
+
+/* Overview: summary tiles */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stat {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.8rem;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.8rem 1rem;
+}
+
+.stat-icon {
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: var(--info-bg);
+  color: var(--accent);
+}
+
+.stat-icon .icon {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.stat.cool .stat-value,
+.stat.mild .stat-value {
+  color: var(--ok);
+}
+
+.stat.warm .stat-value {
+  color: var(--warn);
+}
+
+.stat.hot .stat-value {
+  color: var(--danger);
+}
+
+.stat.cool .stat-icon,
+.stat.mild .stat-icon {
+  color: var(--ok);
+}
+
+.stat.warm .stat-icon {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.stat.hot .stat-icon {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+/* Overview: one line per drive or fan, with a bar */
+.meters {
+  display: flex;
+  flex-direction: column;
+}
+
+.meter {
+  display: grid;
+  grid-template-columns: 1.3rem minmax(0, 1.4fr) minmax(60px, 1fr) 5.5rem;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.meter:last-child {
+  border-bottom: none;
+}
+
+.meter > .icon {
+  color: var(--muted);
+}
+
+.meter-name {
+  overflow-wrap: anywhere;
+}
+
+.meter-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.meter-value small {
+  font-size: 0.75rem;
+}
+
+.bar {
+  width: 100%;
+  height: 8px;
+  display: block;
+}
+
+.bar .track {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.bar.cool .fill,
+.bar.mild .fill {
+  fill: var(--ok);
+}
+
+.bar.warm .fill {
+  fill: var(--warn);
+}
+
+.bar.hot .fill {
+  fill: var(--danger);
+}
+
+.bar.fan .fill {
+  fill: var(--accent);
+}
+
+.meter.hot .meter-value {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.meter.warm .meter-value {
+  color: var(--warn);
+}
+
+.meter.fan > .icon {
+  color: var(--accent);
+}
+
+/* The fan icon turns with the fan; never for those who asked for less motion. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.icon.spin-slow,
+.icon.spin-mid,
+.icon.spin-fast {
+  animation: spin linear infinite;
+}
+
+.icon.spin-slow {
+  animation-duration: 2.4s;
+}
+
+.icon.spin-mid {
+  animation-duration: 1.2s;
+}
+
+.icon.spin-fast {
+  animation-duration: 0.6s;
+}
+
+.icon.still {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon.spin-slow,
+  .icon.spin-mid,
+  .icon.spin-fast {
+    animation: none;
+  }
+}

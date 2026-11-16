@@ -62,6 +62,9 @@
   "overview.hottest": "Hottest drive",
   "overview.auto_speed": "Fan speed (auto)",
   "overview.restarts": "{count} restarts",
+  "overview.fan_average": "Average fan speed",
+  "overview.drives_awake": "Drives spinning",
+  "overview.asleep_count": "{count} asleep",
 
   "fans.title": "Fans",
   "fans.intro": "Every PWM output of the host. In manual control, move any slider and watch the speed to find out which fan it drives; each output you move gets its previous setting back when you leave manual control. The curve and auto modes drive only the fans chosen in Settings. Manual control is never saved: a restart goes back to automatic control.",

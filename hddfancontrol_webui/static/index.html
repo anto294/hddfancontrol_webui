@@ -37,15 +37,32 @@
 
     <!-- Overview -->
     <section id="tab-overview" class="tab">
+      <div class="stats">
+        <div class="stat" id="stat-hottest">
+          <span class="stat-icon" data-icon="thermometer"></span>
+          <span class="stat-label" data-i18n="overview.hottest"></span>
+          <strong class="stat-value"></strong>
+        </div>
+        <div class="stat" id="stat-fans">
+          <span class="stat-icon" data-icon="fan"></span>
+          <span class="stat-label" data-i18n="overview.fan_average"></span>
+          <strong class="stat-value"></strong>
+        </div>
+        <div class="stat" id="stat-drives">
+          <span class="stat-icon" data-icon="drive"></span>
+          <span class="stat-label" data-i18n="overview.drives_awake"></span>
+          <strong class="stat-value"></strong>
+        </div>
+      </div>
       <div class="grid">
         <article class="card">
           <h2 data-icon="drive" data-i18n="overview.drives"></h2>
           <p class="muted small" id="latest-time"></p>
-          <table class="list" id="drive-temps"></table>
+          <div class="meters" id="drive-temps"></div>
         </article>
         <article class="card">
           <h2 data-icon="fan" data-i18n="overview.fans"></h2>
-          <table class="list" id="fan-summary"></table>
+          <div class="meters" id="fan-summary"></div>
         </article>
         <article class="card">
           <h2 data-icon="chip" data-i18n="overview.control"></h2>

@@ -62,6 +62,9 @@
   "overview.hottest": "Disco più caldo",
   "overview.auto_speed": "Velocità ventole (auto)",
   "overview.restarts": "{count} riavvii",
+  "overview.fan_average": "Velocità media ventole",
+  "overview.drives_awake": "Dischi in rotazione",
+  "overview.asleep_count": "{count} in standby",
 
   "fans.title": "Ventole",
   "fans.intro": "Tutte le uscite PWM dell'host. In controllo manuale muovi un cursore qualsiasi e guarda la velocità per capire quale ventola comanda; ogni uscita che muovi torna come prima quando esci dal controllo manuale. Le modalità curva e auto comandano solo le ventole scelte nelle impostazioni. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico.",
