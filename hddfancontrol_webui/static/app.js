@@ -955,8 +955,14 @@ async function pollLogs() {
     if (!data.lines.length) return;
     state.logSeq = data.last;
     state.logLines.push(...data.lines);
-    if (state.logLines.length > LOG_MAX_LINES) state.logLines.splice(0, state.logLines.length - LOG_MAX_LINES);
+    const trimmed = state.logLines.length > LOG_MAX_LINES;
+    if (trimmed) state.logLines.splice(0, state.logLines.length - LOG_MAX_LINES);
     if (state.tab !== "logs") return;
+    // Appending only would let the page keep every line ever shown.
+    if (trimmed) {
+      renderLogs();
+      return;
+    }
     const log = $("log");
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     const source = $("log-source").value;
