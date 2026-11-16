@@ -294,6 +294,13 @@ table.list {
   overflow-wrap: normal;
 }
 
+/* A by-id name can be very long (nvme-nvme.c0a9-...): the select must not
+   push the table out of its card. */
+.form-table select {
+  width: 100%;
+  max-width: 20rem;
+}
+
 .attrs {
   font-size: 0.82rem;
 }
