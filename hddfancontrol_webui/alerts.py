@@ -10,7 +10,6 @@ web UI (static/i18n, keys alert.<kind>).
 from __future__ import annotations
 
 import json
-import logging
 import time
 from collections.abc import Awaitable, Callable
 from functools import cache
@@ -20,7 +19,6 @@ from typing import Any
 from .notify import NotifyError, send
 from .settings import Settings
 
-_LOGGER = logging.getLogger(__name__)
 I18N_DIR = Path(__file__).parent / "static" / "i18n"
 
 KIND_DRIVE_HOT = "drive_hot"

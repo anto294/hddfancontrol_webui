@@ -35,7 +35,8 @@ CONTROL_MODES = ("curve", "auto")
 NOTIFY_FORMATS = ("ntfy", "gotify", "json")
 NOTIFY_LANGUAGES = ("en", "it")
 MAX_URL_LENGTH = 500
-_URL = re.compile(r"^https?://[^\s/?#]+[^\s]*$")
+# The host, then nothing or a path, query or fragment: no overlap, so no slow backtracking.
+_URL = re.compile(r"^https?://[^\s/?#]+(?:[/?#]\S*)?$")
 
 SOURCE_ENV = "environment"
 SOURCE_FILE = "file"
