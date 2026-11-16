@@ -35,5 +35,5 @@ async def test_cancel_and_wait() -> None:
     await asyncio.sleep(0.01)
     waiter.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.gather(waiter)
     slow.cancel()
