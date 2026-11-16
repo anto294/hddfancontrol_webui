@@ -633,14 +633,23 @@ class Supervisor:
             log("PWM test cancelled")
             raise
         finally:
+            await asyncio.shield(self._after_test(log))
+
+    async def _after_test(self, log: Callable[[str], None]) -> None:
+        """Give the outputs back and start everything again, holding the lock.
+
+        Until the lock is held the test still counts as running, so a
+        restart or new settings cannot start the daemons at the same time.
+        """
+        async with self._lock:
             # hddfancontrol pwm-test leaves the outputs in manual mode at its
             # last value: give each one back the mode and value it had.
-            await asyncio.shield(asyncio.to_thread(self.fans.writer.restore))
+            await asyncio.to_thread(self.fans.writer.restore)
             self.test.running = False
             self.test.current = None
             self.test.finished_at = datetime.now(UTC).isoformat()
             log("PWM test over, starting again")
-            await asyncio.shield(self._start_daemons())
+            await self._start_daemons()
 
     def status(self) -> dict[str, Any]:
         """Return the state of everything as JSON-ready data."""

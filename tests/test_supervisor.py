@@ -431,3 +431,14 @@ async def test_daemon_hook_errors_are_logged(make_script: ScriptMaker, monkeypat
     await wait_for(lambda: daemon.restarts >= 2)
     await daemon.stop()
     assert any("RuntimeError('hook')" in line["text"] for line in logs.since(0))
+
+
+async def test_pwm_test_starts_again_under_the_lock(setup: tuple[Supervisor, Path]) -> None:
+    """The end of the test waits for the lock: until then it still runs, and refuses other changes."""
+    supervisor, _ = setup
+    await supervisor.start_pwm_test([PWM1])
+    async with supervisor._lock:
+        await asyncio.sleep(0.5)
+        assert supervisor.test.running and not supervisor.hddfancontrol.active
+    await wait_for(lambda: not supervisor.test.running and supervisor.hddfancontrol.active)
+    await supervisor.stop()

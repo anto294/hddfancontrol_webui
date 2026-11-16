@@ -40,6 +40,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A fan value set in the very moment manual control ended could be
   written after the fans were given back, leaving that output in manual
   mode at that value. The value is now refused once manual control ends.
+- New settings or a restart sent in the instant a PWM test ended could
+  start a second hddfancontrol next to the first. The end of the test now
+  holds the same lock as every other change.
 
 ## [0.5.1] - 2026-11-16
 
