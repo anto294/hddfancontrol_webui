@@ -67,6 +67,19 @@ class Monitor:
             await cancel_and_wait(task)
         self._tasks = []
 
+    def _stable_names(self) -> dict[str, str]:
+        """Map the kernel name of each drive (sda) to one of its stable names.
+
+        sdX can change at every boot, so the history keeps a drive under a
+        /dev/disk/by-id path: its wwn- name when it has one, else the first in
+        order, the same whichever name the settings use.
+        """
+        names = {}
+        for drive in self.hardware.drives():
+            if drive.ids:
+                names[drive.name] = min(drive.ids, key=lambda i: (not os.path.basename(i).startswith("wwn-"), i))
+        return names
+
     def record_once(self) -> int:
         """Store the newest temperatures, if new, and the fan speeds. Return how many values."""
         values: list[tuple[str, str, float]] = []
@@ -74,7 +87,11 @@ class Monitor:
         if latest is not None and latest["time"] != self._last_sample:
             self._last_sample = latest["time"]
             ts = int(datetime.fromisoformat(latest["time"]).timestamp())
-            values += [("temp", name, temp) for name, temp in latest["temps"].items() if temp is not None]
+            # hddfancontrol names a drive "sda MODEL": keep it under a name that survives a reboot.
+            stable = self._stable_names()
+            values += [
+                ("temp", stable.get(name.split()[0], name), temp) for name, temp in latest["temps"].items() if temp is not None
+            ]
             if values:
                 self.history.record(ts, values)
         fans: list[tuple[str, str, float]] = []

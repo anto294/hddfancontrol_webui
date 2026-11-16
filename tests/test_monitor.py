@@ -45,8 +45,10 @@ def test_record_once(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     assert monitor.record_once() == 3
     data = monitor.history.query(24 * 365)
     kinds = {(s["kind"], s["name"]) for s in data["series"]}
-    assert ("temp", "sda") in kinds and ("rpm", "/sys/class/hwmon/hwmon2/pwm1") in kinds
-    assert ("temp", "sdb") not in kinds
+    # sda is kept under its wwn- name, which a reboot does not change.
+    assert ("temp", "/dev/disk/by-id/wwn-0x5000c500e0000001") in kinds
+    assert ("rpm", "/sys/class/hwmon/hwmon2/pwm1") in kinds
+    assert not any(kind == "temp" and "sdb" in name for kind, name in kinds)
     monitor.history.close()
 
 

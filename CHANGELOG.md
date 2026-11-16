@@ -16,6 +16,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- The history kept each drive temperature under the kernel name of the
+  drive (sda), which can change at every boot: after a reboot, a line of
+  the chart could go on with another drive of the same model. Temperatures
+  are now kept under a `/dev/disk/by-id` name (`wwn-` when there is one).
+  Samples recorded by 0.1.0 keep their old name.
 - The PWM test failed at once with "Resource busy" on an output that the
   chip itself drove (nct6775 with `pwmN_enable` other than 1). The output is
   now put in manual mode for the test, and given back the mode and value it

@@ -141,6 +141,16 @@ function driveLabelByLogName(name) {
   return label ? `${label} (${kernel})` : name;
 }
 
+// A temperature series of the history: a /dev/disk/by-id path (or, before
+// 0.2.0, the "sda MODEL" name of hddfancontrol).
+function driveLabelBySeries(name) {
+  if (!name.startsWith("/dev/")) return driveLabelByLogName(name);
+  const label = driveLabelById(name);
+  const drive = state.hardware.drives.find((d) => d.ids.includes(name));
+  const now = drive ? `${drive.model} (${drive.name})` : shortPath(name);
+  return label ? `${label} (${drive ? drive.name : shortPath(name)})` : now;
+}
+
 async function saveLabel(key, label) {
   try {
     state.labels = await api("PUT", "/api/labels", { key, label });
@@ -591,7 +601,7 @@ async function loadHistory() {
   try {
     const data = await api("GET", `/api/history?hours=${encodeURIComponent(hours)}`);
     const of = (kind) => data.series.filter((s) => s.kind === kind);
-    drawChart($("chart-temp"), data, of("temp"), "°", driveLabelByLogName);
+    drawChart($("chart-temp"), data, of("temp"), "°", driveLabelBySeries);
     drawChart($("chart-rpm"), data, of("rpm"), "", pwmLabel);
     drawChart($("chart-pwm"), data, of("pwm"), "%", pwmLabel);
   } catch (error) {
