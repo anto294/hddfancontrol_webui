@@ -10,6 +10,7 @@
   <script src="/static/i18n.js" defer></script>
   <script src="/static/icons.js" defer></script>
   <script src="/static/app.js" defer></script>
+  <script src="/static/wizard.js" defer></script>
 </head>
 <body>
   <header class="top">
@@ -17,6 +18,7 @@
       <img src="/static/logo.png" alt="" width="36" height="36">
       <h1>hddfancontrol</h1>
       <span id="mode" class="pill"></span>
+      <button type="button" class="link open-wizard" data-icon="wizard" data-i18n="wizard.open"></button>
       <select class="lang"></select>
       <button id="logout" class="link" data-icon="logout" data-i18n="action.logout" hidden></button>
     </div>
@@ -72,6 +74,14 @@
           </div>
         </article>
       </div>
+    </section>
+
+    <!-- Guided setup (wizard.js) -->
+    <section id="tab-setup" class="tab" hidden>
+      <article class="card wizard">
+        <div id="setup-progress"></div>
+        <div id="setup-body"></div>
+      </article>
     </section>
 
     <!-- Fans: manual control -->
@@ -225,6 +235,7 @@
         <div class="actions sticky">
           <button type="submit" data-i18n="action.save"></button>
           <button type="button" id="reset-settings" class="secondary" data-i18n="action.reset"></button>
+          <button type="button" class="secondary open-wizard" data-icon="wizard" data-i18n="wizard.open"></button>
           <span id="save-result" class="small"></span>
         </div>
       </form>

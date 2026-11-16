@@ -246,7 +246,9 @@ function renderBanners() {
   if (status.read_only) box.append(banner("error", t("banner.read_only")));
   if (status.missing_pwms.length) box.append(banner("error", t("banner.missing_pwms", { paths: status.missing_pwms.map(pwmLabel).join(", ") })));
   if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
-  if (status.mode === "waiting") box.append(banner("info", t("banner.waiting")));
+  if (status.mode === "waiting" && state.tab !== "setup") {
+    box.append(banner("info", t("banner.waiting"), el("button", { class: "link", text: t("wizard.open"), onclick: openWizard })));
+  }
   if (status.fans.auto.failsafe) box.append(banner("error", t("banner.failsafe")));
   if (status.fans.safety) box.append(banner("error", t(status.fans.safety_reason === "stale" ? "banner.safety_stale" : "banner.safety")));
 }
@@ -390,6 +392,7 @@ async function pollStatus() {
     renderOverview();
     renderFansState();
     renderPwmTest();
+    wizardOnStatus();
   } catch (error) {
     if (error.message !== "unauthorized") $("banners").replaceChildren(banner("error", t("error.network")));
   }
@@ -1126,6 +1129,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("auth-form").addEventListener("submit", saveCredentials);
   $("auth-remove").addEventListener("click", removeCredentials);
   $("logout").addEventListener("click", logout);
+  for (const button of document.querySelectorAll(".open-wizard")) button.addEventListener("click", openWizard);
   $("log-source").addEventListener("change", renderLogs);
   window.addEventListener("resize", () => state.tab === "history" && loadHistory());
   document.addEventListener("visibilitychange", () => {
@@ -1148,7 +1152,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch {
     first = "overview";
   }
-  showTab(document.getElementById(`tab-${first}`) ? first : "overview");
+  if (wizardWanted() || first === "setup") openWizard();
+  else showTab(document.getElementById(`tab-${first}`) ? first : "overview");
 
   every(POLL_STATUS_MS, pollStatus);
   every(() => (state.tab === "fans" || state.tab === "overview" ? POLL_HARDWARE_FAST_MS : POLL_HARDWARE_SLOW_MS), pollHardware);

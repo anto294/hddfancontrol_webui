@@ -132,7 +132,7 @@ a {
   border-radius: 8px;
 }
 
-.brand .lang {
+.brand .open-wizard {
   margin-left: auto;
 }
 
@@ -913,5 +913,164 @@ button.link {
   .icon.spin-mid,
   .icon.spin-fast {
     animation: none;
+  }
+}
+
+/* Guided setup */
+.card.wizard {
+  max-width: 760px;
+  margin: 0 auto 16px;
+}
+
+.wizard-steps {
+  display: flex;
+  gap: 0.4rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.wizard-steps li {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.wizard-steps li span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.wizard-steps li.done {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.wizard-steps li.current {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.wizard-body h2 {
+  font-size: 1.25rem;
+}
+
+.wizard-body h2 .icon {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.wizard-list {
+  padding-left: 1.2rem;
+}
+
+.wizard-list li {
+  margin: 0.3rem 0;
+}
+
+.choice-list,
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.8rem 0;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.choice:has(input:checked) {
+  border-color: var(--accent);
+}
+
+.choice.active {
+  border-color: var(--warn);
+}
+
+.choice > .icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--accent);
+}
+
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.choice input[type="checkbox"],
+.preset input[type="radio"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent);
+}
+
+.preset {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 0.7rem;
+  align-items: center;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.preset:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--info-bg);
+}
+
+.preset small {
+  grid-column: 2 / -1;
+}
+
+.preset-range {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.wizard-nav {
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+  margin-top: 1rem;
+}
+
+.wizard-nav .link {
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .choice {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .choice > button {
+    grid-column: 1 / -1;
+  }
+
+  .brand .open-wizard {
+    font-size: 0;
+  }
+
+  .brand .open-wizard .icon {
+    font-size: 1rem;
   }
 }
