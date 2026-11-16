@@ -259,3 +259,36 @@ async def test_manual_control_without_recent_temperatures(fake_sys: Path, fast: 
     await asyncio.sleep(0.1)
     assert not fans.safety and read(fake_sys, "pwm1") == "90"
     await fans.stop()
+
+
+async def test_auto_mode_survives_an_error(fake_sys: Path, fast: None) -> None:
+    """An unexpected error puts the fans at full speed, the loop goes on, and control resumes."""
+    current: dict[str, Any] = {"value": "broken"}
+    lines: list[str] = []
+    fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lines.append)
+    fans.start_auto(SETTINGS)
+    await asyncio.sleep(0.1)
+    assert fans.active and fans.error is not None and fans.status()["error"] == fans.error
+    assert read(fake_sys, "pwm1") == "255"
+    assert sum("fan control failed" in line for line in lines) == 1
+    current["value"] = sample({"sda": 30.0, "coretemp.0/1": 50.0})
+    await asyncio.sleep(0.1)
+    assert fans.error is None and any("works again" in line for line in lines)
+    await fans.stop()
+    assert read(fake_sys, "pwm1_enable") == "5"
+
+
+async def test_manual_control_survives_an_error(fake_sys: Path, fast: None) -> None:
+    """An unexpected error in manual control puts every fan touched at full speed and blocks the sliders."""
+    current: dict[str, Any] = {"value": sample({"sda": 35.0, "coretemp.0/1": 60.0})}
+    fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lambda _: None)
+    fans.start_manual(SETTINGS)
+    fans.set_manual(PWM2, 60)
+    current["value"] = "broken"
+    await asyncio.sleep(0.1)
+    assert fans.active and fans.safety and fans.safety_reason == "error" and fans.error
+    assert read(fake_sys, "pwm1") == "255" and read(fake_sys, "pwm2") == "255"
+    fans.set_manual(PWM2, 10)
+    assert read(fake_sys, "pwm2") == "255"
+    await fans.stop()
+    assert fans.error is None

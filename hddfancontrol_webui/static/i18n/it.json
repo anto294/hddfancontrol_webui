@@ -52,6 +52,7 @@
   "banner.failsafe": "Nessuna temperatura recente dei dischi: tutte le ventole al massimo finché le temperature non tornano.",
   "banner.safety": "Un disco ha raggiunto la temperatura massima: tutte le ventole al massimo.",
   "banner.safety_stale": "Nessuna temperatura recente dei dischi in controllo manuale: tutte le ventole al massimo finché non esci dal controllo manuale.",
+  "banner.control_error": "Il controllo delle ventole ha avuto un errore, quindi tutte le ventole vanno al massimo: {error}. Vedi i log.",
 
   "overview.drives": "Temperature dei dischi",
   "overview.fans": "Ventole",
@@ -70,6 +71,7 @@
   "fans.intro": "Tutte le uscite PWM dell'host. In controllo manuale muovi un cursore qualsiasi e guarda la velocità per capire quale ventola comanda; ogni uscita che muovi torna come prima quando esci dal controllo manuale. Le modalità curva e auto comandano solo le ventole scelte nelle impostazioni. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico, e così anche chiudendo questa pagina per 2 minuti.",
   "fans.safety": "Un disco ha raggiunto la temperatura massima: le ventole restano al massimo finché non esci dal controllo manuale.",
   "fans.safety_stale": "Nessuna temperatura recente dei dischi: le ventole restano al massimo. Esci dal controllo manuale per tornare al controllo automatico.",
+  "fans.safety_error": "Il controllo delle ventole ha avuto un errore: le ventole restano al massimo. Esci dal controllo manuale per tornare al controllo automatico.",
   "fans.output": "Uscita",
   "fans.speed": "Velocità",
   "fans.configured": "comandata",

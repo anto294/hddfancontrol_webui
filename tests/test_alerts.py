@@ -154,6 +154,8 @@ def test_conditions_safety_smart_missing(tmp_path: Path, fake_sys: Path, fake_de
     )
     assert "smart:/dev/disk/by-id/ata-Old" not in found  # not monitored
     assert found["fans_missing"] == ("fans_missing", {"fans": "Front fan, pwm3"})
+    # A control loop that failed runs the fans at full speed: that is an alert too.
+    assert "safety" in monitor.conditions({"fans": {"error": "boom", "auto": {}}})
     monitor._labels = lambda: {}
     assert monitor._fan_name(PWM1) == "nct6798 pwm1"
     monitor.history.close()

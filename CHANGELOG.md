@@ -14,6 +14,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   Temperature" in smartctl): some drives give a value well under the
   operating limit of their datasheet, such as 40 °C for a Seagate Exos X16.
 
+### Fixed
+
+- An unexpected error in the auto mode or in manual control could stop the
+  control loop and leave the fans at their last speed, with nothing on the
+  page. Now every fan goes to full speed, a red banner and an alert say so,
+  and the loop goes on: control resumes as soon as a step works again.
+
 ## [0.5.1] - 2026-11-16
 
 ### Fixed

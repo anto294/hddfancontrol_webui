@@ -14,6 +14,8 @@ Safety, in both modes:
 - A drive at or above the maximum temperature puts every fan at full speed.
 - In auto mode, a temperature log that stops updating also puts every fan
   at full speed, since the controller no longer knows the temperatures.
+- An unexpected error in either loop puts every fan at full speed; the loop
+  goes on, and the next step that works takes over again.
 - When control ends, each PWM output gets back the pwmN_enable value it had,
   so the chip or hddfancontrol takes over again.
 """
@@ -51,6 +53,7 @@ MAX_DECREASE_PER_STEP = 0.10
 # Why manual control put every fan at full speed.
 SAFETY_HOT = "hot"
 SAFETY_STALE = "stale"
+SAFETY_ERROR = "error"
 
 LatestTemps = Callable[[], dict[str, Any] | None]
 Log = Callable[[str], None]
@@ -252,6 +255,8 @@ class FanController:
         self.safety = False
         # Why manual control went to full speed: SAFETY_HOT or SAFETY_STALE.
         self.safety_reason: str | None = None
+        # The last unexpected error of the control loop, while it lasts.
+        self.error: str | None = None
         self.auto = _AutoState()
         self._settings = Settings()
         # The API sets manual values from a worker thread while the safety
@@ -268,6 +273,7 @@ class FanController:
         """Drive the configured fans to keep the drives at the target."""
         self._settings = settings
         self.mode = "auto"
+        self.error = None
         self.auto = _AutoState()
         self._task = asyncio.create_task(self._run_auto(settings), name="fan-auto")
 
@@ -277,6 +283,7 @@ class FanController:
         self.mode = "manual"
         self.safety = False
         self.safety_reason = None
+        self.error = None
         self._task = asyncio.create_task(self._run_manual(settings), name="fan-manual")
 
     def set_manual(self, path: str, value: int) -> None:
@@ -301,6 +308,7 @@ class FanController:
         self.mode = None
         self.safety = False
         self.safety_reason = None
+        self.error = None
 
     def _write_all(self, pwms: tuple[Pwm, ...], speed: float) -> None:
         """Set every configured fan to a speed."""
@@ -310,6 +318,23 @@ class FanController:
                 self.writer.write(pwm.path, speed_to_pwm(speed, pwm, running))
             except OSError as err:
                 self._log(f"Cannot write {pwm.path}: {err}")
+
+    def _full_speed(self, paths: list[str]) -> None:
+        """Put these outputs at full speed, whatever fails. Used when the control loop fails."""
+        for path in dict.fromkeys(paths):
+            try:
+                self.writer.write(path, PWM_MAX)
+            except Exception as err:  # the other fans must still be written
+                self._log(f"Cannot write {path}: {err}")
+
+    def _failed(self, err: Exception, paths: list[str]) -> None:
+        """An unexpected error in a control loop: log it once and run every fan at full speed."""
+        text = f"{type(err).__name__}: {err}"
+        if text != self.error:
+            self._log(f"ERROR: fan control failed, every fan goes to full speed: {text}")
+            _LOGGER.exception("Fan control failed")
+        self.error = text
+        self._full_speed(paths)
 
     async def _run_auto(self, settings: Settings) -> None:
         """Every interval, read the temperatures and set the speed."""
@@ -323,27 +348,40 @@ class FanController:
         if unranged:
             self._log(f"WARNING: auto mode uses only the sensors with a range; without one: {', '.join(unranged)}")
         while True:
-            now = datetime.now(UTC)
-            latest = self._latest()
-            age = _age_seconds(latest, now)
-            waiting = (now - started).total_seconds() < stale_after
-            if age is None or age > stale_after:
-                if not waiting and not self.auto.failsafe:
-                    self._log("WARNING: no recent drive temperature, fans at full speed")
-                self.auto.failsafe = not waiting
-                speed = 1.0
-                hottest = None
-            else:
-                if self.auto.failsafe:
-                    self._log("Drive temperatures are back, auto mode resumes")
-                self.auto.failsafe = False
-                hottest = _hottest(latest, hwmons)
-                # The drives and the extra sensors each ask for a speed: the higher one wins.
-                speed = max(controller.step(hottest, interval), _sensor_speed(latest, settings.hwmons))
-            self.auto.hottest = hottest
-            self.auto.speed = speed
-            self._write_all(settings.pwms, speed)
+            try:
+                self._auto_step(settings, controller, interval, stale_after, hwmons, started)
+            except Exception as err:  # the loop must outlive any error: full speed
+                self.auto.speed = 1.0
+                self._failed(err, [p.path for p in settings.pwms])
             await asyncio.sleep(interval)
+
+    def _auto_step(
+        self, settings: Settings, controller: PiController, interval: float, stale_after: float, hwmons: int, started: datetime
+    ) -> None:
+        """Read the temperatures once and set the speed."""
+        now = datetime.now(UTC)
+        latest = self._latest()
+        age = _age_seconds(latest, now)
+        waiting = (now - started).total_seconds() < stale_after
+        if age is None or age > stale_after:
+            if not waiting and not self.auto.failsafe:
+                self._log("WARNING: no recent drive temperature, fans at full speed")
+            self.auto.failsafe = not waiting
+            speed = 1.0
+            hottest = None
+        else:
+            if self.auto.failsafe:
+                self._log("Drive temperatures are back, auto mode resumes")
+            self.auto.failsafe = False
+            hottest = _hottest(latest, hwmons)
+            # The drives and the extra sensors each ask for a speed: the higher one wins.
+            speed = max(controller.step(hottest, interval), _sensor_speed(latest, settings.hwmons))
+        self.auto.hottest = hottest
+        self.auto.speed = speed
+        self._write_all(settings.pwms, speed)
+        if self.error is not None:
+            self._log("Fan control works again")
+            self.error = None
 
     async def _run_manual(self, settings: Settings) -> None:
         """Watch the drives while the user sets the fans.
@@ -357,29 +395,39 @@ class FanController:
         stale_after = max(3 * float(settings.interval_s), 120.0)
         started = datetime.now(UTC)
         while True:
-            now = datetime.now(UTC)
-            latest = self._latest()
-            hottest = _hottest(latest, hwmons)
-            age = _age_seconds(latest, now)
-            waiting = (now - started).total_seconds() < stale_after
-            reason = None
-            if hottest is not None and hottest >= settings.drive_temp_max:
-                reason = SAFETY_HOT
-            elif settings.drives and not waiting and (age is None or age > stale_after):
-                reason = SAFETY_STALE
-            if reason is not None and not self.safety:
+            try:
+                self._manual_step(settings, hwmons, stale_after, started)
+            except Exception as err:  # the loop must outlive any error: full speed
                 with self._manual_lock:
                     self.safety = True
-                    self.safety_reason = reason
-                    for path in list(self.writer.values) + [p.path for p in settings.pwms]:
-                        with contextlib.suppress(OSError):
-                            self.writer.write(path, PWM_MAX)
-                if reason == SAFETY_HOT:
-                    self._log(f"WARNING: a drive is at {hottest:g} °C, every fan goes to full speed")
-                else:
-                    self._log("WARNING: no recent drive temperature, every fan goes to full speed")
+                    self.safety_reason = SAFETY_ERROR
+                    self._failed(err, list(self.writer.values) + [p.path for p in settings.pwms])
             # The temperatures change only once per interval of hddfancontrol.
             await asyncio.sleep(settings.interval_s)
+
+    def _manual_step(self, settings: Settings, hwmons: int, stale_after: float, started: datetime) -> None:
+        """Check the drives once; a hot drive or old temperatures put every fan at full speed."""
+        now = datetime.now(UTC)
+        latest = self._latest()
+        hottest = _hottest(latest, hwmons)
+        age = _age_seconds(latest, now)
+        waiting = (now - started).total_seconds() < stale_after
+        reason = None
+        if hottest is not None and hottest >= settings.drive_temp_max:
+            reason = SAFETY_HOT
+        elif settings.drives and not waiting and (age is None or age > stale_after):
+            reason = SAFETY_STALE
+        if reason is not None and not self.safety:
+            with self._manual_lock:
+                self.safety = True
+                self.safety_reason = reason
+                for path in list(self.writer.values) + [p.path for p in settings.pwms]:
+                    with contextlib.suppress(OSError):
+                        self.writer.write(path, PWM_MAX)
+            if reason == SAFETY_HOT:
+                self._log(f"WARNING: a drive is at {hottest:g} °C, every fan goes to full speed")
+            else:
+                self._log("WARNING: no recent drive temperature, every fan goes to full speed")
 
     def status(self) -> dict[str, Any]:
         """Return the state as JSON-ready data."""
@@ -387,6 +435,7 @@ class FanController:
             "mode": self.mode,
             "safety": self.safety,
             "safety_reason": self.safety_reason,
+            "error": self.error,
             "values": dict(self.writer.values),
             "auto": {"hottest": self.auto.hottest, "speed": self.auto.speed, "failsafe": self.auto.failsafe},
         }

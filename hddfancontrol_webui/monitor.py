@@ -294,7 +294,7 @@ class Monitor:
             )
 
         fans = status.get("fans", {})
-        if fans.get("safety") or fans.get("auto", {}).get("failsafe"):
+        if fans.get("safety") or fans.get("error") or fans.get("auto", {}).get("failsafe"):
             found["safety"] = (KIND_SAFETY, {})
 
         by_id = {i: drive for drive in drives.values() for i in drive.ids}

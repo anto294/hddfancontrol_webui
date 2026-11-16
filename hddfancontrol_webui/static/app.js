@@ -289,7 +289,8 @@ function renderBanners() {
     box.append(banner("info", t("banner.waiting"), el("button", { class: "link", text: t("wizard.open"), onclick: openWizard })));
   }
   if (status.fans.auto.failsafe) box.append(banner("error", t("banner.failsafe")));
-  if (status.fans.safety) box.append(banner("error", t(status.fans.safety_reason === "stale" ? "banner.safety_stale" : "banner.safety")));
+  if (status.fans.error) box.append(banner("error", t("banner.control_error", { error: status.fans.error })));
+  else if (status.fans.safety) box.append(banner("error", status.fans.safety_reason === "stale" ? t("banner.safety_stale") : t("banner.safety")));
 }
 
 // cool: below the minimum; mild and warm: the two halves of the range; hot: at the maximum.
@@ -499,7 +500,8 @@ function renderFansState() {
   button.className = status.manual ? "danger" : "";
   button.disabled = status.pwm_test.running || status.read_only;
   $("manual-safety").hidden = !status.fans.safety;
-  $("manual-safety").textContent = t(status.fans.safety_reason === "stale" ? "fans.safety_stale" : "fans.safety");
+  const reason = status.fans.safety_reason;
+  $("manual-safety").textContent = reason === "stale" ? t("fans.safety_stale") : reason === "error" ? t("fans.safety_error") : t("fans.safety");
   for (const input of document.querySelectorAll("#fan-list input[type=range]")) {
     input.disabled = !status.manual || status.fans.safety;
   }

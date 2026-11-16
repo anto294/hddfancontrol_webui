@@ -52,6 +52,7 @@
   "banner.failsafe": "No recent drive temperature: every fan runs at full speed until the temperatures come back.",
   "banner.safety": "A drive reached the maximum temperature: every fan runs at full speed.",
   "banner.safety_stale": "No recent drive temperature in manual control: every fan runs at full speed until you leave manual control.",
+  "banner.control_error": "The fan control hit an error, so every fan runs at full speed: {error}. See the logs.",
 
   "overview.drives": "Drive temperatures",
   "overview.fans": "Fans",
@@ -70,6 +71,7 @@
   "fans.intro": "Every PWM output of the host. In manual control, move any slider and watch the speed to find out which fan it drives; each output you move gets its previous setting back when you leave manual control. The curve and auto modes drive only the fans chosen in Settings. Manual control is never saved: a restart goes back to automatic control, and so does closing this page for 2 minutes.",
   "fans.safety": "A drive reached the maximum temperature: the fans stay at full speed.",
   "fans.safety_stale": "No recent drive temperature: the fans stay at full speed. Leave manual control to go back to automatic control.",
+  "fans.safety_error": "The fan control hit an error: the fans stay at full speed. Leave manual control to go back to automatic control.",
   "fans.output": "Output",
   "fans.speed": "Speed",
   "fans.configured": "in use",
