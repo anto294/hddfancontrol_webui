@@ -24,7 +24,7 @@ from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import create_app
+from hddfancontrol_webui.web import SUPERVISOR, create_app
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -311,3 +311,15 @@ def test_static_files_need_no_inline_style() -> None:
     pattern = re.compile(r"""\bstyle\s*[:=]|setAttribute\(\s*["']style|<style""")
     for path in [*static.glob("*.js"), *static.glob("*.html")]:
         assert not pattern.search(path.read_text(encoding="utf-8")), path.name
+
+
+async def test_read_only_api(make_client: ClientMaker) -> None:
+    """With /sys read only, the status says so and nothing that writes the fans starts."""
+    client = await make_client()
+    client.server.app[SUPERVISOR].read_only = True
+    status = await (await client.get("/api/status")).json()
+    assert status["read_only"] is True and status["mode"] == "read_only"
+    manual = await client.put("/api/manual", json={"enabled": True}, headers=FETCH)
+    assert manual.status == 409 and (await manual.json())["error"] == "read_only"
+    test = await client.post("/api/pwm-test", json={"paths": [PWM1]}, headers=FETCH)
+    assert test.status == 409 and (await test.json())["error"] == "read_only"

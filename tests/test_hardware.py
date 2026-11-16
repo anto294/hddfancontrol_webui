@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from hddfancontrol_webui.hardware import Hardware
 
@@ -54,3 +57,15 @@ def test_unreadable_values(fake_sys: Path, fake_dev: Path) -> None:
     (fake_sys / "class" / "hwmon" / "hwmon2" / "fan1_input").write_text("n/a\n")
     pwm = Hardware(fake_dev, fake_sys).hwmons()[0].pwms[0]
     assert pwm.rpm is None
+
+
+def test_read_only(fake_sys: Path, fake_dev: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A writable /sys is not read only; a read-only mount or a missing tree is."""
+    assert Hardware(fake_dev, fake_sys).read_only() is False
+    assert Hardware(fake_dev, tmp_path / "missing").read_only() is True
+
+    class Mount:
+        f_flag = os.ST_RDONLY
+
+    monkeypatch.setattr(os, "statvfs", lambda _: Mount())
+    assert Hardware(fake_dev, fake_sys).read_only() is True

@@ -77,7 +77,7 @@ The image is `ghcr.io/anto294/hddfancontrol_webui`, with these tags:
 | `X.Y` / `vX.Y.Z` | A given release |
 | `edge` | The `main` branch, built at every change |
 
-The container runs privileged: it writes the PWM files of `/sys` and sends ATA commands to the drives. The root file system can be read only; everything it keeps is in `/config`.
+The container runs privileged: it writes the PWM files of `/sys` and sends ATA commands to the drives. Without `privileged`, Docker mounts `/sys` read only: the web UI then works read only, shows a warning, and starts neither hddfancontrol nor hd-idle. The root file system can be read only; everything it keeps is in `/config`.
 
 ### Bare metal
 
@@ -177,6 +177,8 @@ The web UI is a single Python process with aiohttp, and uses about 45 MB of memo
 ## Troubleshooting
 
 **The Fans tab shows no PWM output.** The kernel module of the fan chip is not loaded. The web UI shows which one it found and could not load; on TrueNAS, load it on the host as shown in [Installation](#truenas-scale). If `dmesg` then shows a resource conflict with ACPI, the chip also needs the kernel option `acpi_enforce_resources=lax`; on TrueNAS SCALE, run `midclt call system.advanced.update '{"kernel_extra_options": "acpi_enforce_resources=lax"}'` in the shell and reboot.
+
+**The web UI says it is read only.** `/sys` is mounted read only, which is what Docker does for a container that is not privileged, so no fan can be written: hddfancontrol and hd-idle do not start, and manual control and the PWM test are off. Set `privileged: true` (on TrueNAS SCALE, tick **Privileged** in the app settings) and restart the container.
 
 **A fan does not react to its slider.** The header may be in DC mode, or the BIOS may hold it at a fixed speed. Set the header to PWM mode in the BIOS.
 

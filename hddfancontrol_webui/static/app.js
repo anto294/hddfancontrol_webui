@@ -228,6 +228,7 @@ function renderBanners() {
   if (sensors.state === "done" && state.hardware.hwmons.length > 0 && allPwms().length === 0) {
     box.append(banner("warning", t("banner.no_pwm")));
   }
+  if (status.read_only) box.append(banner("error", t("banner.read_only")));
   if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
   if (status.mode === "waiting") box.append(banner("info", t("banner.waiting")));
   if (status.fans.auto.failsafe) box.append(banner("error", t("banner.failsafe")));
@@ -331,7 +332,7 @@ function renderFansState() {
   const button = $("manual-toggle");
   button.textContent = status.manual ? t("action.leave_manual") : t("action.enter_manual");
   button.className = status.manual ? "danger" : "";
-  button.disabled = status.pwm_test.running;
+  button.disabled = status.pwm_test.running || status.read_only;
   $("manual-safety").hidden = !status.fans.safety;
   for (const input of document.querySelectorAll("#fan-list input[type=range]")) {
     input.disabled = input.hidden || !status.manual || status.fans.safety;
@@ -821,7 +822,7 @@ function renderPwmTestList() {
 
 function renderPwmTest() {
   const test = state.status.pwm_test;
-  $("pwmtest-start").disabled = test.running;
+  $("pwmtest-start").disabled = test.running || state.status.read_only;
   $("pwmtest-cancel").disabled = !test.running;
   const table = $("pwmtest-results");
   table.replaceChildren(headRow(t("fans.output"), t("pwmtest.status"), t("settings.start"), t("settings.stop")));

@@ -10,6 +10,7 @@ hddfancontrol needs, even when the tests read a fake tree somewhere else.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -194,6 +195,16 @@ class Hardware:
                     )
                 )
         return device
+
+    def read_only(self) -> bool:
+        """Whether /sys is mounted read only, as in a container that is not privileged.
+
+        Then no PWM file can be written, whatever the permissions say.
+        """
+        try:
+            return bool(os.statvfs(self._sys).f_flag & os.ST_RDONLY)
+        except OSError:
+            return True
 
     def pwm_paths(self) -> set[str]:
         """Return the paths of every PWM output, to check what a client asks to test."""

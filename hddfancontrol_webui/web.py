@@ -33,7 +33,7 @@ from .labels import LabelError, Labels
 from .monitor import Monitor
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsError, from_dict
-from .supervisor import Busy, NotSelected, Supervisor
+from .supervisor import Busy, NotSelected, ReadOnly, Supervisor
 from .templog import TempLog
 
 _LOGGER = logging.getLogger(__name__)
@@ -437,6 +437,8 @@ async def put_manual(request: web.Request) -> web.Response:
         await request.app[SUPERVISOR].set_manual(enabled)
     except Busy:
         return _json_error(409, "busy")
+    except ReadOnly:
+        return _json_error(409, "read_only")
     return web.json_response({"manual": enabled})
 
 
@@ -480,6 +482,8 @@ async def post_pwm_test(request: web.Request) -> web.Response:
         await request.app[SUPERVISOR].start_pwm_test(list(dict.fromkeys(paths)))
     except Busy:
         return _json_error(409, "busy")
+    except ReadOnly:
+        return _json_error(409, "read_only")
     return web.json_response({"ok": True})
 
 

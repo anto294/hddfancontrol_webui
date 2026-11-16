@@ -28,6 +28,7 @@
   "mode.pwm_test": "Test PWM",
   "mode.stopped": "Fermo",
   "mode.manual": "Controllo manuale",
+  "mode.read_only": "Sola lettura",
   "mode.curve": "Curva (minima / massima)",
   "mode.auto": "Auto (temperatura obiettivo)",
 
@@ -45,6 +46,7 @@
   "banner.no_pwm": "Nessuna uscita PWM trovata. Probabilmente il modulo del kernel del chip delle ventole non è caricato.",
   "banner.settings_error": "Le impostazioni salvate hanno valori non validi: si usano le variabili d'ambiente. Controlla i log.",
   "banner.waiting": "Scegli dischi e ventole in Impostazioni. Il test PWM trova i valori di ogni ventola.",
+  "banner.read_only": "Sola lettura: /sys è montato in sola lettura, come in un container non privilegiato. Le ventole non vengono comandate, hddfancontrol e hd-idle non partono, il controllo manuale e il test PWM sono disattivati e i dati SMART potrebbero non essere leggibili. Avvia il container con privileged: true (su TrueNAS SCALE: Privileged nelle impostazioni dell'app).",
   "banner.failsafe": "Nessuna temperatura recente dei dischi: tutte le ventole al massimo finché le temperature non tornano.",
   "banner.safety": "Un disco ha raggiunto la temperatura massima: tutte le ventole al massimo.",
 
@@ -223,6 +225,7 @@
   "error.unknown_pwm": "Questa uscita PWM non esiste sull'host.",
   "error.pwm_not_selected": "Questa ventola non è scelta nelle impostazioni: non viene mai comandata.",
   "error.not_manual": "Passa prima al controllo manuale.",
+  "error.read_only": "/sys è in sola lettura (il container non è privilegiato): le ventole non possono essere scritte.",
   "error.write_failed": "Impossibile scrivere il file PWM.",
   "error.network": "La web UI non raggiunge il server.",
   "error.unknown": "Qualcosa è andato storto."

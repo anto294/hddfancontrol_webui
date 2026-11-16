@@ -76,6 +76,7 @@ def build() -> tuple[web.Application, int]:
         fans,
         hddfancontrol=env.get("HDDFANCONTROL_BIN", HDDFANCONTROL_BIN),
         hdidle=env.get("HDIDLE_BIN", HDIDLE_BIN),
+        read_only=hardware.read_only(),
     )
     history = History(config_dir / HISTORY_DB)
     smartctl = env.get("SMARTCTL_BIN", SMARTCTL_BIN)

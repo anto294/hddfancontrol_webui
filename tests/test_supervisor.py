@@ -13,7 +13,7 @@ from conftest import ScriptMaker
 from hddfancontrol_webui import supervisor as supervisor_module
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.settings import SettingsStore, from_dict
-from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, NotSelected, Supervisor
+from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, NotSelected, ReadOnly, Supervisor
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 CONFIG = {
@@ -258,3 +258,20 @@ def test_settings_error_in_status(tmp_path: Path, fake_sys: Path) -> None:
         FanController(PwmWriter(fake_sys), lambda: None, lambda _: None),
     )
     assert supervisor.status()["settings_error"][0]["field"] == "interval_s"
+
+
+async def test_read_only(setup: tuple[Supervisor, Path], fake_sys: Path) -> None:
+    """With /sys read only nothing starts, and manual control and the PWM test are refused."""
+    supervisor, calls = setup
+    supervisor.read_only = True
+    await supervisor.start()
+    assert supervisor.mode == "read_only" and supervisor.status()["read_only"] is True
+    assert not supervisor.hddfancontrol.active and not supervisor.hdidle.active and not supervisor.fans.active
+    assert any("read only" in line["text"] for line in supervisor.logs.since(0))
+    with pytest.raises(ReadOnly):
+        await supervisor.set_manual(True)
+    with pytest.raises(ReadOnly):
+        await supervisor.start_pwm_test([PWM1])
+    assert not supervisor.manual and not supervisor.test.running
+    assert (fake_sys / "class/hwmon/hwmon2/pwm1_enable").read_text().strip() == "5"
+    await supervisor.stop()

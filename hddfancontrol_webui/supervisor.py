@@ -50,6 +50,7 @@ MODE_WAITING = "waiting"
 MODE_PWM_TEST = "pwm_test"
 MODE_STOPPED = "stopped"
 MODE_MANUAL = "manual"
+MODE_READ_ONLY = "read_only"
 
 
 # ---------------------------
@@ -57,6 +58,13 @@ MODE_MANUAL = "manual"
 # ---------------------------
 class Busy(RuntimeError):
     """The request cannot run now, because a PWM test is running."""
+
+
+# ---------------------------
+#   ReadOnly
+# ---------------------------
+class ReadOnly(RuntimeError):
+    """The fans cannot be written: /sys is read only (a container that is not privileged)."""
 
 
 # ---------------------------
@@ -256,8 +264,14 @@ class Supervisor:
         fans: FanController,
         hddfancontrol: str = HDDFANCONTROL_BIN,
         hdidle: str = HDIDLE_BIN,
+        read_only: bool = False,
     ) -> None:
-        """Use these settings, this log, this fan controller and these programs."""
+        """Use these settings, this log, this fan controller and these programs.
+
+        With read_only, nothing is started and nothing can write the fans:
+        the web UI only shows what it can read.
+        """
+        self.read_only = read_only
         self.store = store
         self.logs = logs
         self.temp_log = temp_log
@@ -273,6 +287,8 @@ class Supervisor:
     @property
     def mode(self) -> str:
         """What drives the fans now."""
+        if self.read_only:
+            return MODE_READ_ONLY
         if self.test.running:
             return MODE_PWM_TEST
         if self.manual:
@@ -305,6 +321,12 @@ class Supervisor:
 
     async def _start_daemons(self) -> None:
         """Start what the settings and the mode ask for. Everything must be stopped."""
+        if self.read_only:
+            self._log(
+                "WARNING: /sys is read only (the container is not privileged), so the fans cannot be controlled: "
+                "hddfancontrol and hd-idle do not run and the web UI only shows. Run the container with privileged: true."
+            )
+            return
         settings = self.settings
         hdidle = hdidle_args(settings)
         if hdidle is None:
@@ -376,6 +398,8 @@ class Supervisor:
             self._refuse_during_test()
             if enabled == self.manual:
                 return
+            if enabled and self.read_only:
+                raise ReadOnly("/sys is read only")
             self.manual = enabled
             if not enabled:
                 self._log("Manual control over, the fans go back to automatic control")
@@ -396,6 +420,8 @@ class Supervisor:
 
     async def start_pwm_test(self, paths: list[str]) -> None:
         """Stop everything and test these PWM outputs one after the other."""
+        if self.read_only:
+            raise ReadOnly("/sys is read only")
         async with self._lock:
             self._refuse_during_test()
             await self._stop_daemons()
@@ -474,6 +500,7 @@ class Supervisor:
         test = self.test
         return {
             "mode": self.mode,
+            "read_only": self.read_only,
             "control_mode": self.settings.control_mode,
             "manual": self.manual,
             "settings_source": self.source,
