@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -368,28 +369,42 @@ async def test_audit_log(make_client: ClientMaker) -> None:
 
 
 def test_audit_log_counts_repeats() -> None:
-    """The same line again within a minute is counted, and the count is logged with the next line or at the end."""
+    """The same line again within a minute of when it was logged is counted; a steady stream still shows every minute."""
     from hddfancontrol_webui.web import AuditLog
 
     lines: list[str] = []
     now = [0.0]
     audit = AuditLog(lines.append, lambda: now[0])
-    for _ in range(50):
+    for _ in range(90):  # one a second for 90 s
         audit.write("PUT /api/manual/pwm by 'anto' from x: 200")
         now[0] += 1
     audit.write("PUT /api/manual by 'anto' from x: 200")
-    now[0] += 61
-    audit.write("PUT /api/manual by 'anto' from x: 200")  # a minute later: logged again
     audit.write("PUT /api/manual by 'anto' from x: 200")
     audit.flush()
     audit.flush()
+    audit.write("PUT /api/manual by 'anto' from x: 200")  # after a flush: logged again
     assert lines == [
         "PUT /api/manual/pwm by 'anto' from x: 200",
-        "PUT /api/manual/pwm by 'anto' from x: 200 (and 49 more like it)",
-        "PUT /api/manual by 'anto' from x: 200",
+        "PUT /api/manual/pwm by 'anto' from x: 200 (and 59 more like it)",
+        "PUT /api/manual/pwm by 'anto' from x: 200",
+        "PUT /api/manual/pwm by 'anto' from x: 200 (and 29 more like it)",
         "PUT /api/manual by 'anto' from x: 200",
         "PUT /api/manual by 'anto' from x: 200 (and 1 more like it)",
+        "PUT /api/manual by 'anto' from x: 200",
     ]
+
+
+async def test_audit_log_count_is_logged_when_its_minute_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the loop running, the count of a run is logged when its window ends, without waiting for another line."""
+    from hddfancontrol_webui import web as web_module
+
+    monkeypatch.setattr(web_module, "AUDIT_REPEAT_S", 0.05)
+    lines: list[str] = []
+    audit = web_module.AuditLog(lines.append)
+    for _ in range(3):
+        audit.write("POST /api/restart by 'anto' from x: 200")
+    await asyncio.sleep(0.15)
+    assert lines == ["POST /api/restart by 'anto' from x: 200", "POST /api/restart by 'anto' from x: 200 (and 2 more like it)"]
 
 
 async def test_only_the_gateway_may_connect(make_client: ClientMaker, tmp_path: Path) -> None:

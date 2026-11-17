@@ -68,10 +68,12 @@ AUDIT_REPEAT_S = 60.0
 #   AuditLog
 # ---------------------------
 class AuditLog:
-    """The audit lines, with a run of the same line written once: the first, then how many more came.
+    """The audit lines, with a run of the same line counted: the line, then how many more came in its minute.
 
     The log buffer is shared with the daemons and the alerts: a manual fan
-    slider sends a request at every stop, and must not push those out.
+    slider sends a request at every stop, and must not push those out. The
+    window is fixed (AUDIT_REPEAT_S from the logged line), and the count is
+    logged when it ends, so a steady stream still shows once a minute.
     """
 
     def __init__(self, add: Callable[[str], None], clock: Callable[[], float] = time.monotonic) -> None:
@@ -81,23 +83,33 @@ class AuditLog:
         self._last = ""
         self._time = 0.0
         self._repeats = 0
+        self._timer: asyncio.TimerHandle | None = None
 
     def write(self, line: str) -> None:
-        """Log line, unless it is the last one again within AUDIT_REPEAT_S of its previous time."""
+        """Log line, or count it when it is the last one again within AUDIT_REPEAT_S of when that was logged."""
         now = self._clock()
         if line == self._last and now - self._time < AUDIT_REPEAT_S:
             self._repeats += 1
-            self._time = now
+            if self._timer is None:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:  # no loop (a test): the count waits for the next line or flush
+                    return
+                self._timer = loop.call_later(AUDIT_REPEAT_S - (now - self._time), self.flush)
             return
         self.flush()
         self._add(line)
         self._last, self._time = line, now
 
     def flush(self) -> None:
-        """Log how many times the last line came again, if it did."""
+        """Log how many times the last line came again, if it did; the next one is logged afresh."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
         if self._repeats:
             self._add(f"{self._last} (and {self._repeats} more like it)")
             self._repeats = 0
+        self._last = ""
 
 
 # ---------------------------
@@ -672,6 +684,7 @@ def create_app(
     app[AUDIT] = AuditLog(lambda text: supervisor.logs.add(SOURCE_AUDIT, text))
 
     async def flush_audit(app: web.Application) -> None:
+        """Log the count of the last audit line before the core stops."""
         app[AUDIT].flush()
 
     app.on_cleanup.append(flush_audit)
