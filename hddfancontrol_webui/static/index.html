@@ -124,6 +124,7 @@
       <article class="card">
         <div class="card-head">
           <h2 data-icon="thermometer" data-i18n="history.temps"></h2>
+          <div class="actions-inline">
           <select id="history-hours" aria-label="Window">
             <option value="1">1 h</option>
             <option value="6" selected>6 h</option>
@@ -133,6 +134,8 @@
             <option value="2160">90 d</option>
             <option value="8760">1 y</option>
           </select>
+          <a id="history-csv" class="button secondary" href="/api/history.csv?hours=6" download data-icon="download" data-i18n="history.csv"></a>
+          </div>
         </div>
         <p class="muted small" data-i18n="history.hint"></p>
         <div id="chart-temp" class="chart"></div>

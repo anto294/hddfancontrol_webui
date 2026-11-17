@@ -243,6 +243,8 @@ function drawChart(container, data, series, options) {
 
 async function loadHistory() {
   const hours = $("history-hours").value;
+  // The CSV covers the window chosen.
+  $("history-csv").setAttribute("href", `/api/history.csv?hours=${encodeURIComponent(hours)}`);
   try {
     const data = await api("GET", `/api/history?hours=${encodeURIComponent(hours)}`);
     const of = (kind) => data.series.filter((s) => s.kind === kind);

@@ -136,6 +136,7 @@
   "history.rpm": "Velocità ventole (RPM)",
   "history.pwm": "PWM ventole (%)",
   "history.empty": "Ancora nessun dato in questo intervallo.",
+  "history.csv": "Esporta CSV",
   "history.ref_max": "max",
   "history.ref_target": "obiettivo",
   "history.ref_min": "min",

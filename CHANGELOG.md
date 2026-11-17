@@ -34,6 +34,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   way well before the fan stops).
 - `/metrics` in the Prometheus text format: drive temperatures, fan PWM
   and RPM, the speed asked of each fan, SMART state, alerts and safety.
+- History: "Export CSV" downloads the window shown (time, kind, name,
+  label, value), at most 20000 points per line.
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.

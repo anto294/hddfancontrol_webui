@@ -606,6 +606,24 @@ button.secondary {
   color: var(--accent);
 }
 
+/* A link that looks like a secondary button (a download). */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.card-head .actions-inline {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 button.danger {
   background: transparent;
   color: var(--danger);

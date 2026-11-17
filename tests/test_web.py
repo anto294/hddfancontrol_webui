@@ -474,3 +474,20 @@ async def test_metrics_need_the_login(make_client: ClientMaker) -> None:
     assert (await client.get("/metrics")).status == 401
     basic = "Basic " + base64.b64encode(b"anto:a-long-password").decode()
     assert (await client.get("/metrics", headers={"Authorization": basic})).status == 200
+
+
+async def test_history_csv(make_client: ClientMaker) -> None:
+    """The history as a CSV download, with the names given to fans."""
+    client = await make_client()
+    await client.put("/api/labels", json={"key": PWM1, "label": "Back 1"}, headers=FETCH)
+    history = client.app[MONITOR].history
+    history.record(int(time.time()) - 60, [("pwm", PWM1, 50.0), ("temp", DRIVE, 41.5)])
+    response = await client.get("/api/history.csv?hours=1")
+    assert response.status == 200 and response.content_type == "text/csv"
+    assert 'filename="hddfancontrol-history-1h.csv"' in response.headers["Content-Disposition"]
+    lines = (await response.text()).splitlines()
+    assert lines[0] == "time_utc,kind,name,label,value"
+    assert any(line.endswith(f"pwm,{PWM1},Back 1,50.0") for line in lines)
+    assert any(f"temp,{DRIVE},,41.5" in line for line in lines)
+    assert (await client.get("/api/history.csv?hours=x")).status == 400
+    assert (await client.get("/api/history.csv?hours=0")).status == 400

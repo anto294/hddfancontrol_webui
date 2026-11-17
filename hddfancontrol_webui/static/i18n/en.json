@@ -136,6 +136,7 @@
   "history.rpm": "Fan speed (RPM)",
   "history.pwm": "Fan PWM (%)",
   "history.empty": "No data in this window yet.",
+  "history.csv": "Export CSV",
   "history.ref_max": "max",
   "history.ref_target": "target",
   "history.ref_min": "min",

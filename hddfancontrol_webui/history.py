@@ -120,11 +120,11 @@ class History:
                 self._series.pop((kind, name), None)
             return deleted
 
-    def query(self, hours: float, now: float | None = None) -> dict[str, Any]:
-        """Return every series of the last hours, averaged into at most HISTORY_MAX_POINTS buckets."""
+    def query(self, hours: float, now: float | None = None, max_points: int = HISTORY_MAX_POINTS) -> dict[str, Any]:
+        """Return every series of the last hours, averaged into at most max_points buckets."""
         end = int(now or time.time())
         start = end - int(hours * 3600)
-        bucket = max(1, -(-(end - start) // HISTORY_MAX_POINTS))
+        bucket = max(1, -(-(end - start) // max_points))
         with self._lock:
             rows = self._db.execute(
                 "SELECT s.kind, s.name, (m.ts / ?) * ? AS b, AVG(m.value) "

@@ -16,10 +16,13 @@ Security, in a container that runs privileged and drives the fans:
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -427,6 +430,40 @@ async def get_history(request: web.Request) -> web.Response:
 
 
 # ---------------------------
+#   get_history_csv
+# ---------------------------
+# A CSV never holds more than this many points per series (a year of 30 s samples is a million).
+CSV_MAX_POINTS = 20000
+
+
+async def get_history_csv(request: web.Request) -> web.Response:
+    """The history of the last hours as CSV: time (UTC), kind, name, label, value."""
+    try:
+        hours = float(request.query.get("hours", "24"))
+    except ValueError:
+        return _json_error(400, "invalid_number")
+    if not 0 < hours <= HISTORY_MAX_HOURS:
+        return _json_error(400, "out_of_range")
+    data = await asyncio.to_thread(request.app[HISTORY].query, hours, None, CSV_MAX_POINTS)
+    labels = request.app[LABELS].all()
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["time_utc", "kind", "name", "label", "value"])
+    for series in data["series"]:
+        label = labels.get(series["name"], "")
+        for ts, value in series["points"]:
+            when = datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            writer.writerow([when, series["kind"], series["name"], label, value])
+    name = f"hddfancontrol-history-{hours:g}h.csv"
+    return web.Response(
+        text=buffer.getvalue(),
+        content_type="text/csv",
+        charset="utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+# ---------------------------
 #   get_smart
 # ---------------------------
 async def get_smart(request: web.Request) -> web.Response:
@@ -815,6 +852,7 @@ def create_app(
     router.add_get("/api/status", get_status)
     router.add_get("/api/hardware", get_hardware)
     router.add_get("/api/history", get_history)
+    router.add_get("/api/history.csv", get_history_csv)
     router.add_get("/api/smart", get_smart)
     router.add_post("/api/smart", post_smart)
     router.add_get("/api/labels", get_labels)
