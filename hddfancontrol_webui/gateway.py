@@ -84,12 +84,18 @@ PUBLIC_PATHS = (
     "/static/manifest.webmanifest",
 )
 PUBLIC_PREFIXES = ("/static/i18n/",)
-# After this many wrong passwords (or setup codes) from one address within
-# LOGIN_WINDOW seconds, that address is refused without checking until the
-# window ends.
+# After this many wrong passwords (or setup codes) from one client within
+# LOGIN_WINDOW seconds, that client is refused without checking until the
+# window ends. A client is an IPv4 address or an IPv6 /64: a host holds as
+# many addresses of its /64 as it likes.
 LOGIN_MAX_FAILURES = 10
 LOGIN_WINDOW = 900.0
 LOGIN_MAX_ADDRESSES = 10000
+# After this many wrong passwords from all clients together within
+# LOGIN_WINDOW, every password check waits for the window to end: a host
+# with many IPv4 addresses (or /64s) cannot guess at full speed. Open
+# sessions are not affected.
+LOGIN_MAX_GLOBAL = 100
 # What plain HTTP still serves with FORCE_HTTPS: the health check, and the page that moves the browser to HTTPS.
 HTTP_PATHS = ("/healthz", "/static/https.js", "/static/style.css")
 # The networks allowed by default: loopback, private, link-local, carrier-grade NAT
@@ -131,45 +137,70 @@ Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 #   LoginLimiter
 # ---------------------------
 class LoginLimiter:
-    """Count the wrong passwords of each client address, and refuse one that sends too many.
+    """Count the wrong passwords of each client and of all of them, and refuse a client (or all) past the limit.
 
-    The scrypt checks already run one at a time; this stops one address
-    from guessing for hours, and from keeping the checks busy for everyone
-    else. Behind a reverse proxy every client has the address of the proxy.
+    The scrypt checks already run one at a time; this stops one client from
+    guessing for hours, and from keeping the checks busy for everyone else.
+    Behind a reverse proxy every client has the address of the proxy.
     """
 
-    def __init__(self, max_failures: int = LOGIN_MAX_FAILURES, window: float = LOGIN_WINDOW) -> None:
-        """Allow max_failures wrong passwords per address within window seconds."""
+    def __init__(
+        self, max_failures: int = LOGIN_MAX_FAILURES, window: float = LOGIN_WINDOW, max_global: int = LOGIN_MAX_GLOBAL
+    ) -> None:
+        """Allow max_failures wrong passwords per client, and max_global in all, within window seconds."""
         self._max = max_failures
+        self._max_global = max_global
         self._window = window
         self._failures: dict[str, list[float]] = {}
+        self._global: list[float] = []
 
-    def _recent(self, address: str, now: float) -> list[float]:
-        """The failures of address within the window."""
-        recent = [t for t in self._failures.get(address, []) if now - t < self._window]
+    @staticmethod
+    def client(address: str) -> str:
+        """The client an address belongs to: itself for IPv4 (or a name), its /64 for IPv6."""
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            return address
+        if ip.version == 6:
+            return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+        return address
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        """The failures of a client within the window."""
+        recent = [t for t in self._failures.get(key, []) if now - t < self._window]
         if recent:
-            self._failures[address] = recent
+            self._failures[key] = recent
         else:
-            self._failures.pop(address, None)
+            self._failures.pop(key, None)
         return recent
 
-    def blocked(self, address: str) -> bool:
-        """Whether address sent too many wrong passwords lately."""
-        return len(self._recent(address, time.monotonic())) >= self._max
+    def _recent_global(self, now: float) -> int:
+        """How many failures of all clients are within the window."""
+        self._global = [t for t in self._global if now - t < self._window][-self._max_global :]
+        return len(self._global)
 
-    def failed(self, address: str) -> None:
-        """Count a wrong password of address."""
+    def blocked(self, address: str) -> bool:
+        """Whether the client of address, or all clients together, sent too many wrong passwords lately."""
         now = time.monotonic()
-        if address not in self._failures and len(self._failures) >= LOGIN_MAX_ADDRESSES:
+        return len(self._recent(self.client(address), now)) >= self._max or self._recent_global(now) >= self._max_global
+
+    def failed(self, address: str) -> bool:
+        """Count a wrong password of address; True when it is the one that stops every client."""
+        now = time.monotonic()
+        self._global.append(now)
+        stopped = self._recent_global(now) == self._max_global
+        key = self.client(address)
+        if key not in self._failures and len(self._failures) >= LOGIN_MAX_ADDRESSES:
             for other in list(self._failures):
                 self._recent(other, now)
             if len(self._failures) >= LOGIN_MAX_ADDRESSES:
-                return
-        self._failures.setdefault(address, []).append(now)
+                return stopped  # the global count still holds this one
+        self._failures.setdefault(key, []).append(now)
+        return stopped
 
     def succeeded(self, address: str) -> None:
-        """Forget the failures of address after a right password."""
-        self._failures.pop(address, None)
+        """Forget the failures of the client of address after a right password."""
+        self._failures.pop(self.client(address), None)
 
 
 # ---------------------------
@@ -310,6 +341,18 @@ def _log(request: web.Request, text: str) -> None:
 
 
 # ---------------------------
+#   _failed_login
+# ---------------------------
+def _failed_login(request: web.Request, address: str) -> None:
+    """Count a wrong password (or setup code) of address, and log when it pauses the checks for every client."""
+    if request.app[LOGINS].failed(address):
+        request.app[LOG](
+            f"{LOGIN_MAX_GLOBAL} wrong passwords in {int(LOGIN_WINDOW // 60)} minutes from all clients: "
+            "logins are paused until then (open sessions go on)"
+        )
+
+
+# ---------------------------
 #   network_filter
 # ---------------------------
 @web.middleware
@@ -404,7 +447,7 @@ async def authentication(request: web.Request, handler: Handler) -> web.StreamRe
         if await _password_work(request, auth.check_basic, header):
             logins.succeeded(address)
             return await handler(request)
-        logins.failed(address)
+        _failed_login(request, address)
         _log(request, "Wrong HTTP Basic credentials")
         await asyncio.sleep(AUTH_FAILURE_DELAY)
     # Programs (the API, a Prometheus scraper) get 401; a browser goes to the login page.
@@ -498,7 +541,7 @@ async def post_login(request: web.Request) -> web.Response:
     if logins.blocked(address):
         return json_error(429, "too_many_attempts")
     if not await _password_work(request, auth.check, username, password):
-        logins.failed(address)
+        _failed_login(request, address)
         _log(request, f"Wrong login for {username[:64]!r}")
         await asyncio.sleep(AUTH_FAILURE_DELAY)
         return json_error(401, "wrong_credentials")
@@ -549,7 +592,7 @@ async def post_setup(request: web.Request) -> web.Response:
     if logins.blocked(address):
         return json_error(429, "too_many_attempts")
     if not setup.check(data["code"]):
-        logins.failed(address)
+        _failed_login(request, address)
         _log(request, "Wrong setup code")
         await asyncio.sleep(AUTH_FAILURE_DELAY)
         return json_error(401, "wrong_setup_code")

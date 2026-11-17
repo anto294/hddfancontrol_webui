@@ -7,6 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+
+- The limit on wrong passwords counts an IPv6 /64 as one client, and
+  stops every login for 15 minutes after 100 wrong passwords from all
+  clients together: a host with many addresses could guess without limit.
+
 ## [0.8.0] - 2026-11-17
 
 ### Security

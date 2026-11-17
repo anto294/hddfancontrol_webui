@@ -345,6 +345,44 @@ def test_login_limiter_window_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
     assert limiter.blocked("d")
 
 
+def test_login_limiter_counts_an_ipv6_64_as_one_client() -> None:
+    """The addresses of one IPv6 /64 share a count; IPv4 addresses each have their own."""
+    limiter = LoginLimiter(max_failures=2, window=10)
+    limiter.failed("fd00:1:2:3::1")
+    limiter.failed("fd00:1:2:3::ffff")
+    assert limiter.blocked("fd00:1:2:3:aaaa::5") and not limiter.blocked("fd00:1:2:4::1")
+    limiter.failed("192.168.1.10")
+    limiter.failed("192.168.1.10")
+    assert limiter.blocked("192.168.1.10") and not limiter.blocked("192.168.1.11")
+    limiter.succeeded("fd00:1:2:3::9")
+    assert not limiter.blocked("fd00:1:2:3::1")
+    assert LoginLimiter.client("not an address") == "not an address"
+
+
+def test_login_limiter_stops_every_client_past_the_global_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Many clients with a few failures each are stopped together, until the window ends."""
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock["now"])
+    limiter = LoginLimiter(max_failures=10, window=10, max_global=3)
+    assert [limiter.failed(f"10.0.0.{i}") for i in range(1, 4)] == [False, False, True]
+    assert limiter.blocked("10.0.0.99")  # a new address too
+    clock["now"] += 11
+    assert not limiter.blocked("10.0.0.99")
+
+
+async def test_rotating_addresses_stops_at_the_global_limit(
+    make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wrong passwords from ever new addresses still end in 429 for everyone, with one line in the log."""
+    gw = await make_gateway(CREDENTIALS)
+    monkeypatch.setattr(gw.client.app[LOGINS], "_max_global", 2)
+    bad = {"username": "anto", "password": "nope"}
+    gw.client.app[LOGINS].failed("10.9.9.9")  # another client
+    assert (await gw.client.post("/api/login", json=bad, headers=FETCH)).status == 401
+    assert (await gw.client.post("/api/login", json=GOOD, headers=FETCH)).status == 429
+    assert any("logins are paused" in line for line in gw.lines)
+
+
 async def test_session_cookie_is_secure_behind_an_https_proxy(make_gateway: GatewayMaker) -> None:
     """The session cookie is marked Secure when a reverse proxy says the browser used HTTPS."""
     gw = await make_gateway(CREDENTIALS)
