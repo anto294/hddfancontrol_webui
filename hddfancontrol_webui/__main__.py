@@ -38,7 +38,7 @@ from .labels import Labels
 from .monitor import Monitor
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsStore
-from .smart import read_smart
+from .smart import read_smart, start_selftest
 from .supervisor import LogBuffer, Supervisor
 from .templog import TempLog
 from .web import STATE, create_app
@@ -90,6 +90,9 @@ def build() -> tuple[web.Application, int]:
     async def smart_reader(device: str) -> dict[str, Any]:
         return await read_smart(device, smartctl)
 
+    async def selftest(device: str, kind: str) -> dict[str, Any]:
+        return await start_selftest(device, kind, smartctl)
+
     alerts = Alerts(lambda: supervisor.settings, lambda text: logs.add(SOURCE_ALERTS, text), store=history)
     monitor = Monitor(
         history,
@@ -101,6 +104,7 @@ def build() -> tuple[web.Application, int]:
         alerts=alerts,
         status=supervisor.status,
         labels=labels.all,
+        selftest=selftest,
     )
     auth = AuthStore(config_dir)
 

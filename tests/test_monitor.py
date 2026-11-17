@@ -309,3 +309,47 @@ async def test_summary_is_sent_once(tmp_path: Path, fake_sys: Path, fake_dev: Pa
     await monitor._send_summary()
     assert len(sent) == 1 and sent[0].startswith("hddfancontrol: the last 7 days")
     monitor.history.close()
+
+
+async def test_selftests_run_at_night(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """Due self-tests start at night only; one long test per night; a sleeping drive is tried later."""
+    other = "/dev/disk/by-id/nvme-Samsung_980_S64"
+    calls: list[tuple[str, str]] = []
+    asleep = {DRIVE}
+
+    async def selftest(device: str, kind: str) -> dict[str, Any]:
+        calls.append((device, kind))
+        if device in asleep:
+            return {"status": "standby"}
+        return (
+            {"status": "started"}
+            if kind == "short"
+            else {"status": "error", "messages": ["unsupported"]} if device == other else {"status": "started"}
+        )
+
+    settings = from_dict(
+        {"drives": [DRIVE], "monitor_drives": [DRIVE, other], "selftest_short_days": 7, "selftest_long_days": 30}
+    )
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
+    monitor._selftest = selftest
+    lines: list[str] = []
+    monitor._log = lines.append
+
+    def local(day: int, hour: int) -> float:
+        return time.mktime((2026, 11, day, hour, 0, 0, 0, 0, -1))
+
+    assert await monitor.run_selftests(local(17, 12)) == [] and calls == []  # daytime
+    # Night: DRIVE sleeps; the other cannot run a long test, so its short one starts.
+    assert await monitor.run_selftests(local(18, 3)) == [(other, "short")]
+    assert any("cannot start the SMART long self-test" in line for line in lines)
+    # DRIVE wakes up: its long test starts, and its short test waits for it.
+    asleep.clear()
+    calls.clear()
+    assert await monitor.run_selftests(local(18, 3) + 60) == [(DRIVE, "long")]
+    assert (DRIVE, "short") not in calls
+    # Nothing is due again soon.
+    calls.clear()
+    assert await monitor.run_selftests(local(19, 3)) == [] and calls == []
+    # A week later the short tests are due again; DRIVE's long test was 7 days ago, so its short one runs.
+    assert sorted(await monitor.run_selftests(local(25, 3))) == sorted([(DRIVE, "short"), (other, "short")])
+    monitor.history.close()

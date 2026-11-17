@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from conftest import ScriptMaker
 
-from hddfancontrol_webui.smart import read_smart, summarize
+from hddfancontrol_webui.smart import read_smart, start_selftest, summarize
 
 ATA = {
     "model_name": "ST4000VN006-3CW104",
@@ -164,3 +165,76 @@ def test_attribute_failed_in_the_past_is_not_a_warning() -> None:
         True,
         True,
     ]
+
+
+def test_selftest_log() -> None:
+    """The newest self-test of an ATA or NVMe drive; a failed one is a warning."""
+    data = json.loads(json.dumps(ATA))
+    data["ata_smart_self_test_log"] = {
+        "standard": {
+            "table": [
+                {
+                    "type": {"string": "Extended offline"},
+                    "status": {"value": 7, "string": "Completed: read failure"},
+                    "lifetime_hours": 21000,
+                },
+                {
+                    "type": {"string": "Short offline"},
+                    "status": {"value": 0, "string": "Completed without error", "passed": True},
+                },
+            ]
+        }
+    }
+    data["ata_smart_data"] = {"self_test": {"status": {"value": 249, "remaining_percent": 90}}}
+    summary = summarize(data, 0)
+    assert summary["selftest"] == {
+        "type": "Extended offline",
+        "result": "Completed: read failure",
+        "passed": False,
+        "hours": 21000,
+        "running": True,
+    }
+    assert "selftest_failed" in summary["warnings"]
+    nvme = {
+        "smart_status": {"passed": True},
+        "nvme_self_test_log": {
+            "current_self_test_operation": {"value": 0},
+            "table": [
+                {
+                    "self_test_code": {"string": "Short"},
+                    "self_test_result": {"value": 0, "string": "Completed without error"},
+                    "power_on_hours": 5,
+                }
+            ],
+        },
+    }
+    assert summarize(nvme, 0)["selftest"] == {
+        "type": "Short",
+        "result": "Completed without error",
+        "passed": True,
+        "hours": 5,
+        "running": False,
+    }
+    nvme["nvme_self_test_log"]["table"][0]["self_test_result"]["value"] = 1
+    assert summarize(nvme, 0)["selftest"]["passed"] is None  # aborted: says nothing
+    nvme["nvme_self_test_log"]["table"][0]["self_test_result"]["value"] = 7
+    assert summarize(nvme, 0)["selftest"]["passed"] is False
+    assert "selftest" not in summarize({"smart_status": {"passed": True}}, 0)
+
+
+async def test_start_selftest(make_script: ScriptMaker) -> None:
+    """A self-test starts, a sleeping drive is left alone, a failure is reported."""
+    ok = make_script("st-ok", "print('{}')")
+    assert await start_selftest("/dev/sda", "short", ok) == {"status": "started"}
+    asleep = make_script(
+        "st-sleep",
+        "import json; print(json.dumps({'smartctl': {'messages': [{'string': 'Device is in STANDBY mode'}]}})); sys.exit(2)",
+    )
+    assert await start_selftest("/dev/sda", "long", asleep) == {"status": "standby"}
+    broken = make_script("st-bad", "print('nope'); sys.exit(4)")
+    assert (await start_selftest("/dev/sda", "short", broken))["status"] == "error"
+    assert (await start_selftest("/dev/sda", "short", "/nonexistent/smartctl"))["status"] == "error"
+    hung = make_script("st-hung", "time.sleep(30)")
+    assert (await start_selftest("/dev/sda", "short", hung, limit_s=0.2))["status"] == "error"
+    with pytest.raises(ValueError):
+        await start_selftest("/dev/sda", "conveyance", ok)

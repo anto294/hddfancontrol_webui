@@ -28,7 +28,7 @@ from .const import RECORD_PERIOD
 from .hardware import Hardware
 from .history import History
 from .settings import Settings
-from .smart import STATUS_ERROR, STATUS_STANDBY, failed_now, read_smart
+from .smart import STATUS_ERROR, STATUS_STANDBY, failed_now, read_smart, start_selftest
 from .templog import TempLog
 
 PURGE_PERIOD = 3600.0
@@ -56,12 +56,16 @@ FRESH_SAMPLE_SECONDS = 600.0
 SUMMARY_HOUR = 9
 SUMMARY_KEY = "summary_last"
 
+# Self-tests start in this window of local hours (at night), at most one long one per night.
+SELFTEST_HOURS = range(2, 5)
+
 # How often the SMART loop looks at its interval.
 SMART_CHECK_PERIOD = 60.0
 
 _LOGGER = logging.getLogger(__name__)
 
 SmartReader = Callable[[str], Awaitable[dict[str, Any]]]
+SelfTest = Callable[[str, str], Awaitable[dict[str, Any]]]
 
 
 # ---------------------------
@@ -81,6 +85,7 @@ class Monitor:
         alerts: Alerts | None = None,
         status: Callable[[], dict[str, Any]] | None = None,
         labels: Callable[[], dict[str, str]] | None = None,
+        selftest: SelfTest = start_selftest,
     ) -> None:
         """Read from these sources and write to history; log the temperatures with log.
 
@@ -93,6 +98,7 @@ class Monitor:
         self.hardware = hardware
         self._settings = settings
         self._smart_reader = smart_reader
+        self._selftest = selftest
         self._log = log
         self.alerts = alerts
         self._status = status
@@ -483,6 +489,52 @@ class Monitor:
                 await asyncio.to_thread(self.history.save_smart, device, data)
             return await asyncio.to_thread(self.smart)
 
+    async def run_selftests(self, now: float | None = None) -> list[tuple[str, str]]:
+        """Start the self-tests that are due, at night; return (device, kind) of those started.
+
+        A drive asleep is left alone and tried again a minute later. Only one
+        long test starts per night, and no short test on a drive whose long
+        test started less than a day ago (it would abort it).
+        """
+        settings = self._settings()
+        now = time.time() if now is None else now
+        local = time.localtime(now)
+        if local.tm_hour not in SELFTEST_HOURS:
+            return []
+        night = time.strftime("%Y-%m-%d", local)
+        started: list[tuple[str, str]] = []
+        for kind, days in (("long", settings.selftest_long_days), ("short", settings.selftest_short_days)):
+            if days <= 0:
+                continue
+            for device in settings.monitor_drives:
+                key = f"selftest_{kind}_{device}"
+                last = await asyncio.to_thread(self.history.get_meta, key)
+                if last is not None and now - float(last) < days * 86400:
+                    continue
+                if kind == "long" and await asyncio.to_thread(self.history.get_meta, "selftest_long_night") == night:
+                    continue
+                long_last = await asyncio.to_thread(self.history.get_meta, f"selftest_long_started_{device}")
+                if kind == "short" and long_last is not None and now - float(long_last) < 86400:
+                    continue
+                result = await self._selftest(device, kind)
+                if result.get("status") == STATUS_STANDBY:
+                    continue
+                await asyncio.to_thread(self.history.set_meta, key, str(now))
+                name = os.path.basename(device)
+                if result.get("status") == "started":
+                    started.append((device, kind))
+                    if kind == "long":
+                        await asyncio.to_thread(self.history.set_meta, "selftest_long_night", night)
+                        await asyncio.to_thread(self.history.set_meta, f"selftest_long_started_{device}", str(now))
+                    if self._log is not None:
+                        self._log(f"SMART {kind} self-test started on {name}")
+                elif self._log is not None:
+                    # Not tried again before the next period: a drive that cannot test would be tried all night.
+                    self._log(
+                        f"WARNING: cannot start the SMART {kind} self-test on {name}: {'; '.join(result.get('messages', []))}"
+                    )
+        return started
+
     async def _smart_loop(self) -> None:
         """Read the SMART data every smart_interval_h hours; 0 means only on demand.
 
@@ -493,6 +545,10 @@ class Monitor:
         last: float | None = None
         while True:
             await asyncio.sleep(SMART_CHECK_PERIOD)
+            try:
+                await self.run_selftests()
+            except Exception as err:  # the loop must outlive any error
+                self._failed("SMART self-test", err)
             hours = self._settings().smart_interval_h
             if hours <= 0 or (last is not None and time.monotonic() - last < hours * 3600):
                 continue

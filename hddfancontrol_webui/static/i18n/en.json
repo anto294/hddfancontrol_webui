@@ -125,6 +125,12 @@
   "smart.warn.worn_out": "The drive is almost worn out.",
   "smart.warn.media_errors": "The drive reported media errors.",
   "smart.warn.critical_warning": "The drive raised a critical warning.",
+  "smart.selftest": "Last self-test",
+  "smart.selftest_ok": "Passed",
+  "smart.selftest_failed": "Failed",
+  "smart.selftest_running": "Running",
+  "smart.selftest_last": "Last self-test",
+  "smart.warn.selftest_failed": "The last SMART self-test failed.",
 
   "history.temps": "Temperatures",
   "history.rpm": "Fan speed (RPM)",

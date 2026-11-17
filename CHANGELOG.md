@@ -24,6 +24,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   together when they end; a daily or weekly summary of temperatures, fans,
   alerts and SMART. Environment: `NOTIFY_REPEAT_H`, `NOTIFY_QUIET`,
   `NOTIFY_SUMMARY`, and `TZ` for local time.
+- Scheduled SMART self-tests: a short and a long test every so many days
+  (`SELFTEST_SHORT_DAYS`, `SELFTEST_LONG_DAYS`), started at night without
+  waking a sleeping drive, one long test per night. The drive card shows
+  the last self-test, and a failed one is a SMART warning.
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.

@@ -125,6 +125,12 @@
   "smart.warn.worn_out": "L'SSD è quasi a fine vita.",
   "smart.warn.media_errors": "Il disco ha segnalato errori del supporto.",
   "smart.warn.critical_warning": "Il disco ha segnalato un avviso critico.",
+  "smart.selftest": "Ultimo self-test",
+  "smart.selftest_ok": "Superato",
+  "smart.selftest_failed": "Fallito",
+  "smart.selftest_running": "In corso",
+  "smart.selftest_last": "Ultimo self-test",
+  "smart.warn.selftest_failed": "L'ultimo self-test SMART è fallito.",
 
   "history.temps": "Temperature",
   "history.rpm": "Velocità ventole (RPM)",

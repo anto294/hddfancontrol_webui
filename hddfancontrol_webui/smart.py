@@ -66,6 +66,48 @@ def _messages(data: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------
+#   _selftest
+# ---------------------------
+# Results of an ATA self-test that mean the drive failed it; NVMe the same.
+ATA_TEST_FAILED = range(3, 9)
+NVME_TEST_FAILED = (5, 6, 7)
+
+
+def _selftest(data: dict[str, Any]) -> dict[str, Any] | None:
+    """The newest self-test of the drive: type, result, whether it passed (None: unknown), hours, and whether one runs."""
+    ata = data.get("ata_smart_self_test_log", {}).get("standard", {}).get("table") or []
+    running_ata = data.get("ata_smart_data", {}).get("self_test", {}).get("status", {})
+    if ata:
+        entry = ata[0]
+        status = entry.get("status", {})
+        passed = status.get("passed")
+        if passed is None and status.get("value") in ATA_TEST_FAILED:
+            passed = False
+        return {
+            "type": entry.get("type", {}).get("string", ""),
+            "result": status.get("string", ""),
+            "passed": passed,
+            "hours": entry.get("lifetime_hours"),
+            "running": "remaining_percent" in running_ata,
+        }
+    nvme = data.get("nvme_self_test_log") or {}
+    table = nvme.get("table") or []
+    if table:
+        entry = table[0]
+        result = entry.get("self_test_result", {})
+        value = result.get("value")
+        return {
+            "type": entry.get("self_test_code", {}).get("string", ""),
+            "result": result.get("string", ""),
+            # 0 passed, a failure code failed; aborted (1-4, 8, 9) says nothing.
+            "passed": False if value in NVME_TEST_FAILED else True if value == 0 else None,
+            "hours": entry.get("power_on_hours"),
+            "running": bool(nvme.get("current_self_test_operation", {}).get("value")),
+        }
+    return None
+
+
+# ---------------------------
 #   summarize
 # ---------------------------
 def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
@@ -133,6 +175,12 @@ def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
         elif attribute.get("when_failed"):
             summary["failed_past"].append(attribute.get("name") or str(attr_id))
 
+    test = _selftest(data)
+    if test is not None:
+        summary["selftest"] = test
+        if test["passed"] is False:
+            summary["warnings"].append("selftest_failed")
+
     nvme = data.get("nvme_smart_health_information_log")
     if isinstance(nvme, dict):
         for key in ("percentage_used", "available_spare", "media_errors", "critical_warning", "unsafe_shutdowns"):
@@ -191,3 +239,46 @@ async def read_smart(device: str, smartctl: str = SMARTCTL_BIN, limit_s: float =
     if not isinstance(data, dict):
         return {"status": STATUS_ERROR, "messages": ["smartctl gave no JSON"]}
     return summarize(data, proc.returncode or 0)
+
+
+# ---------------------------
+#   start_selftest
+# ---------------------------
+async def start_selftest(device: str, kind: str, smartctl: str = SMARTCTL_BIN, limit_s: float = 60.0) -> dict[str, Any]:
+    """Start a "short" or "long" self-test, unless the drive sleeps. The drive runs it by itself.
+
+    Returns {"status": "started"}, {"status": "standby"}, or {"status": "error", "messages": [...]}.
+    """
+    if kind not in ("short", "long"):
+        raise ValueError(kind)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            smartctl,
+            "-j",
+            "-n",
+            "standby",
+            "-t",
+            kind,
+            device,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError as err:
+        return {"status": STATUS_ERROR, "messages": [str(err)]}
+    try:
+        output, _ = await asyncio.wait_for(proc.communicate(), limit_s)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        return {"status": STATUS_ERROR, "messages": [f"smartctl did not answer within {limit_s:g} s"]}
+    try:
+        data = json.loads(output)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        data = {}
+    messages = _messages(data) if isinstance(data, dict) else []
+    code = proc.returncode or 0
+    if code & EXIT_OPEN_FAILED and any("STANDBY" in m.upper() or "SLEEP" in m.upper() for m in messages):
+        return {"status": STATUS_STANDBY}
+    if code & (EXIT_OPEN_FAILED | 0x04):
+        return {"status": STATUS_ERROR, "messages": messages or [f"exit code {code}"]}
+    return {"status": "started"}

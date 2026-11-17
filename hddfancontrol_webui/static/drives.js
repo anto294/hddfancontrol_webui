@@ -47,6 +47,11 @@ function smartCard(device, data) {
   for (const key of SMART_ERRORS) {
     if (data[key]) fact(t(`smart.${key}`), String(data[key]), "hot");
   }
+  const test = data.selftest;
+  if (test) {
+    const result = test.running ? t("smart.selftest_running") : test.passed === true ? t("smart.selftest_ok") : test.passed === false ? t("smart.selftest_failed") : test.result;
+    fact(t("smart.selftest"), result, test.passed === false ? "hot" : "");
+  }
   if (facts.children.length) card.append(facts);
 
   // The maximum of the settings should stay under what the drive is made for.
@@ -73,6 +78,7 @@ function smartCard(device, data) {
     ["load_cycle_count", data.load_cycle_count],
     ...SMART_ERRORS.map((key) => [key, data[key]]),
     ["available_spare", present(data.available_spare) ? `${data.available_spare} %` : null],
+    ["selftest_last", test ? [test.type, test.result, present(test.hours) ? `${test.hours} h` : ""].filter(Boolean).join(" · ") : null],
     ["unsafe_shutdowns", data.unsafe_shutdowns],
   ];
   for (const [key, value] of fields) {
