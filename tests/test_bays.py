@@ -37,3 +37,10 @@ def test_store(tmp_path: Path) -> None:
     assert Bays(tmp_path).get()["slots"] == [A, B]
     (tmp_path / "bays.json").write_text("{nope")
     assert Bays(tmp_path).get()["rows"] == 0
+
+
+@pytest.mark.parametrize("content", [b"[" * 100000, b'{"rows": "\xe9"}'])
+def test_a_broken_file_starts_without_a_map(tmp_path: Path, content: bytes) -> None:
+    """bays.json nested too deep or not UTF-8: no map, never a failed start."""
+    (tmp_path / "bays.json").write_bytes(content)
+    assert Bays(tmp_path).get()["slots"] == []

@@ -77,8 +77,8 @@ class Bays:
             self._map = check_bays(json.loads(self.path.read_text(encoding="utf-8")))
         except FileNotFoundError:
             return
-        except (OSError, ValueError) as err:
-            _LOGGER.error("Cannot read %s, starting without a bay map: %s", self.path, err)
+        except Exception as err:  # unreadable, not UTF-8, nested too deep: never a failed start
+            _LOGGER.error("Cannot read %s, starting without a bay map: %r", self.path, err)
 
     def get(self) -> dict[str, Any]:
         """The bay map."""

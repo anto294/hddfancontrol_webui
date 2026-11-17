@@ -51,8 +51,8 @@ class Labels:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
-        except (OSError, ValueError) as err:
-            _LOGGER.error("Cannot read %s, starting without labels: %s", self.path, err)
+        except Exception as err:  # unreadable, not UTF-8, nested too deep: never a failed start
+            _LOGGER.error("Cannot read %s, starting without labels: %r", self.path, err)
             return
         if isinstance(data, dict):
             self._labels = {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}

@@ -66,3 +66,10 @@ def test_move(tmp_path: Path) -> None:
     labels.move("/sys/class/hwmon/hwmon2/pwm1", "/sys/class/hwmon/hwmon7/pwm1")
     labels.move("/sys/class/hwmon/hwmon2/pwm5", "/sys/class/hwmon/hwmon7/pwm5")  # no label: nothing to do
     assert Labels(tmp_path).all() == {"/sys/class/hwmon/hwmon7/pwm1": "Back 1"}
+
+
+@pytest.mark.parametrize("content", [b"[" * 100000, b'{"a": "\xe9"}'])
+def test_a_broken_file_starts_empty(tmp_path: Path, content: bytes) -> None:
+    """labels.json nested too deep or not UTF-8: no labels, never a failed start."""
+    (tmp_path / "labels.json").write_bytes(content)
+    assert Labels(tmp_path).all() == {}

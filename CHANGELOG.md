@@ -38,6 +38,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A `settings.json` that is not UTF-8 or is nested too deep, or any other
   error reading it, no longer stops the start: the environment is used,
   with the error shown, as for a file with invalid values.
+- A `labels.json` or `bays.json` nested too deep no longer stops the
+  start: it is logged and the web UI starts without labels or bay map.
 - A JSON body nested too deep gets 400 `invalid_json` instead of an
   internal error with a traceback in the log.
 
