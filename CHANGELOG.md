@@ -51,6 +51,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The history CSV writes a name or label that starts like a formula
   (`=`, `+`, `-`, `@`) with a quote in front, so a spreadsheet opens it
   as text instead of running it.
+- The systemd unit keeps only the capabilities the web UI needs
+  (`CapabilityBoundingSet`), and adds `ProtectKernelLogs` and
+  `ProtectClock`.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

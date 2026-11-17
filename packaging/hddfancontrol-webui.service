@@ -26,6 +26,14 @@ RestartSec=5
 # Root is needed for /sys PWM files and drive commands; keep the rest closed.
 # The web server itself runs as the hddfancontrol-webui user (the gateway).
 NoNewPrivileges=true
+# What root needs here, and nothing more: drive commands (smartctl, hdparm,
+# hd-idle: SYS_RAWIO, SYS_ADMIN), the gateway's user and folder (SETUID,
+# SETGID, CHOWN, FOWNER), stopping it (KILL), reading TLS_CERT/TLS_KEY and
+# /sys whatever their owner (DAC_OVERRIDE), and modprobe for the sensor
+# scan (SYS_MODULE; off unless LOAD_SENSOR_MODULES=true).
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE CAP_KILL CAP_SYS_MODULE
+ProtectKernelLogs=true
+ProtectClock=true
 RestrictNamespaces=true
 RestrictRealtime=true
 ProtectHostname=true
