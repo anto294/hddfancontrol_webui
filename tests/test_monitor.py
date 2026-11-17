@@ -384,6 +384,25 @@ def test_fan_wear(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     monitor.history.close()
 
 
+def test_fan_wear_baseline_of_a_fan_added_later(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """A fan whose history starts after the rest gets its baseline from its own first week."""
+    old, new = "/sys/class/hwmon/hwmon2/pwm1", "/sys/class/hwmon/hwmon2/pwm2"
+    settings = from_dict({"drives": [DRIVE], "pwms": [{"path": new, "start": 200, "stop": 75}]})
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
+    day = 86400
+    start = 1_000_000
+    monitor.history.record(start, [("rpm", old, 900.0)])  # the history began long before the new fan
+    for ts in range(start + 60 * day, start + 67 * day, 600):
+        monitor.history.record(ts, [("pwm", new, 50.0), ("rpm", new, 1200.0)])
+    assert monitor.fan_wear(start + 70 * day) == {}  # its own history is too young
+    assert monitor.history.get_meta(f"fan_baseline_{new}") is None
+    for ts in range(start + 74 * day, start + 81 * day, 600):
+        monitor.history.record(ts, [("pwm", new, 50.0), ("rpm", new, 900.0)])
+    assert monitor.fan_wear(start + 81 * day)[new] == pytest.approx(0.25, abs=0.01)
+    assert monitor.history.oldest("rpm", new) == start + 60 * day and monitor.history.oldest() == start
+    monitor.history.close()
+
+
 async def test_a_failing_job_does_not_stop_the_purge(
     tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

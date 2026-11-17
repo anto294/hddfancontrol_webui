@@ -67,11 +67,13 @@ SELFTEST_GRACE = 3 * 3600
 LONG_TEST_GUARD = 86400
 
 # Fan wear: the RPM of a chosen fan at the same PWM, over the last WEAR_WINDOW,
-# against a baseline of its first WEAR_WINDOW of history, once the history is
-# WEAR_BASELINE_AGE old. The baseline is kept, so a slow drop over months
-# still shows. A drop of WEAR_DROP or more raises the fan_wear alert.
+# against a baseline of the first WEAR_WINDOW of that fan's own history,
+# taken once that history is WEAR_BASELINE_AGE old (so the two windows do
+# not overlap; history_days must be at least that). The baseline is kept,
+# so a slow drop over months still shows. A drop of WEAR_DROP or more
+# raises the fan_wear alert.
 WEAR_WINDOW = 7 * 86400
-WEAR_BASELINE_AGE = 21 * 86400
+WEAR_BASELINE_AGE = 2 * WEAR_WINDOW
 WEAR_DROP = 0.15
 WEAR_MIN_SAMPLES = 30
 WEAR_MIN_RPM = 300.0
@@ -320,12 +322,13 @@ class Monitor:
     def fan_wear(self, now: float | None = None) -> dict[str, float]:
         """How much slower each chosen fan turns than at first, at the same PWM: {path: drop} for drops of WEAR_DROP. Blocking."""
         now = time.time() if now is None else now
-        oldest = self.history.oldest()
         worn: dict[str, float] = {}
         for pwm in self._settings().pwms:
             key = f"fan_baseline_{pwm.path}"
             saved = self.history.get_meta(key)
             if saved is None:
+                # The fan's own first week: a fan added later, or moved to a new hwmon path, gets one too.
+                oldest = self.history.oldest("rpm", pwm.path)
                 if oldest is None or now - oldest < WEAR_BASELINE_AGE:
                     continue
                 base = self.history.fan_curve(pwm.path, oldest, oldest + WEAR_WINDOW)

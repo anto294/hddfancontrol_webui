@@ -36,8 +36,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Schedules are cron expressions, written by hand or picked from a list,
   with the next runs shown as you type: SMART reads, self-tests, summary
   and quiet hours, in a "Schedules" card of the settings.
-- Fan wear: once the history is three weeks old, the speed of each chosen
-  fan at a given PWM is kept as its baseline; a fan that turns 15 % slower
+- Fan wear: once a chosen fan has two weeks of history, its speed at a
+  given PWM in its first week is kept as its baseline; a fan that turns 15 % slower
   than that over the last week raises an alert (worn bearings show this
   way well before the fan stops).
 - `/metrics` in the Prometheus text format: drive temperatures, fan PWM

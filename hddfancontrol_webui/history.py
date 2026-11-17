@@ -202,10 +202,16 @@ class History:
         with self._lock:
             self._db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
 
-    def oldest(self) -> int | None:
-        """The time of the oldest sample, or None."""
+    def oldest(self, kind: str | None = None, name: str | None = None) -> int | None:
+        """The time of the oldest sample, of every series or of one (kind, name), or None."""
         with self._lock:
-            row = self._db.execute("SELECT MIN(ts) FROM samples").fetchone()
+            if kind is None or name is None:
+                row = self._db.execute("SELECT MIN(ts) FROM samples").fetchone()
+            else:
+                row = self._db.execute(
+                    "SELECT MIN(s.ts) FROM samples s JOIN series r ON r.id = s.series WHERE r.kind = ? AND r.name = ?",
+                    (kind, name),
+                ).fetchone()
         return None if row is None or row[0] is None else int(row[0])
 
     def fan_curve(self, path: str, start: int, end: int, step: float = 5.0) -> dict[float, tuple[float, int]]:
