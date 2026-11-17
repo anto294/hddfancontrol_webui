@@ -51,7 +51,6 @@ _SYS_PATH = re.compile(rf"^/sys(/{_COMPONENT})+$")
 _INTERFACE = re.compile(r"^[a-z0-9]+$")
 _INTERVAL = re.compile(r"^\s*(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
 _INTERVAL_FACTORS = {"": 1, "s": 1, "sec": 1, "secs": 1, "m": 60, "min": 60, "mins": 60, "h": 3600, "hr": 3600, "hrs": 3600}
-_TRUE = TRUE_WORDS
 _FALSE = ("0", "false", "no", "off", "")
 
 MAX_INTERVAL_S = 3600
@@ -268,7 +267,7 @@ class _Collector:
         value = data.get(key, default)
         if isinstance(value, bool):
             return value
-        if isinstance(value, str) and value.strip().lower() in _TRUE:
+        if isinstance(value, str) and value.strip().lower() in TRUE_WORDS:
             return True
         if isinstance(value, str) and value.strip().lower() in _FALSE:
             return False
