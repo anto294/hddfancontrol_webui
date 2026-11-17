@@ -258,6 +258,7 @@
   "error.password_too_short": "La password deve avere almeno 8 caratteri.",
   "error.password_mismatch": "Le due password sono diverse.",
   "error.unknown_pwm": "Questa uscita PWM non esiste sull'host.",
+  "error.not_block_device": "Questo percorso non porta a un disco (un dispositivo a blocchi).",
   "error.not_manual": "Passa prima al controllo manuale.",
   "error.read_only": "/sys è in sola lettura (il container non è privilegiato): le ventole non possono essere scritte.",
   "error.write_failed": "Impossibile scrivere il file PWM.",

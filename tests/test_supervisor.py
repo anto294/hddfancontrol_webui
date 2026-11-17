@@ -539,3 +539,30 @@ async def test_release_fans_during_a_pwm_test_starts_nothing(
     assert not supervisor.hddfancontrol.active and not supervisor.fans.active
     assert read(fake_sys / "class/hwmon/hwmon2/pwm1_enable") == "5\n"
     await supervisor.stop()
+
+
+async def test_apply_refuses_a_drive_path_that_is_no_block_device(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A drive name that leads to something other than a block device is refused; one that leads nowhere is kept."""
+    from hddfancontrol_webui import hardware as hardware_module
+
+    monkeypatch.setattr(hardware_module, "_IS_DRIVE_NODE", __import__("stat").S_ISBLK)  # the real check
+    store = SettingsStore(tmp_path / "config", {})
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+    supervisor = Supervisor(
+        store,
+        LogBuffer(echo=False),
+        None,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+    )
+    (fake_dev / "disk/by-id/ata-EVIL").symlink_to("/dev/null")  # a character device
+    doc = {"drives": ["/dev/disk/by-id/ata-EVIL", "/dev/sdz"], "monitor_drives": ["/dev/sda"], "pwms": []}
+    with pytest.raises(SettingsError) as refused:
+        await supervisor.apply(from_dict(doc))
+    assert [p["field"] for p in refused.value.problems] == ["drives.0", "monitor_drives.0"]  # /dev/sda: a plain file here
+    assert {p["code"] for p in refused.value.problems} == {"not_block_device"}
+    await supervisor.stop()

@@ -404,20 +404,28 @@ class Supervisor:
             missing += [pwm.path for pwm in pwms if pwm.path not in known and pwm.path not in missing]
         return replace(settings, pwms=tuple(pwms)), missing
 
-    async def _unknown_pwms(self, settings: Settings) -> list[dict[str, Any]]:
-        """The problems of fans in settings (as _placed returned them) that are no PWM output of the host.
+    async def _host_problems(self, settings: Settings) -> list[dict[str, Any]]:
+        """What in settings (as _placed returned them) the host contradicts: fans that are no PWM output, drives that are no drive.
 
         A fan whose chip was recorded but is gone is not one: it comes back
-        with its chip, and stays missing until then.
+        with its chip, and stays missing until then. A drive path that leads
+        nowhere is not one either (an unplugged drive); one that leads to
+        something other than a block device is.
         """
-        if self.hardware is None:
+        hardware = self.hardware
+        if hardware is None:
             return []
-        known = await asyncio.to_thread(self.hardware.pwm_paths)
-        return [
+        known = await asyncio.to_thread(hardware.pwm_paths)
+        problems = [
             {"field": f"pwms.{index}.path", "code": "unknown_pwm", "params": {}}
             for index, pwm in enumerate(settings.pwms)
             if pwm.path not in known and pwm.chip is None
         ]
+        for key, drives in (("drives", settings.drives), ("monitor_drives", settings.monitor_drives)):
+            for index, drive in enumerate(drives):
+                if drive.startswith("/") and await asyncio.to_thread(hardware.is_block_device, drive) is False:
+                    problems.append({"field": f"{key}.{index}", "code": "not_block_device", "params": {}})
+        return problems
 
     def _measuring_lost(self) -> None:
         """hddfancontrol ended by itself: the fan controller stops trusting the temperatures until new ones come."""
@@ -526,7 +534,7 @@ class Supervisor:
         async with self._lock:
             self._refuse_during_test()
             settings, missing = await self._placed(settings)
-            if problems := await self._unknown_pwms(settings):
+            if problems := await self._host_problems(settings):
                 raise SettingsError(problems)
             await asyncio.to_thread(self.store.save, settings)
             self.settings, self.source, self.missing_pwms = settings, SOURCE_FILE, missing

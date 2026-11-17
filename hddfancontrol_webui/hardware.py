@@ -13,11 +13,14 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import stat
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 _PART = re.compile(r"-part\d+$")
+# What a drive is in /dev. The tests, whose /dev holds plain files, accept those too.
+_IS_DRIVE_NODE = stat.S_ISBLK
 # Several names point at the same drive. These say less than the model and
 # serial names, and only show when a drive has no other one.
 _LOW_PRIORITY = ("wwn-", "nvme-eui.", "nvme-nvme.", "eui.")
@@ -310,6 +313,16 @@ class Hardware:
     def dev_exists(self, path: str) -> bool:
         """Whether a /dev path (a by-id link or a device) leads to something now."""
         return (self._dev / path.removeprefix("/dev/")).exists()
+
+    def is_block_device(self, path: str) -> bool | None:
+        """Whether a /dev path leads to a block device: None when it leads nowhere (an unplugged drive)."""
+        try:
+            mode = (self._dev / path.removeprefix("/dev/")).stat().st_mode
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return False
+        return bool(_IS_DRIVE_NODE(mode))
 
     def pwm_paths(self) -> set[str]:
         """Return the paths of every PWM output, to check what a client asks to test."""

@@ -19,6 +19,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   or `/dev/nvmeNnN` (or an interface name such as `ata`, for the fans):
   any `/dev` node was accepted and handed to smartctl, hdparm and hd-idle
   as root.
+- Saving settings with a drive name that leads to something other than a
+  block device (a link to `/dev/null`, say) answers 400
+  `not_block_device`; a name that leads nowhere (an unplugged drive) is
+  still accepted.
 - Saving settings with a fan that is no PWM output of the host answers
   400 `unknown_pwm`. Such a fan in a saved file is not controlled, like
   one whose chip is gone, and manual control never writes it either.

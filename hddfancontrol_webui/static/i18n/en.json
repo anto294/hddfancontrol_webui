@@ -258,6 +258,7 @@
   "error.password_too_short": "The password needs at least 8 characters.",
   "error.password_mismatch": "The two passwords differ.",
   "error.unknown_pwm": "This PWM output does not exist on the host.",
+  "error.not_block_device": "This path does not lead to a drive (a block device).",
   "error.not_manual": "Enter manual control first.",
   "error.read_only": "/sys is read only (the container is not privileged): the fans cannot be written.",
   "error.write_failed": "Cannot write the PWM file.",

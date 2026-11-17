@@ -13,6 +13,14 @@ import pytest
 ScriptMaker = Callable[[str, str], str]
 
 
+@pytest.fixture(autouse=True)
+def plain_files_are_drives(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake /dev holds plain files where the host has block devices: they count as drives."""
+    from hddfancontrol_webui import hardware
+
+    monkeypatch.setattr(hardware, "_IS_DRIVE_NODE", lambda mode: stat.S_ISBLK(mode) or stat.S_ISREG(mode))
+
+
 @pytest.fixture
 def fake_sys(tmp_path: Path) -> Path:
     """A /sys with one fan chip (two PWM outputs, one temperature) and two drives."""
