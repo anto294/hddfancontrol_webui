@@ -92,10 +92,19 @@ LOGIN_MAX_FAILURES = 10
 LOGIN_WINDOW = 900.0
 LOGIN_MAX_ADDRESSES = 10000
 # After this many wrong passwords from all clients together within
-# LOGIN_WINDOW, every password check waits for the window to end: a host
-# with many IPv4 addresses (or /64s) cannot guess at full speed. Open
-# sessions are not affected.
+# LOGIN_WINDOW, the password checks of clients that sent a wrong one
+# lately are slowed down, one at a time, by a delay that grows with the
+# failures past the limit: LOGIN_SLOW_BASE seconds, doubled every
+# LOGIN_SLOW_STEP failures, at most LOGIN_SLOW_MAX. A host with many IPv4
+# addresses (or /64s) cannot guess at full speed, and nobody is refused:
+# a client without a recent failure (the owner typing the right password)
+# is not slowed down. Open sessions are not affected.
 LOGIN_MAX_GLOBAL = 100
+LOGIN_SLOW_BASE = 2.0
+LOGIN_SLOW_STEP = 25
+LOGIN_SLOW_MAX = 30.0
+# How many global failures are remembered: enough for the delay to reach its maximum.
+LOGIN_GLOBAL_KEEP = 1000
 # What plain HTTP still serves with FORCE_HTTPS: the health check, and the page that moves the browser to HTTPS.
 HTTP_PATHS = ("/healthz", "/static/https.js", "/static/style.css")
 # The networks allowed by default: loopback, private, link-local, carrier-grade NAT
@@ -144,7 +153,7 @@ class TooManyAttempts(Exception):
 #   LoginLimiter
 # ---------------------------
 class LoginLimiter:
-    """Count the wrong passwords of each client and of all of them, and refuse a client (or all) past the limit.
+    """Count the wrong passwords of each client and of all of them: refuse a client past its limit, slow down past the global one.
 
     The scrypt checks already run one at a time; this stops one client from
     guessing for hours, and from keeping the checks busy for everyone else.
@@ -196,17 +205,33 @@ class LoginLimiter:
         return recent
 
     def _recent_global(self, now: float) -> int:
-        """How many failures of all clients are within the window."""
-        self._global = [t for t in self._global if now - t < self._window][-self._max_global :]
+        """How many failures of all clients are within the window (at most LOGIN_GLOBAL_KEEP)."""
+        self._global = [t for t in self._global if now - t < self._window][-LOGIN_GLOBAL_KEEP:]
         return len(self._global)
 
     def blocked(self, address: str) -> bool:
-        """Whether the client of address, or all clients together, sent too many wrong passwords lately."""
+        """Whether the client of address sent too many wrong passwords lately."""
+        return len(self._recent(self.client(address), time.monotonic())) >= self._max
+
+    def delay(self, address: str) -> float:
+        """How long the next password check of address waits: 0 below the global limit or for a client without failures.
+
+        Past the limit, the delay doubles every LOGIN_SLOW_STEP failures,
+        from LOGIN_SLOW_BASE to LOGIN_SLOW_MAX seconds. When the table of
+        clients is full, a client it does not hold may have failed too:
+        it waits like one that did.
+        """
         now = time.monotonic()
-        return len(self._recent(self.client(address), now)) >= self._max or self._recent_global(now) >= self._max_global
+        excess = self._recent_global(now) - self._max_global
+        if excess < 0:
+            return 0.0
+        key = self.client(address)
+        if not self._recent(key, now) and len(self._failures) < LOGIN_MAX_ADDRESSES:
+            return 0.0
+        return float(min(LOGIN_SLOW_MAX, LOGIN_SLOW_BASE * 2 ** (excess // LOGIN_SLOW_STEP)))
 
     def failed(self, address: str) -> bool:
-        """Count a wrong password of address; True when it is the one that stops every client."""
+        """Count a wrong password of address; True when it is the one that starts slowing down the checks."""
         now = time.monotonic()
         self._global.append(now)
         stopped = self._recent_global(now) == self._max_global
@@ -256,6 +281,7 @@ AUTH: web.AppKey[AuthStore] = web.AppKey("auth", AuthStore)
 LOGINS: web.AppKey[LoginLimiter] = web.AppKey("logins", LoginLimiter)
 SETUP: web.AppKey[SetupCode] = web.AppKey("setup", SetupCode)
 PASSWORD_CHECKS: web.AppKey[asyncio.Semaphore] = web.AppKey("password_checks", asyncio.Semaphore)
+SLOW_CHECKS: web.AppKey[asyncio.Lock] = web.AppKey("slow_checks", asyncio.Lock)
 FORCE_HTTPS: web.AppKey[bool] = web.AppKey("force_https", bool)
 ALLOW: web.AppKey[tuple[Network, ...]] = web.AppKey("allow", tuple)
 CORE: web.AppKey[aiohttp.ClientSession] = web.AppKey("core", aiohttp.ClientSession)
@@ -358,6 +384,11 @@ async def _password_work(request: web.Request, address: str, func: Callable[...,
     if not logins.begin(address):
         raise TooManyAttempts()
     try:
+        if wait := logins.delay(address):
+            # Past the global limit: the slowed checks wait one after the other,
+            # outside the queue of the checks, so a client without failures goes first.
+            async with request.app[SLOW_CHECKS]:
+                await asyncio.sleep(wait)
         async with request.app[PASSWORD_CHECKS]:
             if logins.blocked(address):
                 raise TooManyAttempts()
@@ -378,11 +409,11 @@ def _log(request: web.Request, text: str) -> None:
 #   _failed_login
 # ---------------------------
 def _failed_login(request: web.Request, address: str) -> None:
-    """Count a wrong password (or setup code) of address, and log when it pauses the checks for every client."""
+    """Count a wrong password (or setup code) of address, and log when it starts slowing down the checks."""
     if request.app[LOGINS].failed(address):
         request.app[LOG](
             f"{LOGIN_MAX_GLOBAL} wrong passwords in {int(LOGIN_WINDOW // 60)} minutes from all clients: "
-            "logins are paused until then (open sessions go on)"
+            "the logins of clients that sent a wrong one are slowed down (open sessions go on)"
         )
 
 
@@ -753,6 +784,7 @@ def create_gateway(
     app[LOGINS] = LoginLimiter()
     app[SETUP] = SetupCode()
     app[PASSWORD_CHECKS] = asyncio.Semaphore(1)
+    app[SLOW_CHECKS] = asyncio.Lock()
     app[FORCE_HTTPS] = force_https
     app[ALLOW] = parse_allow(None) if allow is None else allow
     app[LOG] = log

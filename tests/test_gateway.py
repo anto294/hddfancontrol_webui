@@ -429,28 +429,55 @@ def test_login_limiter_counts_an_ipv6_64_as_one_client() -> None:
     assert LoginLimiter.client("not an address") == "not an address"
 
 
-def test_login_limiter_stops_every_client_past_the_global_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Many clients with a few failures each are stopped together, until the window ends."""
+def test_login_limiter_slows_down_past_the_global_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past the global limit nobody is refused: clients that failed wait longer and longer, the others not at all."""
     clock = {"now": 1000.0}
     monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(gateway_module, "LOGIN_SLOW_STEP", 2)
     limiter = LoginLimiter(max_failures=10, window=10, max_global=3)
     assert [limiter.failed(f"10.0.0.{i}") for i in range(1, 4)] == [False, False, True]
-    assert limiter.blocked("10.0.0.99")  # a new address too
+    assert not limiter.blocked("10.0.0.1") and not limiter.blocked("10.0.0.99")
+    assert limiter.delay("10.0.0.99") == 0  # no failure of its own: the owner logging in
+    assert limiter.delay("10.0.0.1") == gateway_module.LOGIN_SLOW_BASE
+    for i in range(4, 8):
+        limiter.failed(f"10.0.0.{i}")
+    assert limiter.delay("10.0.0.1") == 4 * gateway_module.LOGIN_SLOW_BASE  # doubled every LOGIN_SLOW_STEP failures
+    for i in range(8, 60):
+        limiter.failed(f"10.0.0.{i}")
+    assert limiter.delay("10.0.0.1") == gateway_module.LOGIN_SLOW_MAX
     clock["now"] += 11
-    assert not limiter.blocked("10.0.0.99")
+    assert limiter.delay("10.0.0.1") == 0
 
 
-async def test_rotating_addresses_stops_at_the_global_limit(
+def test_login_limiter_slows_down_unknown_clients_when_its_table_is_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A client the full table could not hold may have failed: past the global limit it waits too."""
+    monkeypatch.setattr(gateway_module, "LOGIN_MAX_ADDRESSES", 2)
+    limiter = LoginLimiter(max_failures=10, window=100, max_global=2)
+    for address in ("10.0.0.1", "10.0.0.2", "10.0.0.3"):
+        limiter.failed(address)
+    assert limiter.delay("10.0.0.3") > 0 and limiter.delay("10.0.0.4") > 0
+
+
+async def test_past_the_global_limit_the_right_password_still_logs_in(
     make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Wrong passwords from ever new addresses still end in 429 for everyone, with one line in the log."""
+    """Wrong passwords from many clients slow down those clients, never refuse the owner; one line in the log."""
     gw = await make_gateway(CREDENTIALS)
-    monkeypatch.setattr(gw.client.app[LOGINS], "_max_global", 2)
+    limiter = gw.client.app[LOGINS]
+    monkeypatch.setattr(limiter, "_max_global", 2)
+    monkeypatch.setattr(gateway_module, "LOGIN_SLOW_BASE", 0.3)
     bad = {"username": "anto", "password": "nope"}
-    gw.client.app[LOGINS].failed("10.9.9.9")  # another client
+    limiter.failed("10.9.9.9")  # another client
     assert (await gw.client.post("/api/login", json=bad, headers=FETCH)).status == 401
-    assert (await gw.client.post("/api/login", json=GOOD, headers=FETCH)).status == 429
-    assert any("logins are paused" in line for line in gw.lines)
+    assert any("slowed down" in line for line in gw.lines)
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    assert (await gw.client.post("/api/login", json=GOOD, headers=FETCH)).status == 200  # slowed, not refused
+    assert loop.time() - started >= 0.3
+    monkeypatch.setattr(LoginLimiter, "client", staticmethod(lambda address: "10.1.1.1"))  # a client without failures
+    started = loop.time()
+    assert (await gw.client.post("/api/login", json=GOOD, headers=FETCH)).status == 200
+    assert loop.time() - started < 0.3
 
 
 async def test_session_cookie_is_secure_behind_an_https_proxy(make_gateway: GatewayMaker) -> None:

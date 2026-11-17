@@ -19,8 +19,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   400 `unknown_pwm`. Such a fan in a saved file is not controlled, like
   one whose chip is gone, and manual control never writes it either.
 - The limit on wrong passwords counts an IPv6 /64 as one client, and
-  stops every login for 15 minutes after 100 wrong passwords from all
-  clients together: a host with many addresses could guess without limit.
+  after 100 wrong passwords from all clients together it slows down the
+  clients that sent one (2 s per check, doubling up to 30 s, one at a
+  time): a host with many addresses could guess without limit. Nobody is
+  refused for it, and a client without a wrong password is not slowed.
 - A guess at `WEBUI_PASSWORD` now costs a scrypt hash, like one at a
   stored password, and the password itself is not kept in memory.
 - A path with a `..` part, such as `/static/i18n/../app.js`, could pass
