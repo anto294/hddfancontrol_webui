@@ -175,6 +175,7 @@
   "settings.other_drives_help": "Paths or interface names (ata, nvme), separated by spaces.",
   "settings.fans": "Fans",
   "settings.fans_help": "The PWM outputs to control, with the value at which each fan starts and stops. The PWM test finds them.",
+  "settings.use": "Use",
   "settings.groups": "Fan groups",
   "settings.groups_help": "Each fan can follow only some drives: for example the case fans for the hot enterprise drives, another fan for the rest. A fan with no drive ticked, or all of them, follows every drive.",
   "settings.groups_none": "Choose at least two drives and one fan above to make groups.",

@@ -1738,3 +1738,142 @@ details.help p {
     font-size: 0.8rem;
   }
 }
+
+/* Phones: one column, smaller margins, a header that fits, wide tables that scroll by themselves. */
+@media (max-width: 640px) {
+  .top {
+    padding: 0.5rem 10px 0;
+  }
+
+  .brand {
+    gap: 0.4rem;
+  }
+
+  .brand img {
+    width: 30px;
+    height: 30px;
+  }
+
+  /* The title gives way first, so the buttons always fit. */
+  .brand h1 {
+    font-size: 1.05rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .brand .lang-button,
+  .brand .theme-button {
+    padding: 0.25rem 0.35rem;
+    gap: 0;
+  }
+
+  .top .lang-name,
+  .brand #logout {
+    font-size: 0;
+  }
+
+  .brand #logout .icon {
+    font-size: 1rem;
+  }
+
+  .tabs button {
+    padding: 0.45rem 0.55rem;
+  }
+
+  main {
+    padding: 10px;
+  }
+
+  .card {
+    padding: 0.8rem;
+  }
+
+  /* Form tables: each row a block of fields, each with the title of its column. */
+  .form-table,
+  .form-table tbody,
+  .form-table tr {
+    display: block;
+  }
+
+  .form-table tr:has(th) {
+    display: none;
+  }
+
+  .form-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem 0.8rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .form-table td {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0;
+    border: none;
+    min-width: 0;
+  }
+
+  .form-table td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .form-table td.row-name {
+    grid-column: 1 / -1;
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
+  .form-table td.row-name::before {
+    display: none;
+  }
+
+  .form-table input[type="number"],
+  .form-table input[type="text"],
+  .form-table select {
+    width: 100%;
+  }
+
+  .table-scroll {
+    overflow-x: visible;
+  }
+
+  /* The three tiles side by side, without their icons. */
+  .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .stat {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.5rem 0.6rem;
+  }
+
+  .stat-icon {
+    display: none;
+  }
+
+  .stat-label {
+    font-size: 0.72rem;
+  }
+
+  .meter.drive {
+    grid-template-columns: 1.1rem minmax(0, 1fr) 3rem 1rem 4.4rem;
+    gap: 0.4rem;
+  }
+
+  .meter {
+    grid-template-columns: 1.1rem minmax(0, 1fr) 4rem 4.6rem;
+    gap: 0.45rem;
+  }
+}
+
+.pill {
+  white-space: nowrap;
+}

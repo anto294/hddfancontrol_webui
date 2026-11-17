@@ -73,6 +73,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   error counter are shown as tiles, the rest under "Details". Drives with
   a problem come first, and their card has a colored border.
 - The page uses more of a wide screen (up to 1440 px instead of 1200 px).
+- Phones: the header always fits (the title gives way to the buttons), the
+  three tiles sit side by side, the tab chosen stays in sight in the tab
+  bar, and the tables of the settings become stacked blocks with the
+  title of each field; no page scrolls sideways at 375 px.
 
 ### Fixed
 

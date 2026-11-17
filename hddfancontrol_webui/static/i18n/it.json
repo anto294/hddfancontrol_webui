@@ -175,6 +175,7 @@
   "settings.other_drives_help": "Percorsi o nomi di interfaccia (ata, nvme), separati da spazi.",
   "settings.fans": "Ventole",
   "settings.fans_help": "Le uscite PWM da comandare, con i valori a cui ogni ventola parte e si ferma: li trova il Test PWM.",
+  "settings.use": "Usa",
   "settings.groups": "Gruppi di ventole",
   "settings.groups_help": "Ogni ventola può seguire solo alcuni dischi: per esempio le ventole del case per i dischi enterprise caldi, un'altra per il resto. Una ventola senza dischi spuntati, o con tutti, segue tutti i dischi.",
   "settings.groups_none": "Scegli sopra almeno due dischi e una ventola per creare dei gruppi.",

@@ -81,7 +81,10 @@ function setupLanguagePicker() {
     button.setAttribute("aria-expanded", "false");
     button.setAttribute("aria-label", `${t("lang.label")}: ${names[current]}`);
     button.title = t("lang.label");
-    button.append(flag(current), document.createTextNode(current ? current.toUpperCase() : names[""]));
+    const name = document.createElement("span");
+    name.className = "lang-name";
+    name.textContent = current ? current.toUpperCase() : names[""];
+    button.append(flag(current), name);
     const list = document.createElement("ul");
     list.className = "lang-list";
     list.setAttribute("role", "listbox");

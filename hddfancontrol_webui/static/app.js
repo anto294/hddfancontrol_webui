@@ -199,6 +199,8 @@ function showTab(name) {
   state.tab = name;
   for (const button of document.querySelectorAll("[data-tab]")) {
     button.setAttribute("aria-selected", String(button.dataset.tab === name));
+    // On a phone the tab bar scrolls: keep the tab chosen in sight.
+    if (button.dataset.tab === name) button.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
   for (const section of document.querySelectorAll(".tab")) {
     section.hidden = section.id !== `tab-${name}`;

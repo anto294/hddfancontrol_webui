@@ -191,7 +191,7 @@ function renderBays() {
   box.className = `bays cols-${bays.cols}`;
   box.replaceChildren(
     ...bays.slots.map((id, index) => {
-      if (!id) return el("div", { class: "bay empty" }, el("span", { class: "muted small", text: t("bays.empty", { number: index + 1 }) }));
+      if (!id) return el("div", { class: "bay empty", title: t("bays.empty", { number: index + 1 }) }, el("span", { class: "bay-number muted", text: String(index + 1) }), el("span", { class: "muted", text: "—" }));
       const { drive, logName, temp } = bayDrive(id);
       const name = drive ? driveTitle(logName).name : shortPath(id);
       const smart = state.smartData && state.smartData[id] ? state.smartData[id].status : "";

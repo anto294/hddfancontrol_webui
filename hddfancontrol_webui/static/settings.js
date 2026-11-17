@@ -117,7 +117,7 @@ function renderSettings() {
 
   // Fans: every PWM output found, and the configured ones that are missing.
   const pwms = $("pwm-list");
-  pwms.replaceChildren(headRow("", t("fans.output"), t("settings.start"), t("settings.stop"), t("fans.speed")));
+  pwms.replaceChildren(headRow(t("settings.use"), t("fans.output"), t("settings.start"), t("settings.stop"), t("fans.speed")));
   const configured = new Map(settings.pwms.map((pwm) => [pwm.path, pwm]));
   const rows = allPwms().map((pwm) => ({ path: pwm.path, label: pwmLabel(pwm.path), rpm: pwm.rpm }));
   for (const path of configured.keys()) {
@@ -138,6 +138,7 @@ function renderSettings() {
     );
   }
 
+  for (const id of ["drive-list", "pwm-list"]) labelCells($(id));
   renderGroups(settings);
   renderLimits(settings);
   // The hints of the limits need the SMART data, read once.
@@ -152,7 +153,7 @@ function renderSettings() {
 
   // Extra hwmon temperatures.
   const hwmons = $("hwmon-list");
-  hwmons.replaceChildren(headRow("", t("settings.sensor"), t("settings.now"), t("settings.temp_min"), t("settings.temp_max")));
+  hwmons.replaceChildren(headRow(t("settings.use"), t("settings.sensor"), t("settings.now"), t("settings.temp_min"), t("settings.temp_max")));
   const chosen = new Map(settings.hwmons.map((h) => [h.path, h]));
   const inputs = state.hardware.hwmons.flatMap((device) => device.temps.map((temp) => ({ ...temp, chip: device.name || device.hwmon })));
   for (const path of chosen.keys()) {
@@ -172,6 +173,7 @@ function renderSettings() {
       ),
     );
   }
+  labelCells($("hwmon-list"));
 }
 
 // The drives ticked in the drive table now, as {kernel, id, name}.
@@ -251,6 +253,20 @@ function renderLimits(settings) {
     );
   }
   if (!table.querySelector("tr[data-drive]")) table.replaceChildren(el("tr", {}, el("td", { class: "muted small", text: t("settings.limits_none") })));
+  labelCells(table);
+}
+
+// Each cell of a form table gets the title of its column (data-label): on a
+// phone the rows become stacked blocks, and CSS shows the title over each field.
+function labelCells(table) {
+  const titles = [...table.querySelectorAll("tr:first-child th")].map((th) => th.textContent);
+  for (const line of table.querySelectorAll("tr")) {
+    [...line.children].forEach((cell, index) => {
+      if (cell.tagName === "TD") cell.dataset.label = titles[index] || "";
+      // The cell that names the row takes the whole width.
+      if (cell.querySelector("strong")) cell.classList.add("row-name");
+    });
+  }
 }
 
 function optionalNumber(value) {
