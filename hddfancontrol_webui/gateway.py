@@ -741,15 +741,20 @@ def main() -> None:  # pragma: no cover  # the process entry point; build and _s
         print(text, flush=True)
 
     app, host, port, context = build(dict(os.environ), log)
-    asyncio.run(_serve(app, host, port, context))
+    asyncio.run(_serve(app, host, port, context, env_flag(os.environ, "WEBUI_ACCESS_LOG")))
 
 
 # ---------------------------
 #   _serve
 # ---------------------------
-async def _serve(app: web.Application, host: str, port: int, context: ssl.SSLContext | None) -> None:
-    """Serve until SIGTERM or SIGINT; with TLS, one port answers both HTTPS and HTTP (DualListener)."""
-    runner = web.AppRunner(app, access_log=None, handle_signals=False)
+async def _serve(app: web.Application, host: str, port: int, context: ssl.SSLContext | None, access_log: bool = False) -> None:
+    """Serve until SIGTERM or SIGINT; with TLS, one port answers both HTTPS and HTTP (DualListener).
+
+    With access_log (WEBUI_ACCESS_LOG) every request of a browser or a
+    script is logged; off by default, since the page polls every few
+    seconds and would bury everything else.
+    """
+    runner = web.AppRunner(app, access_log=logging.getLogger("aiohttp.access") if access_log else None, handle_signals=False)
     await runner.setup()
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

@@ -221,7 +221,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
 | `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied to `/config/web-tls` at start, so the gateway can read them |
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
-| `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request (the page polls every few seconds) |
+| `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request with the client's address, in the gateway's lines (the page polls every few seconds) |
 | `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |
 | `HDDFANCONTROL_BIN`, `HDIDLE_BIN`, `SMARTCTL_BIN`, `SENSORS_DETECT_BIN`, `MODPROBE_BIN` | from `PATH` | Programs to use |
 | `DRIVES` | — | Drives, separated by spaces: `/dev/disk/by-id/...` paths or interface names (`ata`) |

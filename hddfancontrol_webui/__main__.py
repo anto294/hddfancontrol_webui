@@ -178,12 +178,13 @@ def build() -> Core:
 # ---------------------------
 #   serve
 # ---------------------------
-async def serve(core: Core, access_log: logging.Logger | None) -> None:
+async def serve(core: Core) -> None:
     """Serve the core on its socket and run the gateway, until SIGTERM or SIGINT; then clean up (which gives the fans back).
 
     The gateway stops first, so no request comes in while the fans are given back.
     """
-    runner = web.AppRunner(core.app, access_log=access_log, handle_signals=False)
+    # Only the gateway connects here: the requests of browsers are logged there (WEBUI_ACCESS_LOG).
+    runner = web.AppRunner(core.app, access_log=None, handle_signals=False)
     await runner.setup()
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -209,10 +210,7 @@ def main() -> None:
     # Everything the core writes in /config (history, settings, labels) is root's alone.
     os.umask(0o077)
     core = build()
-    # The page polls the API every few seconds: one log line per request
-    # would bury everything else. Errors are still logged.
-    access_log = logging.getLogger("aiohttp.access") if env_flag(os.environ, "WEBUI_ACCESS_LOG") else None
-    asyncio.run(serve(core, access_log))
+    asyncio.run(serve(core))
 
 
 if __name__ == "__main__":

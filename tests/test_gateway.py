@@ -419,7 +419,7 @@ async def test_serve_until_sigterm(tmp_path: Path, unused_tcp_port: int) -> None
         lines: list[str] = []
         env = {"HFC_CORE_SOCKET": str(tmp_path / "s"), "HFC_WEB_DIR": str(tmp_path), "WEBUI_PASSWORD": "a-long-password"}
         app, _, _, _ = gateway_module.build(env, lines.append)
-        task = asyncio.create_task(gateway_module._serve(app, "127.0.0.1", unused_tcp_port, context))
+        task = asyncio.create_task(gateway_module._serve(app, "127.0.0.1", unused_tcp_port, context, context is None))
         scheme = "https" if context else "http"
         trusted = ssl.create_default_context(cafile=str(tmp_path / "tls" / "cert.pem")) if context else None
         async with aiohttp.ClientSession() as session:

@@ -176,12 +176,14 @@ def test_gateway_env(tmp_path: Path) -> None:
         "PATH": "/bin",
         "WEBUI_PASSWORD": "p",
         "WEBUI_ALLOW": "all",
+        "WEBUI_ACCESS_LOG": "true",
         "NOTIFY_URL": "https://ntfy.sh/secret",
         "DRIVES": "/dev/sda",
         "TLS_CERT": "/given/cert.pem",
     }
     result = gateway_env(env, tmp_path / "core.sock", tmp_path / "web", "/web/tls/c.pem", "/web/tls/k.pem")
     assert result["PATH"] == "/bin" and result["WEBUI_PASSWORD"] == "p" and result["WEBUI_ALLOW"] == "all"
+    assert result["WEBUI_ACCESS_LOG"] == "true"
     assert "NOTIFY_URL" not in result and "DRIVES" not in result
     assert result["HFC_CORE_SOCKET"] == str(tmp_path / "core.sock") and result["HOME"] == str(tmp_path / "web")
     assert (result["TLS_CERT"], result["TLS_KEY"]) == ("/web/tls/c.pem", "/web/tls/k.pem")
