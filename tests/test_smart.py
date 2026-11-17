@@ -238,3 +238,15 @@ async def test_start_selftest(make_script: ScriptMaker) -> None:
     assert (await start_selftest("/dev/sda", "short", hung, limit_s=0.2))["status"] == "error"
     with pytest.raises(ValueError):
         await start_selftest("/dev/sda", "conveyance", ok)
+
+
+@pytest.mark.parametrize(
+    ("value", "passed"), [(7, False), (0x79, False), (0x30, False), (0x10, None), (0xF9, None), (0, None)]
+)
+def test_ata_selftest_status_byte(value: int, passed: bool | None) -> None:
+    """Without "passed", the result is read from the status byte (high nibble) or a bare result."""
+    data = json.loads(json.dumps(ATA))
+    data["ata_smart_self_test_log"] = {
+        "standard": {"table": [{"type": {"string": "Short offline"}, "status": {"value": value}}]}
+    }
+    assert summarize(data, 0)["selftest"]["passed"] is passed

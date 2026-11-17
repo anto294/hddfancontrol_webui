@@ -66,6 +66,21 @@ def _messages(data: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------
+#   _ata_test_result
+# ---------------------------
+def _ata_test_result(value: int) -> int:
+    """The result of an ATA self-test from smartctl's status value.
+
+    smartctl gives the whole status byte: the result in the high nibble,
+    the tenths left to run in the low one (121 is result 7, 90 % left).
+    A value under 16 is read as the result itself, for older versions;
+    result 0 (no error) always comes with nothing left, so the two never
+    clash.
+    """
+    return value >> 4 if value > 15 else value
+
+
+# ---------------------------
 #   _selftest
 # ---------------------------
 # Results of an ATA self-test that mean the drive failed it; NVMe the same.
@@ -81,7 +96,8 @@ def _selftest(data: dict[str, Any]) -> dict[str, Any] | None:
         entry = ata[0]
         status = entry.get("status", {})
         passed = status.get("passed")
-        if passed is None and status.get("value") in ATA_TEST_FAILED:
+        value = status.get("value")
+        if passed is None and isinstance(value, int) and _ata_test_result(value) in ATA_TEST_FAILED:
             passed = False
         return {
             "type": entry.get("type", {}).get("string", ""),
