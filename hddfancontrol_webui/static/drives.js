@@ -7,45 +7,48 @@
 // SMART
 // ---------------------------------------------------------------------------
 
+// Counters that should stay at 0: shown up front when they are not.
+const SMART_ERRORS = ["reallocated_sectors", "pending_sectors", "offline_uncorrectable", "reported_uncorrectable", "crc_errors", "media_errors"];
+// Cards with problems come first.
+const SMART_ORDER = { failing: 0, warning: 1, error: 2, standby: 3, ok: 4 };
+
+const present = (value) => value !== undefined && value !== null && value !== "";
+
+// "Seagate Exos X16 · ZL2L1F91": the name given to the drive, or its family
+// (or model) and serial number, instead of the long /dev/disk/by-id name.
+function smartTitle(device, data) {
+  const label = driveLabelById(device);
+  if (label) return label;
+  const what = data.family || shortModel(data.model) || shortPath(device);
+  return data.serial ? `${what} · ${data.serial}` : what;
+}
+
 function smartCard(device, data) {
   const status = data.status || "error";
-  const label = driveLabelById(device);
-  const title = el("div", { class: "card-head" }, el("h3", { text: label || shortPath(device) }), el("span", { class: `badge ${status}`, text: t(`smart.status.${status}`) }));
-  const card = el("article", { class: "card smart" }, title);
-  if (label) card.append(el("p", { class: "muted small", text: shortPath(device) }));
-  if (data.model) card.append(el("p", { class: "muted small", text: `${data.model} · ${fmtBytes(data.capacity_bytes)}` }));
-  card.append(driveIdentity(device, data));
-  const table = el("table", { class: "list" });
   const drive = state.hardware.drives.find((d) => d.ids.includes(device));
+  const card = el(
+    "article",
+    { class: `card smart smart-${status}` },
+    el("div", { class: "card-head" }, el("h3", { text: smartTitle(device, data), title: device }), el("span", { class: `badge ${status}`, text: t(`smart.status.${status}`) })),
+  );
+  const sub = [shortModel(data.model), data.capacity_bytes ? fmtBytes(data.capacity_bytes) : "", drive ? drive.name : ""].filter(Boolean).join(" · ");
+  if (sub) card.append(el("p", { class: "muted small", text: sub }));
+  card.append(driveIdentity(device, data));
+
+  // What matters every day, up front; the rest under Details.
   const limit = data.temp_limit ?? null;
-  const fields = [
-    ["family", data.family],
-    ["connection", connectionText(drive, data)],
-    ["rpm", data.rpm ? `${data.rpm} RPM` : null],
-    ["form_factor", data.form_factor],
-    ["temp_limit", limit === null ? null : fmtTemp(limit)],
-    ["temp_lifetime_max", data.temp_lifetime_max === undefined || data.temp_lifetime_max === null ? null : fmtTemp(data.temp_lifetime_max)],
-    ["serial", data.serial],
-    ["firmware", data.firmware],
-    ["temperature", data.temperature === undefined || data.temperature === null ? null : fmtTemp(data.temperature)],
-    ["power_on_hours", data.power_on_hours === undefined || data.power_on_hours === null ? null : `${data.power_on_hours} h (${Math.round(data.power_on_hours / 24)} d)`],
-    ["power_cycles", data.power_cycles],
-    ["start_stop_count", data.start_stop_count],
-    ["load_cycle_count", data.load_cycle_count],
-    ["reallocated_sectors", data.reallocated_sectors],
-    ["pending_sectors", data.pending_sectors],
-    ["offline_uncorrectable", data.offline_uncorrectable],
-    ["reported_uncorrectable", data.reported_uncorrectable],
-    ["crc_errors", data.crc_errors],
-    ["percentage_used", data.percentage_used === undefined || data.percentage_used === null ? null : `${data.percentage_used} %`],
-    ["available_spare", data.available_spare === undefined || data.available_spare === null ? null : `${data.available_spare} %`],
-    ["media_errors", data.media_errors],
-    ["unsafe_shutdowns", data.unsafe_shutdowns],
-  ];
-  for (const [key, value] of fields) {
-    if (value !== undefined && value !== null && value !== "") table.append(row(t(`smart.${key}`), String(value)));
+  const facts = el("div", { class: "facts" });
+  const fact = (label, value, level = "") => facts.append(el("div", { class: `fact ${level}`.trim() }, el("span", { class: "muted small", text: label }), el("strong", { text: value })));
+  if (present(data.temperature)) fact(t("smart.temperature"), fmtTemp(data.temperature), tempLevel(data.temperature));
+  if (present(data.temp_lifetime_max)) fact(t("smart.temp_lifetime_max_short"), fmtTemp(data.temp_lifetime_max), limit !== null && data.temp_lifetime_max > limit ? "warm" : "");
+  if (limit !== null) fact(t("smart.temp_limit_short"), fmtTemp(limit));
+  if (present(data.power_on_hours)) fact(t("smart.power_on_hours"), t("smart.years", { years: (data.power_on_hours / 8766).toFixed(1) }));
+  if (present(data.percentage_used)) fact(t("smart.percentage_used"), `${data.percentage_used} %`, data.percentage_used >= 90 ? "hot" : "");
+  for (const key of SMART_ERRORS) {
+    if (data[key]) fact(t(`smart.${key}`), String(data[key]), "hot");
   }
-  card.append(table);
+  if (facts.children.length) card.append(facts);
+
   // The maximum of the settings should stay under what the drive is made for.
   if (limit !== null && state.settings && state.settings.drive_temp_max > limit) {
     card.append(el("p", { class: "warning small", text: t("drive.max_over_limit", { max: fmtTemp(state.settings.drive_temp_max), limit: fmtTemp(limit) }) }));
@@ -53,8 +56,29 @@ function smartCard(device, data) {
   for (const warning of data.warnings || []) card.append(el("p", { class: "warning small", text: t(`smart.warn.${warning}`) }));
   if (data.failed_past && data.failed_past.length) card.append(el("p", { class: "muted small", text: t("smart.failed_past", { attributes: data.failed_past.join(", ") }) }));
   for (const message of data.messages || []) card.append(el("p", { class: "error small", text: message }));
-  const note = data.asleep ? t("smart.asleep_note") : "";
-  card.append(el("p", { class: "muted small", text: `${t("smart.updated", { time: fmtTime(data.time) })} ${note}` }));
+
+  const table = el("table", { class: "list" });
+  const fields = [
+    ["family", data.family],
+    ["connection", connectionText(drive, data)],
+    ["rpm", data.rpm ? `${data.rpm} RPM` : null],
+    ["form_factor", data.form_factor],
+    ["temp_limit", limit === null ? null : fmtTemp(limit)],
+    ["temp_lifetime_max", present(data.temp_lifetime_max) ? fmtTemp(data.temp_lifetime_max) : null],
+    ["serial", data.serial],
+    ["firmware", data.firmware],
+    ["power_on_hours", present(data.power_on_hours) ? `${data.power_on_hours} h (${Math.round(data.power_on_hours / 24)} d)` : null],
+    ["power_cycles", data.power_cycles],
+    ["start_stop_count", data.start_stop_count],
+    ["load_cycle_count", data.load_cycle_count],
+    ...SMART_ERRORS.map((key) => [key, data[key]]),
+    ["available_spare", present(data.available_spare) ? `${data.available_spare} %` : null],
+    ["unsafe_shutdowns", data.unsafe_shutdowns],
+  ];
+  for (const [key, value] of fields) {
+    if (present(value)) table.append(row(t(`smart.${key}`), String(value)));
+  }
+  const details = el("details", {}, el("summary", { text: t("smart.details") }), table, el("p", { class: "muted small", text: device }));
   if (data.attributes && data.attributes.length) {
     const attrs = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.value"), t("smart.worst"), t("smart.thresh"), t("smart.raw")));
     for (const attr of data.attributes) {
@@ -64,8 +88,11 @@ function smartCard(device, data) {
       if (attr.failed) line.className = now ? "failed" : "failed-past";
       attrs.append(line);
     }
-    card.append(el("details", {}, el("summary", { text: t("smart.attributes") }), attrs));
+    details.append(el("h4", { text: t("smart.attributes") }), attrs);
   }
+  card.append(details);
+  const note = data.asleep ? t("smart.asleep_note") : "";
+  card.append(el("p", { class: "muted small", text: `${t("smart.updated", { time: fmtTime(data.time) })} ${note}` }));
   return card;
 }
 
@@ -104,7 +131,12 @@ function driveIdentity(device, data) {
 
 function renderSmart(data) {
   const list = $("smart-list");
-  const entries = Object.entries(data).sort(([a], [b]) => a.localeCompare(b));
+  const rank = ([device, info]) => [SMART_ORDER[info.status] ?? 2, smartTitle(device, info)];
+  const entries = Object.entries(data).sort((a, b) => {
+    const [ra, na] = rank(a);
+    const [rb, nb] = rank(b);
+    return ra - rb || na.localeCompare(nb);
+  });
   list.replaceChildren(...entries.map(([device, info]) => smartCard(device, info)));
   if (!entries.length) list.append(el("p", { class: "muted", text: t("smart.none") }));
 }

@@ -1420,3 +1420,51 @@ details.help p {
 .identity:empty {
   display: none;
 }
+
+/* SMART: the facts that matter every day, as small tiles. */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+  margin: 0.7rem 0;
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.fact strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.fact.warm strong {
+  color: var(--warn);
+}
+
+.fact.hot strong {
+  color: var(--danger);
+}
+
+.card.smart.smart-failing {
+  border-color: var(--danger);
+}
+
+.card.smart.smart-warning {
+  border-color: var(--warn);
+}
+
+.card.smart h3 {
+  overflow-wrap: anywhere;
+}
+
+.card.smart h4 {
+  margin: 0.8rem 0 0.3rem;
+  font-size: 0.9rem;
+}

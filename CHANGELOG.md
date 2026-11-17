@@ -23,6 +23,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Fans: the chosen fans come first; outputs that are not chosen, have no
   name and do not turn are folded under "Other outputs". The long
   explanation is folded under "How it works".
+- Drives (SMART): each card is titled with the name given to the drive,
+  or its family and serial number, instead of the long by-id path; the
+  temperature, the highest ever, the recommended maximum, the age and any
+  error counter are shown as tiles, the rest under "Details". Drives with
+  a problem come first, and their card has a colored border.
 
 ### Fixed
 
