@@ -42,5 +42,7 @@ services:
       # HTTPS on the same port (a self-signed certificate is made in /config/web/tls):
       # - ENABLE_TLS=true
       # - FORCE_HTTPS=true
-    # The web UI and the daemons fit easily in this.
-    mem_limit: 128m
+    # Two Python processes (core and gateway, about 45 MB each), a login's
+    # 16 MB scrypt, the daemons and smartctl: room to spare, so the kernel
+    # never has to kill the core that drives the fans.
+    mem_limit: 256m

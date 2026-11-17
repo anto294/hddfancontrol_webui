@@ -252,7 +252,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 
 ## Resource use
 
-The web UI is a single Python process with aiohttp, and uses about 45 MB of memory; hddfancontrol and hd-idle add a few MB. The browser asks for data only while its tab is visible, the temperature log is read from its end only, and the history is written every 30 seconds in one transaction. The image is based on Alpine, with Python and aiohttp from Alpine's own packages.
+The web UI is two Python processes with aiohttp, the core and the gateway, which use about 45 MB of memory each; a login briefly takes 16 MB more (scrypt), and hddfancontrol and hd-idle add a few MB. The compose example sets a 256 MB limit. The browser asks for data only while its tab is visible, the temperature log is read from its end only, and the history is written every 30 seconds in one transaction. The image is based on Alpine, with Python and aiohttp from Alpine's own packages.
 
 ## Troubleshooting
 
