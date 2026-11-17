@@ -145,7 +145,9 @@ class Alerts:
         self._worker: asyncio.Task[None] | None = None
         self._clock = clock
         # Texts held during the quiet hours.
+        # The first HELD_LINES messages of the quiet hours, and how many there were in all.
         self._held: list[str] = []
+        self._held_count = 0
         # When each kind of alert started, for the summary: kept RAISED_KEEP_S, in the store across restarts.
         self.raised: list[tuple[float, str]] = []
         if store is not None:
@@ -197,7 +199,7 @@ class Alerts:
             text = render(settings.notify_language, f"alert.{alert['kind']}", alert["params"])
             self._notify(settings, alert["kind"], render(settings.notify_language, "alert.over", {"text": text}), urgent=False)
         self._remind(settings, now)
-        if self._held and not in_quiet_hours(settings, now):
+        if self._held_count and not in_quiet_hours(settings, now):
             self._send_held(settings)
         # A summary covers MAX_SUMMARY_DAYS at most.
         kept = [(ts, kind) for ts, kind in self.raised if now - ts < RAISED_KEEP_S]
@@ -233,15 +235,19 @@ class Alerts:
         if not settings.notify_url:
             return
         if in_quiet_hours(settings, self._clock()) and not (urgent and kind in URGENT_KINDS):
-            self._held.append(text)
+            # Only the first lines are kept: a night of flapping alerts must not grow without end.
+            if len(self._held) < HELD_LINES:
+                self._held.append(text)
+            self._held_count += 1
             return
         self._queue_message(settings.notify_url, settings.notify_format, text, urgent)
 
     def _send_held(self, settings: Settings) -> None:
         """Send what the quiet hours held, as one message."""
-        held, self._held = self._held, []
-        lines = held[:HELD_LINES] + (["…"] if len(held) > HELD_LINES else [])
-        text = render(settings.notify_language, "alert.held", {"count": len(held)}) + "\n" + "\n".join(lines)
+        held, count = self._held, self._held_count
+        self._held, self._held_count = [], 0
+        lines = held + (["…"] if count > len(held) else [])
+        text = render(settings.notify_language, "alert.held", {"count": count}) + "\n" + "\n".join(lines)
         if settings.notify_url:
             self._queue_message(settings.notify_url, settings.notify_format, text, False)
 

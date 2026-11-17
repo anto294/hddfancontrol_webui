@@ -377,3 +377,25 @@ async def test_raised_alerts_are_kept_for_a_month_across_restarts(tmp_path: Path
     await alerts.stop()
     await again.stop()
     store.close()
+
+
+async def test_quiet_hours_keep_a_few_lines_and_a_count() -> None:
+    """A night of flapping alerts keeps HELD_LINES lines in memory and counts the rest; one message at the end."""
+    from hddfancontrol_webui import alerts as alerts_module
+
+    sent: list[str] = []
+
+    async def sender(url: str, fmt: str, text: str, urgent: bool) -> None:
+        sent.append(text)
+
+    settings = Settings(notify_url="https://ntfy.sh/x", notify_quiet="* * * * *")
+    alerts = Alerts(lambda: settings, lambda _: None, sender)
+    for number in range(5000):
+        alerts._notify(settings, "summary", f"line {number}", urgent=False)
+    assert len(alerts._held) == alerts_module.HELD_LINES and alerts._held_count == 5000
+    settings = Settings(notify_url="https://ntfy.sh/x")
+    alerts._send_held(settings)
+    await alerts.flush()
+    assert len(sent) == 1 and "5000" in sent[0] and "line 0" in sent[0] and "line 4999" not in sent[0]
+    assert sent[0].endswith("…") and alerts._held == [] and alerts._held_count == 0
+    await alerts.stop()
