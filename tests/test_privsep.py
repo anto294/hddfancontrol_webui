@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import pwd
-import shutil
 import stat
 from pathlib import Path
 from typing import Any
@@ -143,10 +142,42 @@ def test_given_tls(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
     assert given_tls(config, user, str(cert), "") == (str(cert), "")
     assert not folder.exists()  # no pair, no copy left
     assert given_tls(config, user, str(cert), str(tmp_path / "missing")) == (str(cert), str(tmp_path / "missing"))
-    shutil.rmtree(folder)
+    assert not folder.exists()  # a failed copy leaves nothing
     folder.symlink_to(tmp_path)  # a link in its place is dropped, not followed
     assert given_tls(config, WebUser("me", None, None), str(cert), str(key))[0] == copied_cert
     assert not (tmp_path / "cert.pem").exists() and not folder.is_symlink()
+
+
+def test_given_tls_never_reads_what_the_gateway_can_change(
+    tmp_path: Path, as_root: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pair in a place of the gateway's user, or a link, a FIFO, a huge or binary file, is not copied by root."""
+    config = tmp_path / "config"
+    config.mkdir()
+    secret = tmp_path / "secret"
+    secret.write_text("root's secret")
+    web = config / "web"
+    web.mkdir()
+    (web / "cert.pem").symlink_to(secret)
+    (web / "key.pem").write_text("KEY")
+    # The gateway's user owns /config/web (here: the current user plays it).
+    gateway = WebUser("web", os.getuid(), os.getgid())
+    root_owned = WebUser("web", os.getuid() + 1, os.getgid())
+    pair = (str(web / "cert.pem"), str(web / "key.pem"))
+    assert given_tls(config, gateway, *pair) == pair
+    assert not (config / "web-tls").exists()
+    # Not the gateway's: still no last link, no FIFO, nothing huge, nothing binary; never a half copy.
+    key = tmp_path / "k.pem"
+    key.write_text("KEY")
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    huge = tmp_path / "huge"
+    huge.write_bytes(b"x" * (privsep.MAX_TLS_FILE + 1))
+    binary = tmp_path / "binary"
+    binary.write_bytes(b"\xff\xfe")
+    for bad in (web / "cert.pem", fifo, huge, binary):
+        assert given_tls(config, root_owned, str(key), str(bad)) == (str(key), str(bad))
+        assert not (config / "web-tls").exists()
 
 
 def test_socket_folder_and_mode(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:

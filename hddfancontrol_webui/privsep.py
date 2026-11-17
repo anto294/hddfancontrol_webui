@@ -42,6 +42,8 @@ SOCKET_FILE = "core.sock"
 GIVEN_TLS_DIR = "web-tls"
 GIVEN_CERT = "cert.pem"
 GIVEN_KEY = "key.pem"
+# A certificate or key larger than this is not one.
+MAX_TLS_FILE = 1024 * 1024
 # The environment of the gateway: these names, and nothing else.
 GATEWAY_ENV = (
     "PATH",
@@ -199,6 +201,39 @@ def _prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger) -> Pa
 
 
 # ---------------------------
+#   _gateway_can_change
+# ---------------------------
+def _gateway_can_change(source: str, user: WebUser) -> bool:
+    """Whether a part of the path, as written or as its links lead, belongs to the gateway's user."""
+    if user.uid is None:
+        return False
+    for text in (os.path.abspath(source), os.path.realpath(source)):
+        path = Path(text)
+        for part in (path, *path.parents):
+            try:
+                if part.lstat().st_uid == user.uid:
+                    return True
+            except FileNotFoundError:
+                continue
+    return False
+
+
+# ---------------------------
+#   _read_pem
+# ---------------------------
+def _read_pem(source: str) -> str:
+    """Read a PEM file as root: a regular file, not through a last link, at most MAX_TLS_FILE bytes. Raises OSError, ValueError."""
+    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ValueError(f"{source} is not a regular file")
+        data = handle.read(MAX_TLS_FILE + 1)
+    if len(data) > MAX_TLS_FILE:
+        raise ValueError(f"{source} is larger than {MAX_TLS_FILE} bytes")
+    return data.decode("utf-8")
+
+
+# ---------------------------
 #   given_tls
 # ---------------------------
 def given_tls(config_dir: Path, user: WebUser, cert: str, key: str, log: logging.Logger | None = None) -> tuple[str, str]:
@@ -206,13 +241,19 @@ def given_tls(config_dir: Path, user: WebUser, cert: str, key: str, log: logging
 
     The copies go to /config/web-tls, root's folder that only the gateway's
     group may read, so the gateway cannot change them or what root writes.
-    A half pair, or a pair that cannot be read, is returned as it was
-    given: the gateway then reports it and leaves HTTPS off.
+    Root copies only files the gateway cannot change or replace by a link
+    (one in /config/web is the gateway's own: it reads it itself). A half
+    pair, or a pair that cannot be read, is returned as it was given: the
+    gateway then reports it and leaves HTTPS off.
     """
     log = log or _LOGGER
     folder = config_dir / GIVEN_TLS_DIR
     if not (cert and key):
         shutil.rmtree(folder, ignore_errors=True)
+        return cert, key
+    if any(_gateway_can_change(source, user) for source in (cert, key)):
+        shutil.rmtree(folder, ignore_errors=True)
+        log.info("TLS_CERT and TLS_KEY are in a place of the gateway's user: it reads them itself")
         return cert, key
     try:
         if folder.is_symlink():
@@ -221,7 +262,7 @@ def given_tls(config_dir: Path, user: WebUser, cert: str, key: str, log: logging
         targets = []
         for source, name in ((cert, GIVEN_CERT), (key, GIVEN_KEY)):
             target = folder / name
-            write_atomic(target, Path(source).read_text(encoding="utf-8"))
+            write_atomic(target, _read_pem(source))
             if user.gid is not None:
                 os.chown(target, 0, user.gid, follow_symlinks=False)
                 target.chmod(0o640)
@@ -230,6 +271,7 @@ def given_tls(config_dir: Path, user: WebUser, cert: str, key: str, log: logging
             os.chown(folder, 0, user.gid, follow_symlinks=False)
             folder.chmod(0o750)
     except (OSError, ValueError) as err:
+        shutil.rmtree(folder, ignore_errors=True)  # never half a pair
         log.error("Cannot copy TLS_CERT and TLS_KEY for the gateway: %s", err)
         return cert, key
     return targets[0], targets[1]
