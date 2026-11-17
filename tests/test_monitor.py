@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -198,14 +199,22 @@ async def test_loops_survive_errors(tmp_path: Path, fake_sys: Path, fake_dev: Pa
         record(*args)
 
     monkeypatch.setattr(monitor.history, "record", failing_record)
+
+    async def until(check: Callable[[], bool]) -> None:
+        # Not a fixed pause: a slow CI runner gets up to 5 s.
+        for _ in range(500):
+            if check():
+                return
+            await real(0.01)
+
     monitor.start()
-    await real(0.1)
+    await until(lambda: any("SMART refresh failed" in line for line in lines) and len(updates) > 2)
     assert all(not task.done() for task in monitor._tasks)
     assert sum("recording failed" in line for line in lines) == 1
     assert sum("SMART refresh failed" in line for line in lines) == 1
     assert len(updates) > 1  # the alerts ran although recording failed
     broken["on"] = False
-    await real(0.1)
+    await until(lambda: any("recording works again" in line for line in lines))
     assert any("recording works again" in line for line in lines)
     await monitor.stop()
     monitor.history.close()
