@@ -328,12 +328,10 @@ def test_the_gateway_runs_isolated_from_its_folder_and_environment(tmp_path: Pat
     import subprocess
     import sys
 
-    import hddfancontrol_webui
-
     planted = tmp_path / "hddfancontrol_webui"
     planted.mkdir()
     (planted / "__init__.py").write_text("raise SystemExit('HIJACKED')\n")
-    root = Path(hddfancontrol_webui.__file__).parent.parent
+    root = Path(privsep.__file__).parent.parent
     command = privsep.gateway_command(root, "hddfancontrol_webui.const")
     assert command[0] == "-I"
     result = subprocess.run(  # noqa: S603  # our own interpreter and arguments
