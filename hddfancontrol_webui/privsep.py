@@ -39,6 +39,7 @@ FALLBACK_USER = "nobody"
 # The ids of nobody on most systems, for one without that user.
 FALLBACK_ID = 65534
 SOCKET_FILE = "core.sock"
+TEMP_WEB_PREFIX = "hddfancontrol-webui-web-"
 GIVEN_TLS_DIR = "web-tls"
 GIVEN_CERT = "cert.pem"
 GIVEN_KEY = "key.pem"
@@ -151,14 +152,19 @@ def prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger | None 
     """Make /config/web for the gateway and return it; a temporary folder when that fails.
 
     The fans come first: a /config that cannot hold the folder (read only,
-    a link in its place) costs the stored credentials until the next start
-    (the setup code works), never the core.
+    a link in its place) costs the stored credentials while it lasts, never
+    the core. The gateway then asks for a new setup, with the code of the
+    log like a first start, and the error in the log says why.
     """
     log = log or _LOGGER
     try:
         return _prepare_web_dir(config_dir, user, log)
     except OSError as err:
-        folder = Path(tempfile.mkdtemp(prefix="hddfancontrol-webui-web-"))
+        # The folders of earlier failed starts: only one is ever in use.
+        for stale in Path(tempfile.gettempdir()).glob(TEMP_WEB_PREFIX + "*"):
+            if stale.is_dir() and not stale.is_symlink():
+                shutil.rmtree(stale, ignore_errors=True)  # never follows links (fd based on Linux)
+        folder = Path(tempfile.mkdtemp(prefix=TEMP_WEB_PREFIX))
         _give(folder, user)
         log.error("Cannot prepare the gateway's folder in %s (%s): it uses %s until the next start", config_dir, err, folder)
         return folder

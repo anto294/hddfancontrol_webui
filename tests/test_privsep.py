@@ -77,7 +77,9 @@ def test_prepare_web_dir(tmp_path: Path, as_root: list[tuple[str, int, int]]) ->
     assert prepare_web_dir(config, user) == web_dir and (web_dir / "auth.json").exists()
 
 
-def test_prepare_web_dir_touches_nothing_the_gateway_put_there(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
+def test_prepare_web_dir_touches_nothing_the_gateway_put_there(
+    tmp_path: Path, as_root: list[tuple[str, int, int]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A link or a hard link the gateway left in its folder is never followed, written or given by root."""
     config = tmp_path / "config"
     web_dir = config / "web"
@@ -98,9 +100,14 @@ def test_prepare_web_dir_touches_nothing_the_gateway_put_there(tmp_path: Path, a
     # A link in place of the folder itself is refused: the gateway gets a temporary folder.
     web_dir.rename(config / "moved")
     web_dir.symlink_to(config / "moved")
+    monkeypatch.setattr(privsep.tempfile, "tempdir", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
     temporary = prepare_web_dir(config, user)
-    assert temporary.is_dir() and not temporary.is_relative_to(config)
-    temporary.rmdir()
+    assert temporary.is_dir() and temporary.parent == tmp_path / "tmp"
+    # The next failed start replaces it: never one more folder per start.
+    (temporary / "auth.json").write_text("{}")
+    again = prepare_web_dir(config, user)
+    assert again != temporary and list((tmp_path / "tmp").iterdir()) == [again]
 
 
 def test_prepare_web_dir_without_the_search_bit(tmp_path: Path, as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None:
