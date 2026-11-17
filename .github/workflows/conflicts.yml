@@ -22,13 +22,27 @@ jobs:
     name: Label conflicting pull requests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      # The last tagged release (v2.0, 2020) predates the retry inputs, so
-      # this follows master.
+      # A few lines of gh instead of a third-party action: nothing but the
+      # GitHub CLI of the runner runs with this token, and no PR code at all.
       - name: Label pull requests with merge conflicts
-        uses: mschilde/auto-label-merge-conflicts@3fdaf1c8b3f8e5b0f88753d9cb3c9c779370b3ef # master
-        with:
-          CONFLICT_LABEL_NAME: conflict
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MAX_RETRIES: 5
-          WAIT_MS: 5000
+        run: |
+          gh pr list --state open --limit 100 --json number --jq '.[].number' | while read -r number; do
+            # GitHub works out "mergeable" in the background: UNKNOWN until then.
+            state=UNKNOWN
+            for _ in 1 2 3 4 5 6; do
+              state=$(gh pr view "$number" --json mergeable --jq .mergeable)
+              [ "$state" != UNKNOWN ] && break
+              sleep 5
+            done
+            labelled=$(gh pr view "$number" --json labels --jq '[.labels[].name] | index("conflict") != null')
+            echo "#$number: $state (labelled: $labelled)"
+            if [ "$state" = CONFLICTING ] && [ "$labelled" = false ]; then
+              gh pr edit "$number" --add-label conflict
+            elif [ "$state" = MERGEABLE ] && [ "$labelled" = true ]; then
+              gh pr edit "$number" --remove-label conflict
+            fi
+          done
