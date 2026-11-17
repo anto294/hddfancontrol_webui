@@ -242,18 +242,6 @@ function renderBanners() {
     if (acked && !state.showAcked) hidden += 1;
     return !acked || state.showAcked;
   };
-  if (!status.auth.enabled) {
-    const acked = status.acknowledged.includes("banner:no_auth");
-    if (shown(acked)) {
-      box.append(
-        banner(
-          "warning",
-          t("banner.no_auth"),
-          el("div", { class: "banner-actions" }, el("button", { class: "link", text: t("tab.security"), onclick: () => showTab("security") }), ackButton("banner:no_auth", acked)),
-        ),
-      );
-    }
-  }
   const sensors = status.sensors;
   if (sensors.state === "running") box.append(banner("info", t("banner.scanning")));
   for (const module of sensors.modules.filter((m) => m.status === "failed")) {
@@ -505,7 +493,6 @@ function renderHeader() {
   pill.dataset.mode = status.mode;
   // Releases are numbers (0.3.0); "dev" and "edge-<commit>" are shown as they are.
   $("version").textContent = /^\d/.test(status.version) ? `v${status.version}` : status.version;
-  $("logout").hidden = !status.auth.enabled;
 }
 
 async function pollStatus() {

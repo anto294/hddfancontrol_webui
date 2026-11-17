@@ -138,13 +138,6 @@ async def test_network_filter(make_gateway: GatewayMaker, monkeypatch: pytest.Mo
     assert (await gw.client.get("/login")).status == 200
 
 
-def test_login_state_only_in_an_object(tmp_path: Path) -> None:
-    """A status that is not a JSON object is passed as it is."""
-    auth = AuthStore(tmp_path, {})
-    assert gateway_module._with_login_state(b"not json", auth) == b"not json"
-    assert gateway_module._with_login_state(b"[1]", auth) == b"[1]"
-
-
 def test_refused_hint() -> None:
     """A refused global IPv6 address gets the /64 to allow; others nothing."""
     hint = gateway_module.refused_hint("2a02:1210:2c00:aa00:1:2:3:4")
@@ -223,10 +216,7 @@ async def test_login_flow_and_forwarding(make_gateway: GatewayMaker) -> None:
     assert got["method"] == "POST" and json.loads(got["body"]) == {"x": 1}
     assert got["headers"][HEADER_USER] == "anto" and got["headers"][HEADER_CLIENT] == "127.0.0.1"
     assert all(name not in got["headers"] for name in ("X-Other", "X-Webui-Auth", "Cookie"))
-    # The status gets the login state, which only the gateway knows; other answers are passed as they are.
-    status = await (await client.get("/api/status")).json()
-    assert status["core"] is True and status["auth"] == {"enabled": True, "source": "environment", "username": "anto"}
-    assert "auth" not in await (await client.get("/api/settings")).json()
+    assert "auth" not in await (await client.get("/api/status")).json()  # the core's answer, as it is
     teapot = await client.get("/api/teapot")
     assert teapot.status == 418
     csv = await client.get("/api/history.csv")

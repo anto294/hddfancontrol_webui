@@ -17,7 +17,7 @@ const PRESETS = {
   cool: { min: 30, max: 45 },
 };
 const SPIN_DOWN = { never: 0, short: 1200, long: 3600 };
-const STEPS = ["welcome", "drives", "fans", "measure", "temps", "spindown", "password", "summary"];
+const STEPS = ["welcome", "drives", "fans", "measure", "temps", "spindown", "summary"];
 
 const wizard = {
   step: 0,
@@ -26,8 +26,6 @@ const wizard = {
   measured: {},
   preset: "balanced",
   spinDown: "never",
-  username: "admin",
-  password: "",
   identifying: null,
   timer: null,
 };
@@ -53,7 +51,6 @@ function openWizard() {
   wizard.drives = new Set(state.hardware.drives.filter((d) => d.rotational !== false).map(wizardDriveId));
   wizard.pwms = new Set();
   wizard.measured = {};
-  wizard.password = "";
   showTab("setup");
   renderBanners();
   renderWizard();
@@ -97,7 +94,7 @@ function renderWizard() {
     ),
   );
   const body = el("div", { class: "wizard-body" });
-  const steps = { welcome: stepWelcome, drives: stepDrives, fans: stepFans, measure: stepMeasure, temps: stepTemps, spindown: stepSpinDown, password: stepPassword, summary: stepSummary };
+  const steps = { welcome: stepWelcome, drives: stepDrives, fans: stepFans, measure: stepMeasure, temps: stepTemps, spindown: stepSpinDown, summary: stepSummary };
   steps[name](body);
   $("setup-progress").replaceChildren(progress);
   $("setup-body").replaceChildren(body);
@@ -338,41 +335,6 @@ function stepSpinDown(body) {
   finish(body);
 }
 
-// --- password --------------------------------------------------------------
-
-function stepPassword(body) {
-  body.append(stepTitle("security", "wizard.password_title"));
-  if (state.status.auth.enabled) {
-    body.append(el("p", { text: t("wizard.password_set") }), wizardNav(true));
-    finish(body);
-    return;
-  }
-  body.append(el("p", { text: t("wizard.password_text") }));
-  const user = el("input", { type: "text", value: wizard.username, autocomplete: "username", spellcheck: "false" });
-  const pass = el("input", { type: "password", autocomplete: "new-password", minlength: 8 });
-  const again = el("input", { type: "password", autocomplete: "new-password" });
-  const message = el("small", { class: "error" });
-  const form = el(
-    "div",
-    { class: "fields narrow" },
-    el("label", { class: "field" }, el("span", { text: t("security.username") }), user),
-    el("label", { class: "field" }, el("span", { text: t("security.password") }), pass),
-    el("label", { class: "field" }, el("span", { text: t("security.confirm") }), again),
-    message,
-  );
-  const onNext = () => {
-    if (pass.value && pass.value !== again.value) {
-      message.textContent = t("error.password_mismatch");
-      return;
-    }
-    wizard.username = user.value;
-    wizard.password = pass.value;
-    goTo(wizard.step + 1);
-  };
-  body.append(form, el("p", { class: "muted small", text: t("wizard.password_hint") }), wizardNav(true, t("wizard.next"), onNext));
-  finish(body);
-}
-
 // --- summary and save ------------------------------------------------------
 
 function wizardDocument() {
@@ -399,7 +361,6 @@ function stepSummary(body) {
   table.append(row(t("wizard.summary_fans"), [...wizard.pwms].map(pwmLabel).join(", ")));
   table.append(row(t("wizard.summary_temps"), `${t(`wizard.preset_${wizard.preset}`)} · ${preset.min} – ${preset.max} °C`));
   table.append(row(t("wizard.summary_spindown"), t(`wizard.spindown_${wizard.spinDown}`)));
-  table.append(row(t("wizard.summary_password"), state.status.auth.enabled ? t("wizard.password_kept") : wizard.password ? wizard.username : t("wizard.password_none")));
   const result = el("p", { class: "error" });
   body.append(table, result, wizardNav(true, t("wizard.save"), () => saveWizard(result)));
   finish(body);
@@ -411,16 +372,11 @@ async function saveWizard(result) {
     const data = await api("PUT", "/api/settings", wizardDocument());
     state.settings = data.settings;
     state.settingsSource = data.source;
-    // Last: once a password is set, every later call needs the session it gives.
-    if (wizard.password && !state.status.auth.enabled) {
-      await api("PUT", "/api/auth", { username: wizard.username, password: wizard.password, current: "" });
-    }
   } catch (error) {
     const problems = error.data && error.data.problems ? error.data.problems.map((p) => `${p.field}: ${t(`error.${p.code}`, p.params || {})}`) : [];
     result.textContent = [errorText(error), ...problems].join(" ");
     return;
   }
-  wizard.password = "";
   closeWizard();
   await pollStatus();
   renderSettings();

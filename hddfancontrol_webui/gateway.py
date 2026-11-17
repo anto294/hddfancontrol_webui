@@ -18,8 +18,7 @@ the core as WEBUI_USER, holds everything a client reaches before logging in:
 
 What it lets through goes to the core with the user and the client address
 (HEADER_USER, HEADER_CLIENT); forward() builds the headers for the core from
-scratch (FORWARD_HEADERS only), so a client cannot send its own. It adds the
-login state to the core's GET /api/status for the page. A bug before the login can therefore reach this process only,
+scratch (FORWARD_HEADERS only), so a client cannot send its own. A bug before the login can therefore reach this process only,
 which cannot write the fans, read the drives or read the rest of /config.
 """
 
@@ -28,7 +27,6 @@ from __future__ import annotations
 import asyncio
 import hmac
 import ipaddress
-import json
 import logging
 import mimetypes
 import os
@@ -600,21 +598,6 @@ async def put_auth(request: web.Request) -> web.Response:
 
 
 # ---------------------------
-#   _with_login_state
-# ---------------------------
-def _with_login_state(content: bytes, auth: AuthStore) -> bytes:
-    """The core's status with the login state, which only the gateway knows, added for the page."""
-    try:
-        data = json.loads(content)
-    except ValueError:
-        return content
-    if not isinstance(data, dict):
-        return content
-    data["auth"] = auth.status()
-    return json.dumps(data).encode()
-
-
-# ---------------------------
 #   forward
 # ---------------------------
 async def forward(request: web.Request) -> web.StreamResponse:
@@ -641,8 +624,6 @@ async def forward(request: web.Request) -> web.StreamResponse:
             timeout=aiohttp.ClientTimeout(total=CORE_TIMEOUT_S),
         ) as answer:
             content = await answer.read()
-            if request.method == "GET" and path == "/api/status" and answer.status == 200:
-                content = _with_login_state(content, auth)
             back = {name: answer.headers[name] for name in RETURN_HEADERS if name in answer.headers}
             return web.Response(status=answer.status, body=content, headers=back)
     except (aiohttp.ClientError, TimeoutError) as err:
