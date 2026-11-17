@@ -491,3 +491,15 @@ async def test_history_csv(make_client: ClientMaker) -> None:
     assert any(f"temp,{DRIVE},,41.5" in line for line in lines)
     assert (await client.get("/api/history.csv?hours=x")).status == 400
     assert (await client.get("/api/history.csv?hours=0")).status == 400
+
+
+
+async def test_web_app_manifest(make_client: ClientMaker) -> None:
+    """The manifest and its icons are public (the browser fetches them without the session) and typed."""
+    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
+    response = await client.get("/static/manifest.webmanifest")
+    assert response.status == 200 and response.content_type == "application/manifest+json"
+    manifest = json.loads(await response.text())
+    assert manifest["display"] == "standalone" and manifest["start_url"] == "/"
+    for item in manifest["icons"]:
+        assert (await client.get(item["src"], allow_redirects=False)).status == 200

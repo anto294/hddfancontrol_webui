@@ -36,6 +36,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   and RPM, the speed asked of each fan, SMART state, alerts and safety.
 - History: "Export CSV" downloads the window shown (time, kind, name,
   label, value), at most 20000 points per line.
+- The web UI can go on the home screen of a phone as an app (web app
+  manifest, icons, full screen on iPhone; Chrome installs it over HTTPS).
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.

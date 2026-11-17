@@ -20,6 +20,7 @@ import csv
 import io
 import json
 import logging
+import mimetypes
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -43,6 +44,9 @@ from .templog import TempLog
 
 _LOGGER = logging.getLogger(__name__)
 
+# The web app manifest (install on a phone's home screen); Python does not know its type.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+
 STATIC_DIR = Path(__file__).parent / "static"
 CSRF_HEADER = "X-Requested-With"
 AUTH_FAILURE_DELAY = 1.0
@@ -57,6 +61,8 @@ PUBLIC_PATHS = (
     "/static/favicon.png",
     "/static/logo.png",
     "/static/apple-touch-icon.png",
+    "/static/manifest.webmanifest",
+    "/static/icon-512.png",
 )
 PUBLIC_PREFIXES = ("/static/i18n/",)
 # After this many wrong passwords from one address within LOGIN_WINDOW
