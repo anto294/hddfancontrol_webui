@@ -2,15 +2,16 @@
 
 # Versions of what the image is built from. The upstream versions are
 # checked weekly by .github/workflows/upstream.yml, the base images by
-# Dependabot.
-ARG ALPINE_VERSION=3.24
+# Dependabot. The base images are pinned by the digest of their multi-arch
+# index: a tag moved upstream cannot change the build. Written out in each
+# FROM (no ARG), so that Dependabot can update them.
 ARG HDDFANCONTROL_VERSION=2.1.2
 ARG HDIDLE_VERSION=v1.21
 ARG SDPARM_VERSION=1.12
 ARG SDPARM_SHA256=c4c9efafdbeb662e2f9712707ec490932bd4d010bb1129ae7a99526546eeadbe
 
 # --- hddfancontrol, static, so the same file also ships in the bare metal tarball
-FROM alpine:${ALPINE_VERSION} AS hddfancontrol
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS hddfancontrol
 ARG HDDFANCONTROL_VERSION
 # A failing command inside a pipe must fail the build.
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
@@ -26,7 +27,7 @@ RUN target="$(rustc -vV | sed -n 's/^host: //p')" \
  && install -D "target/${target}/release/hddfancontrol" /out/hddfancontrol
 
 # --- hd-idle, cross-compiled: Go needs no emulation for other architectures
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine${ALPINE_VERSION} AS hdidle
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine3.24@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS hdidle
 ARG HDIDLE_VERSION
 ARG TARGETOS
 ARG TARGETARCH
@@ -39,7 +40,7 @@ RUN git clone --depth 1 --branch "${HDIDLE_VERSION}" https://github.com/adelolmo
 
 # --- sdparm: hddfancontrol uses it for the state of SAS drives. Alpine has it
 # only in edge/testing, so it is built from the Debian copy of the release.
-FROM alpine:${ALPINE_VERSION} AS sdparm
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS sdparm
 ARG SDPARM_VERSION
 ARG SDPARM_SHA256
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
@@ -59,7 +60,7 @@ COPY --from=hdidle /out/hd-idle /
 COPY --from=sdparm /out/sdparm /
 
 # --- the image
-FROM alpine:${ALPINE_VERSION}
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 ARG APP_VERSION=dev
 # python3 and aiohttp come built from Alpine for every architecture: no
 # compiler, no pip, nothing downloaded at start.
