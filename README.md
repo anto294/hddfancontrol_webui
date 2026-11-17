@@ -199,11 +199,11 @@ The container runs privileged, because the fans and the drives need it, so the w
 
 ### HTTPS
 
-Set `ENABLE_TLS=true` and the web UI speaks HTTPS on its own port. Without `TLS_CERT` and `TLS_KEY` it makes a self-signed certificate at the first start, in `/config/web/tls` (valid 10 years, for the host name, `localhost` and `127.0.0.1`): the browser warns once, and you accept it for that address. To avoid the warning, give your own certificate and key (PEM files, mounted in the container) with `TLS_CERT` and `TLS_KEY`.
+The web UI speaks HTTPS on its own port (`ENABLE_TLS=false` turns it off). Without `TLS_CERT` and `TLS_KEY` it makes a self-signed certificate at the first start, in `/config/web/tls` (valid 10 years, for the host name, `localhost` and `127.0.0.1`): the browser warns once, and you accept it for that address. To avoid the warning, give your own certificate and key (PEM files, mounted in the container) with `TLS_CERT` and `TLS_KEY`.
 
 The same port still answers plain HTTP, so an old bookmark keeps working; with `FORCE_HTTPS=true` a page asked over HTTP sends the browser to the same address over HTTPS, and the API and `/metrics` refuse plain HTTP (403). `/healthz` stays on HTTP for the container health check. Behind a reverse proxy that terminates HTTPS, `FORCE_HTTPS` alone does the same for the requests the proxy marks as HTTP (`X-Forwarded-Proto`). The move to HTTPS is made by the browser from its own address bar, never from the `Host` header, which a client can forge. The web UI sends no `Strict-Transport-Security`: with a self-signed certificate the browser would then refuse the page instead of warning.
 
-If the certificate cannot be read or made, the web UI starts over plain HTTP (no redirect) and says why in the log: the fans are controlled either way.
+If the certificate cannot be read or made, the web UI starts over plain HTTP (no redirect) and says why in the log: the fans are controlled either way. Opened over plain HTTP from another host, the login page warns that the password would cross the network in clear text, with a link to the same address over HTTPS.
 
 ## Environment variables
 
@@ -217,7 +217,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
 | `WEBUI_ALLOW` | private networks | Networks allowed to connect, as CIDRs separated by commas or spaces; `private` stands for the default networks, `all` for every address; loopback is always allowed. See [Security](#security) |
 | `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; `nobody` when it does not exist |
-| `ENABLE_TLS` | `false` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; see [HTTPS](#https) |
+| `ENABLE_TLS` | `true` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; `false` serves plain HTTP only; see [HTTPS](#https) |
 | `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
 | `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied to `/config/web-tls` at start, so the gateway can read them |
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |

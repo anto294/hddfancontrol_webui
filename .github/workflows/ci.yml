@@ -176,6 +176,8 @@ jobs:
             http://127.0.0.1:8080/api/setup
           curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:8080/api/status | python3 -m json.tool
           curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:8080/ | grep -q hddfancontrol
+          # HTTPS is on by default, on the same port, with a self-signed certificate.
+          curl -skf https://127.0.0.1:8080/healthz
           # The web server (the gateway) does not run as root.
           docker exec webui ps -o user,args | grep '[h]ddfancontrol_webui.gateway' | grep -qv '^ *root\b'
           docker stats --no-stream webui

@@ -459,7 +459,7 @@ async def test_healthz_and_core_down(make_gateway: GatewayMaker) -> None:
 def test_build_from_the_environment(tmp_path: Path) -> None:
     """build reads the core's socket, the folder, the port, the networks and TLS; problems fall back safely."""
     lines: list[str] = []
-    env = {"HFC_CORE_SOCKET": str(tmp_path / "s"), "HFC_WEB_DIR": str(tmp_path), "WEBUI_PORT": "9999"}
+    env = {"HFC_CORE_SOCKET": str(tmp_path / "s"), "HFC_WEB_DIR": str(tmp_path), "WEBUI_PORT": "9999", "ENABLE_TLS": "false"}
     app, host, port, context = gateway_module.build(env, lines.append)
     assert (host, port, context) == ("0.0.0.0", 9999, None)
     assert any("FIRST SETUP" in line and str(app[SETUP].code) in line for line in lines)
@@ -471,6 +471,22 @@ def test_build_from_the_environment(tmp_path: Path) -> None:
     assert app[gateway_module.ALLOW] == parse_allow(None)
     assert any("WEBUI_ALLOW is not valid" in line for line in lines) and any("HTTPS is off" in line for line in lines)
     assert not any("FIRST SETUP" in line for line in lines)
+
+
+def test_https_is_on_by_default(tmp_path: Path) -> None:
+    """Without ENABLE_TLS the gateway serves HTTPS too, with a self-signed pair; without openssl, HTTP only and an error."""
+    lines: list[str] = []
+    env = {"HFC_CORE_SOCKET": str(tmp_path / "s"), "HFC_WEB_DIR": str(tmp_path), **CREDENTIALS}
+    _, _, _, context = gateway_module.build(env, lines.append)
+    assert context is not None and (tmp_path / "tls" / "cert.pem").exists()
+    assert any("HTTPS and HTTP" in line for line in lines)
+    lines.clear()
+    other = tmp_path / "other"
+    other.mkdir()
+    _, _, _, context = gateway_module.build(
+        {**env, "HFC_WEB_DIR": str(other), "OPENSSL_BIN": "/nonexistent/openssl"}, lines.append
+    )
+    assert context is None and any("HTTPS is off" in line for line in lines)  # the fans and the login come first
 
 
 async def test_serve_until_sigterm(tmp_path: Path, unused_tcp_port: int) -> None:

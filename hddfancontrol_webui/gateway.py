@@ -759,7 +759,7 @@ def build(env: dict[str, str], log: Callable[[str], None]) -> tuple[web.Applicat
         allow = parse_allow(None)
     context: ssl.SSLContext | None = None
     tls_error = ""
-    if env_flag(env, "ENABLE_TLS"):
+    if env_flag(env, "ENABLE_TLS", True):
         try:
             context = ssl_context(
                 web_dir, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), env.get("OPENSSL_BIN", "openssl")

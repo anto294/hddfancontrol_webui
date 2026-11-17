@@ -26,8 +26,19 @@ function showSetup(form) {
   form.code.focus();
 }
 
+// Over plain HTTP the password and the session cookie cross the network in clear text.
+// The link to HTTPS is built from the browser's own address, never from a header.
+function warnPlainHttp() {
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  if (location.protocol !== "http:" || loopback) return;
+  const link = document.getElementById("plain-http-link");
+  link.href = `https://${location.host}${location.pathname}${location.search}`;
+  document.getElementById("plain-http").hidden = false;
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   await loadI18n();
+  warnPlainHttp();
   const form = document.getElementById("login");
   const error = document.getElementById("login-error");
   const setup = await setupNeeded();

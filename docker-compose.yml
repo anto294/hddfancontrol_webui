@@ -39,9 +39,10 @@ services:
       # - SPIN_DOWN_TIME_S=600
       # - NOTIFY_URL=https://ntfy.sh/a-topic-of-yours
       # - TZ=Europe/Rome
-      # HTTPS on the same port (a self-signed certificate is made in /config/web/tls):
-      # - ENABLE_TLS=true
+      # HTTPS is on, on the same port as HTTP (a self-signed certificate is
+      # made in /config/web/tls). Send every browser to it, or turn it off:
       # - FORCE_HTTPS=true
+      # - ENABLE_TLS=false
     # Two Python processes (core and gateway, about 45 MB each), a login's
     # 16 MB scrypt, the daemons and smartctl: room to spare, so the kernel
     # never has to kill the core that drives the fans.
