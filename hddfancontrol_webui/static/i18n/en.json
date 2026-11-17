@@ -427,5 +427,6 @@
   "error.cron_fields": "Needs five fields: minute hour day month weekday (or @daily, @weekly…).",
   "error.cron_value": "“{value}” is not valid here.",
   "error.cron_range": "“{value}” is out of range: {min} to {max}.",
-  "error.cron_never": "This never happens."
+  "error.cron_never": "This never happens.",
+  "error.https_required": "This works over HTTPS only: open the address with https://."
 }

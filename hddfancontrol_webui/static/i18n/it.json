@@ -427,5 +427,6 @@
   "error.cron_fields": "Servono cinque campi: minuto ora giorno mese giorno-settimana (oppure @daily, @weekly…).",
   "error.cron_value": "«{value}» qui non è valido.",
   "error.cron_range": "«{value}» è fuori intervallo: da {min} a {max}.",
-  "error.cron_never": "Non succede mai."
+  "error.cron_never": "Non succede mai.",
+  "error.https_required": "Funziona solo in HTTPS: apri l'indirizzo con https://."
 }

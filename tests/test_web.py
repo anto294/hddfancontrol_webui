@@ -549,18 +549,16 @@ async def test_cron_preview_far_runs(make_client: ClientMaker, monkeypatch: pyte
 
 
 async def test_force_https(make_client: ClientMaker) -> None:
-    """With force_https, plain HTTP is redirected to the same address over HTTPS, except /healthz."""
+    """With force_https, plain HTTP gets the page that moves the browser to HTTPS, or 403 for the API; not /healthz."""
     client = await make_client(force_https=True)
-    response = await client.get("/api/status?x=1", allow_redirects=False)
-    assert response.status == 308
-    assert response.headers["Location"] == f"https://{client.server.host}:{client.server.port}/api/status?x=1"
-    assert "Content-Security-Policy" in response.headers
-    assert (await client.get("/healthz", allow_redirects=False)).status == 200
-    for host in ("evil.example@good", "a/b", "[::1]:8080", "nas.lan"):
-        response = await client.get("/x", headers={"Host": host}, allow_redirects=False)
-        expected = 308 if host in ("[::1]:8080", "nas.lan") else 400
-        assert response.status == expected, host
-        if expected == 308:
-            assert response.headers["Location"] == f"https://{host}/x"
+    page = await client.get("/settings?x=1", headers={"Host": "evil.example@good"}, allow_redirects=False)
+    assert page.status == 200 and "/static/https.js" in await page.text()
+    assert "Location" not in page.headers and "Content-Security-Policy" in page.headers
+    api = await client.get("/api/status")
+    assert api.status == 403 and (await api.json())["error"] == "https_required"
+    assert (await client.post("/api/login", json={})).status == 403
+    assert (await client.get("/metrics")).status == 403
+    for path in ("/healthz", "/static/https.js", "/static/style.css"):
+        assert (await client.get(path)).status == 200, path
     proxied = await client.get("/api/status", headers={"X-Forwarded-Proto": "https"}, allow_redirects=False)
     assert proxied.status == 200 and "Strict-Transport-Security" not in proxied.headers

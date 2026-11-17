@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+
+- `FORCE_HTTPS` no longer answers plain HTTP with a redirect built from
+  the `Host` header, which a client can forge: a page asked over HTTP
+  now gets a small page that moves the browser to HTTPS from its own
+  address, and the API, `/metrics` and changes refuse plain HTTP (403).
+
 ## [0.7.0] - 2026-11-17
 
 ### Added

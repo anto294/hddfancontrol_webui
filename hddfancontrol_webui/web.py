@@ -21,7 +21,6 @@ import io
 import json
 import logging
 import mimetypes
-import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -59,6 +58,7 @@ PUBLIC_PATHS = (
     "/login",
     "/api/login",
     "/static/style.css",
+    "/static/https.js",
     "/static/login.js",
     "/static/i18n.js",
     "/static/favicon.png",
@@ -205,8 +205,8 @@ async def security_headers(request: web.Request, handler: Handler) -> web.Stream
     return response
 
 
-# A host name (letters, digits, dots, hyphens) or a bracketed IPv6 address, with an optional port.
-_REDIRECT_HOST = re.compile(r"(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})|\[[0-9A-Fa-f:.]{2,45}\])(?::[0-9]{1,5})?")
+# What plain HTTP still serves with FORCE_HTTPS: the health check, and the page that moves the browser to HTTPS.
+HTTP_PATHS = ("/healthz", "/static/https.js", "/static/style.css")
 
 
 # ---------------------------
@@ -214,20 +214,20 @@ _REDIRECT_HOST = re.compile(r"(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})|\[[0-9A-Fa-
 # ---------------------------
 @web.middleware
 async def https_only(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """With FORCE_HTTPS, send a request that came over plain HTTP to the same address over HTTPS.
+    """With FORCE_HTTPS, keep everything but HTTP_PATHS off plain HTTP.
 
-    /healthz stays on HTTP, for the health check of the container. No
+    A page gets https.html, whose script sends the browser to the same
+    address over HTTPS, built from the browser's own location: the server
+    never builds a redirect from the Host header, which the client sets.
+    The API and /metrics answer 403 https_required. No
     Strict-Transport-Security: with a self-signed certificate it would
     turn the warning a browser lets you pass into an error it does not.
     """
-    if request.app[FORCE_HTTPS] and not _is_https(request) and request.path != "/healthz":
-        # The Host header names where to go: only a plain host name or address, and a port, is taken,
-        # so a forged one cannot send the browser somewhere else (user@host, a path, a scheme).
-        host = _REDIRECT_HOST.fullmatch(request.host)
-        if host is None:
-            raise web.HTTPBadRequest(text="Bad Host header")
-        raise web.HTTPPermanentRedirect(f"https://{host.group(0)}{request.rel_url.path_qs}")
-    return await handler(request)
+    if not request.app[FORCE_HTTPS] or _is_https(request) or request.path in HTTP_PATHS:
+        return await handler(request)
+    if request.path.startswith("/api/") or request.path == "/metrics" or request.method != "GET":
+        return _json_error(403, "https_required")
+    return web.FileResponse(STATIC_DIR / "https.html", headers={"Cache-Control": "no-store"})
 
 
 # ---------------------------
