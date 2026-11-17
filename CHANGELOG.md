@@ -7,6 +7,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+
+- The bare metal package needs aiohttp 3.14.4 or later, the first
+  release without known security advisories.
+
 ### Changed
 
 - **The web UI moves to port 28462** (it was 8080, a port many other
