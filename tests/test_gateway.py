@@ -20,7 +20,7 @@ from aiohttp.test_utils import TestClient
 from hddfancontrol_webui import gateway as gateway_module
 from hddfancontrol_webui.auth import AuthStore
 from hddfancontrol_webui.const import HEADER_CLIENT, HEADER_USER
-from hddfancontrol_webui.gateway import AUTH, LOGINS, SETUP, LoginLimiter, allowed, create_gateway, parse_allow
+from hddfancontrol_webui.gateway import AUTH, LOGINS, SETUP, LoginLimiter, allowed, create_gateway, parse_allow, parse_hosts
 
 FETCH = {"X-Requested-With": "fetch"}
 CREDENTIALS = {"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"}
@@ -64,7 +64,11 @@ async def make_gateway(aiohttp_client: Any, tmp_path: Path) -> AsyncIterator[Gat
         return web.json_response({"core": True, "path": request.path_qs}, status=418 if request.path == "/api/teapot" else 200)
 
     async def make(
-        env: dict[str, str] | None = None, force_https: bool = False, allow: str | None = None, core: bool = True
+        env: dict[str, str] | None = None,
+        force_https: bool = False,
+        allow: str | None = None,
+        core: bool = True,
+        hosts: tuple[str, ...] | None = (),
     ) -> Gateway:
         socket_path = tmp_path / f"core{len(runners)}.sock"
         if core:
@@ -83,6 +87,7 @@ async def make_gateway(aiohttp_client: Any, tmp_path: Path) -> AsyncIterator[Gat
             lines.append,
             force_https=force_https,
             allow=parse_allow(allow),
+            hosts=hosts,
         )
         client: Client = await aiohttp_client(app)
         return Gateway(client, seen, lines)
@@ -428,11 +433,81 @@ async def test_web_app_manifest(make_gateway: GatewayMaker) -> None:
         assert (await gw.client.get(item["src"], allow_redirects=False)).status == 200
 
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        "192.168.1.10",
+        "192.168.1.10:8080",
+        "[fd00::1]:8080",
+        "[::1]",
+        "localhost:8080",
+        "truenas",
+        "truenas.local",
+        "nas.lan",
+        "nas.home.arpa",
+        "nas.internal",
+        "nas.localdomain",
+        "truenas.fritz.box",
+        "nas.home",
+        "truenas.tail1234.ts.net",
+        "NAS.LAN.",
+        "nas.example.com",
+        "a.nas.example.org",
+    ],
+)
+async def test_host_names_of_the_lan_and_of_webui_hosts(make_gateway: GatewayMaker, host: str) -> None:
+    """IP addresses, names of the LAN, routers and VPNs, and the names of WEBUI_HOSTS reach the web UI."""
+    gw = await make_gateway(CREDENTIALS, hosts=parse_hosts("nas.example.com, *.nas.example.org"))
+    assert (await gw.client.get("/login", headers={"Host": host})).status == 200
+
+
+async def test_other_host_names_are_refused(make_gateway: GatewayMaker) -> None:
+    """An Internet name gets a bare 403, logged once with the WEBUI_HOSTS to set; /healthz still answers; no Host is 400."""
+    gw = await make_gateway(CREDENTIALS)
+    for _ in range(3):
+        refused = await gw.client.get("/login", headers={"Host": "rebind.attacker.example:8080"})
+        assert refused.status == 403 and await refused.text() == "Forbidden"
+    assert [line for line in gw.lines if "rebind.attacker.example" in line] == [
+        "Refused the host name 'rebind.attacker.example': not a name of the LAN (if it is yours, set WEBUI_HOSTS=rebind.attacker.example)"
+    ]
+    assert (await gw.client.get("/api/login", headers={"Host": "nas.example.org"})).status == 403
+    assert (await gw.client.get("/healthz", headers={"Host": "rebind.attacker.example"})).status != 403
+    for bad in ("", "a b", "[zz::1]", "x" * 300, "user@host"):
+        assert (await gw.client.get("/login", headers={"Host": bad})).status == 400, bad
+
+
+async def test_webui_hosts_any_turns_the_check_off(make_gateway: GatewayMaker) -> None:
+    """WEBUI_HOSTS=any lets every name in (a reverse proxy that checks names itself)."""
+    gw = await make_gateway(CREDENTIALS, hosts=parse_hosts("any"))
+    assert (await gw.client.get("/login", headers={"Host": "nas.example.com"})).status == 200
+
+
+def test_parse_hosts() -> None:
+    """Names by commas or spaces, lower case, *. for subdomains; any is None; a bad one is a ValueError."""
+    assert parse_hosts(None) == () and parse_hosts("A.example.com, *.b.example.com.") == ("a.example.com", "*.b.example.com")
+    assert parse_hosts("x.example any") is None
+    for bad in ("a b@c", "http://x", "x.example:8080", "*."):
+        with pytest.raises(ValueError):
+            parse_hosts(bad)
+
+
+def test_build_reads_webui_hosts(tmp_path: Path) -> None:
+    """build takes WEBUI_HOSTS; a bad value is logged and only the names of the LAN are allowed."""
+    lines: list[str] = []
+    env = {"HFC_CORE_SOCKET": str(tmp_path / "s"), "HFC_WEB_DIR": str(tmp_path), "ENABLE_TLS": "false", **CREDENTIALS}
+    app, _, _, _ = gateway_module.build({**env, "WEBUI_HOSTS": "nas.example.com"}, lines.append)
+    assert app[gateway_module.HOSTS] == ("nas.example.com",)
+    app, _, _, _ = gateway_module.build({**env, "WEBUI_HOSTS": "bad@name"}, lines.append)
+    assert app[gateway_module.HOSTS] == () and any("WEBUI_HOSTS is not valid" in line for line in lines)
+
+
 async def test_force_https(make_gateway: GatewayMaker) -> None:
     """With force_https, plain HTTP gets the page that moves the browser to HTTPS, or 403 for the API; not /healthz."""
     gw = await make_gateway(CREDENTIALS, force_https=True)
     client = gw.client
-    page = await client.get("/settings?x=1", headers={"Host": "evil.example@good"}, allow_redirects=False)
+    # A forged Host never reaches the page (400), and the page builds no redirect from it either.
+    assert (await client.get("/settings", headers={"Host": "evil.example@good"})).status == 400
+    page = await client.get("/settings?x=1", headers={"Host": "nas.lan:8080"}, allow_redirects=False)
     assert page.status == 200 and "/static/https.js" in await page.text()
     assert "Location" not in page.headers and "Content-Security-Policy" in page.headers
     api = await client.get("/api/status")

@@ -31,6 +31,9 @@ services:
       # - WEBUI_PASSWORD=a-long-password-of-yours
       # The networks allowed to connect: private ones by default.
       # - WEBUI_ALLOW=192.168.1.0/24  # or "private 2a02:…::/64" to add a network to the default ones
+      # The host names the browser may use besides IP addresses and names of the
+      # LAN (.local, .lan, …): the domain of a reverse proxy, for example.
+      # - WEBUI_HOSTS=nas.example.com
       # Everything else can be set in the web UI, or here, for example:
       # - DRIVES=/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW
       # - MONITOR_DRIVES=/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW

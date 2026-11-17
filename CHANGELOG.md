@@ -9,6 +9,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- The web UI answers only host names of the LAN: IP addresses,
+  `localhost`, names without dots and names ending in `.local`, `.lan`,
+  `.home.arpa`, `.internal`, `.localdomain`, `.fritz.box`, `.home` or
+  `.ts.net`; any other name gets 403, against DNS rebinding. **Behind a
+  reverse proxy with a public domain, set the new `WEBUI_HOSTS`** (for
+  example `WEBUI_HOSTS=nas.example.com`, `*.example.com`, or `any`); the
+  log names the value to set. `/healthz` answers any name.
 - HTTPS is on by default (`ENABLE_TLS` defaults to `true`), with a
   self-signed certificate made at the first start unless `TLS_CERT` and
   `TLS_KEY` are set. The same port still answers plain HTTP, so
