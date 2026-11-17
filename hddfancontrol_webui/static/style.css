@@ -699,6 +699,86 @@ button.link {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  background: none;
+  border: none;
+  padding: 0.1rem 0;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.legend .key.off {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.legend .key.off i {
+  opacity: 0.35;
+}
+
+/* Reference lines (maximum, target or minimum) and the hover cursor. */
+.chart .ref {
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+
+.chart .ref.max {
+  stroke: var(--danger);
+}
+
+.chart .ref.target,
+.chart .ref.min {
+  stroke: var(--muted);
+}
+
+.chart .ref-label {
+  font-size: 10px;
+  fill: var(--muted);
+}
+
+.chart .ref-label.max {
+  fill: var(--danger);
+}
+
+.chart .hit {
+  fill: transparent;
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+
+.chart .cursor {
+  pointer-events: none;
+}
+
+.chart .cursor-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.chart .tip {
+  fill: var(--surface);
+  stroke: var(--border);
+}
+
+.chart .tip-time {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart .tip-text,
+.chart .tip-value {
+  fill: var(--text);
+  font-size: 11px;
+}
+
+.chart .tip-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.chart .dot {
+  stroke: var(--surface);
+  stroke-width: 1.5;
 }
 
 .legend i {
@@ -717,12 +797,22 @@ button.link {
   background: var(--c1);
 }
 
+.chart .swatch.c1,
+.chart .dot.c1 {
+  fill: var(--c1);
+}
+
 .chart .series.c2 {
   stroke: var(--c2);
 }
 
 .legend i.c2 {
   background: var(--c2);
+}
+
+.chart .swatch.c2,
+.chart .dot.c2 {
+  fill: var(--c2);
 }
 
 .chart .series.c3 {
@@ -733,12 +823,22 @@ button.link {
   background: var(--c3);
 }
 
+.chart .swatch.c3,
+.chart .dot.c3 {
+  fill: var(--c3);
+}
+
 .chart .series.c4 {
   stroke: var(--c4);
 }
 
 .legend i.c4 {
   background: var(--c4);
+}
+
+.chart .swatch.c4,
+.chart .dot.c4 {
+  fill: var(--c4);
 }
 
 .chart .series.c5 {
@@ -749,12 +849,22 @@ button.link {
   background: var(--c5);
 }
 
+.chart .swatch.c5,
+.chart .dot.c5 {
+  fill: var(--c5);
+}
+
 .chart .series.c6 {
   stroke: var(--c6);
 }
 
 .legend i.c6 {
   background: var(--c6);
+}
+
+.chart .swatch.c6,
+.chart .dot.c6 {
+  fill: var(--c6);
 }
 
 .chart .series.c7 {
@@ -765,12 +875,22 @@ button.link {
   background: var(--c7);
 }
 
+.chart .swatch.c7,
+.chart .dot.c7 {
+  fill: var(--c7);
+}
+
 .chart .series.c8 {
   stroke: var(--c8);
 }
 
 .legend i.c8 {
   background: var(--c8);
+}
+
+.chart .swatch.c8,
+.chart .dot.c8 {
+  fill: var(--c8);
 }
 
 /* Logs */

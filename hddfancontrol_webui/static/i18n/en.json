@@ -127,6 +127,12 @@
   "history.rpm": "Fan speed (RPM)",
   "history.pwm": "Fan PWM (%)",
   "history.empty": "No data in this window yet.",
+  "history.ref_max": "max",
+  "history.ref_target": "target",
+  "history.ref_min": "min",
+  "history.hide_series": "Hide this line",
+  "history.show_series": "Show this line",
+  "history.hint": "Point at a chart to read the values; click a name to hide or show its line. Fans that are not used are hidden at first.",
 
   "settings.source_file": "These settings were saved from the web UI.",
   "settings.source_environment": "These settings come from the environment variables. Saving them here stores them in /config/settings.json, which then wins.",

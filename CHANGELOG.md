@@ -14,6 +14,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   an arrow shows a drive that got 1 °C warmer or cooler in the last 10
   minutes. On wide screens the drives are in two columns, in a card of
   their own above the fans.
+- History: point at a chart (or touch it) to read the time and the value
+  of every line; click a name in the legend to hide or show its line. The
+  temperature chart has dashed lines at the maximum and at the minimum (or
+  the target in the auto mode). Drives are named as on the overview, and
+  fans that are not chosen, not named and never turned are hidden until
+  switched on.
+
+### Fixed
+
+- History: with the 1 hour window, lines of samples taken a minute apart
+  were cut into invisible pieces. A line now breaks only at a gap of three
+  usual steps of its own samples.
 
 ## [0.6.0] - 2026-11-16
 

@@ -156,24 +156,6 @@ function driveTitle(logName) {
   return { name: label || model || kernel, sub };
 }
 
-// hddfancontrol names drives "sda ST4000VN006": show the label, then the kernel name.
-function driveLabelByLogName(name) {
-  const kernel = name.split(" ")[0];
-  const drive = state.hardware.drives.find((d) => d.name === kernel);
-  const label = drive ? driveLabelById(drive.ids[0]) : "";
-  return label ? `${label} (${kernel})` : name;
-}
-
-// A temperature series of the history: a /dev/disk/by-id path (or, before
-// 0.2.0, the "sda MODEL" name of hddfancontrol).
-function driveLabelBySeries(name) {
-  if (!name.startsWith("/dev/")) return driveLabelByLogName(name);
-  const label = driveLabelById(name);
-  const drive = state.hardware.drives.find((d) => d.ids.includes(name));
-  const now = drive ? `${drive.model} (${drive.name})` : shortPath(name);
-  return label ? `${label} (${drive ? drive.name : shortPath(name)})` : now;
-}
-
 async function saveLabel(key, label) {
   try {
     state.labels = await api("PUT", "/api/labels", { key, label });

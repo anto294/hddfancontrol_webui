@@ -127,6 +127,12 @@
   "history.rpm": "Velocità ventole (RPM)",
   "history.pwm": "PWM ventole (%)",
   "history.empty": "Ancora nessun dato in questo intervallo.",
+  "history.ref_max": "max",
+  "history.ref_target": "obiettivo",
+  "history.ref_min": "min",
+  "history.hide_series": "Nascondi questa linea",
+  "history.show_series": "Mostra questa linea",
+  "history.hint": "Passa sul grafico per leggere i valori; clicca un nome per nascondere o mostrare la sua linea. Le ventole non usate all'inizio sono nascoste.",
 
   "settings.source_file": "Queste impostazioni sono state salvate dall'interfaccia web.",
   "settings.source_environment": "Queste impostazioni vengono dalle variabili d'ambiente. Se le salvi qui, vengono scritte in /config/settings.json, che da quel momento ha la precedenza.",
