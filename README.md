@@ -57,7 +57,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 
 1. Create a dataset for the settings, for example `apps/hddfancontrol`.
 2. Go to **Apps → Discover Apps → ⋮ → Install via YAML**, name the app `hddfancontrol`, and paste [docker-compose.yml](docker-compose.yml) with the `./config` volume changed to your dataset (`/mnt/tank/apps/hddfancontrol:/config`).
-3. Open `http://<truenas>:8080`: the first visit asks for the **setup code** written in the logs of the app (**Apps → hddfancontrol → Logs**, a line with `FIRST SETUP`), then for a username and a password.
+3. Open `http://<truenas>:28462`: the first visit asks for the **setup code** written in the logs of the app (**Apps → hddfancontrol → Logs**, a line with `FIRST SETUP`), then for a username and a password.
 
 If the web UI says it cannot load a kernel module (for example `nct6775`), TrueNAS has the module but the container cannot load it. Load it on the host once:
 
@@ -214,7 +214,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 |---|---|---|
 | `WEBUI_USERNAME` | `admin` | Username, when `WEBUI_PASSWORD` is set |
 | `WEBUI_PASSWORD` | — | Password of the web UI; without it, the first visit creates the credentials with the setup code of the log |
-| `WEBUI_PORT` | `8080` | Port of the web UI |
+| `WEBUI_PORT` | `28462` | Port of the web UI (8080 before 0.9.0) |
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
 | `WEBUI_ALLOW` | private networks | Networks allowed to connect, as CIDRs separated by commas or spaces; `private` stands for the default networks, `all` for every address; loopback is always allowed. See [Security](#security) |
 | `WEBUI_HOSTS` | names of the LAN | Host names the browser may use besides IP addresses and names of the LAN, by commas or spaces; `*.example.com` for subdomains, `any` for every name. Needed behind a reverse proxy with a public domain. See [Security](#security) |

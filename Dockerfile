@@ -101,9 +101,9 @@ ENV APP_VERSION=${APP_VERSION} \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 VOLUME /config
-EXPOSE 8080
+EXPOSE 28462
 HEALTHCHECK --interval=60s --timeout=5s --start-period=60s \
-  CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${WEBUI_PORT:-8080}/healthz\" || exit 1"]
+  CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${WEBUI_PORT:-28462}/healthz\" || exit 1"]
 # tini reaps the processes that hddfancontrol starts (hdparm, smartctl) and
 # passes SIGTERM on, so the fans are given back when the container stops.
 ENTRYPOINT ["/sbin/tini", "--"]

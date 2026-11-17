@@ -16,7 +16,7 @@ services:
     pids_limit: 256
     init: false # the image has its own init (tini)
     ports:
-      - "8080:8080"
+      - "28462:28462"
     volumes:
       - ./config:/config # settings, labels, history, credentials
       - /lib/modules:/lib/modules:ro # to load the sensor chip module

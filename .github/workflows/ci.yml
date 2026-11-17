@@ -163,21 +163,21 @@ jobs:
       - name: Start the web UI
         run: |
           docker run -d --name webui --read-only --tmpfs /tmp -v "$RUNNER_TEMP/config:/config" \
-            -e LOAD_SENSOR_MODULES=false -p 8080:8080 hddfancontrol_webui:ci
+            -e LOAD_SENSOR_MODULES=false -p 28462:28462 hddfancontrol_webui:ci
           for _ in $(seq 30); do
-            curl -sf http://127.0.0.1:8080/healthz && break
+            curl -sf http://127.0.0.1:28462/healthz && break
             sleep 1
           done
           # First start: nothing but the setup, with the code of the log.
-          curl -s http://127.0.0.1:8080/api/status | grep -q setup_required
+          curl -s http://127.0.0.1:28462/api/status | grep -q setup_required
           code=$(docker logs webui 2>&1 | grep -o 'setup code: [0-9a-f-]*' | tail -n 1 | cut -d' ' -f3)
           curl -sf -c "$RUNNER_TEMP/jar" -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
             -d "{\"code\":\"$code\",\"username\":\"ci\",\"password\":\"ci-password-1234\"}" \
-            http://127.0.0.1:8080/api/setup
-          curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:8080/api/status | python3 -m json.tool
-          curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:8080/ | grep -q hddfancontrol
+            http://127.0.0.1:28462/api/setup
+          curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:28462/api/status | python3 -m json.tool
+          curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:28462/ | grep -q hddfancontrol
           # HTTPS is on by default, on the same port, with a self-signed certificate.
-          curl -skf https://127.0.0.1:8080/healthz
+          curl -skf https://127.0.0.1:28462/healthz
           # The web server (the gateway) does not run as root.
           docker exec webui ps -o user,args | grep '[h]ddfancontrol_webui.gateway' | grep -qv '^ *root\b'
           docker stats --no-stream webui

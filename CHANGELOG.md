@@ -9,6 +9,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- **The web UI moves to port 28462** (it was 8080, a port many other
+  apps want). After the update, an app installed from the old example
+  publishes `8080:8080`, where nothing listens any more: change the
+  line to `"28462:28462"` (on TrueNAS: **Apps → hddfancontrol → Edit**)
+  and open `http://<nas>:28462`, or keep the old port with
+  `WEBUI_PORT=8080`. Bare metal installs keep the port of their
+  `/etc/hddfancontrol-webui/env`.
 - The web UI answers only host names of the LAN: IP addresses,
   `localhost`, names without dots and names ending in `.local`, `.lan`,
   `.home.arpa`, `.internal`, `.localdomain`, `.fritz.box`, `.home` or
