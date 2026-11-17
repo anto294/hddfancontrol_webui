@@ -520,3 +520,36 @@ def test_drive_temps_raw_reading() -> None:
     assert temps.raw == {"sda": 49.0}
     temps.per_drive(None, 0)
     assert temps.raw == {}
+
+
+async def test_a_drive_outside_every_group_is_followed_by_every_fan(fake_sys: Path, fast: None) -> None:
+    """When every fan has its group, a drive in none of them still drives every fan."""
+    c = "/dev/disk/by-id/ata-C"
+    settings = from_dict(
+        {
+            "drives": [A, B, c],
+            "pwms": [
+                {"path": PWM1, "start": 200, "stop": 75, "drives": [A]},
+                {"path": PWM2, "start": 200, "stop": 75, "drives": [B]},
+            ],
+            "drive_temp_min": 30,
+            "drive_temp_max": 50,
+            "min_fan_speed_prct": 0,
+            "interval_s": 1,
+        }
+    )
+    temps = {"sda A": 30.0, "sdb B": 30.0, "sdc C": 50.0}
+    fans = FanController(
+        PwmWriter(fake_sys),
+        lambda: {"time": datetime.now(UTC).isoformat(), "temps": temps},
+        lambda _: None,
+        lambda: {**NAMES, c: "sdc"},
+    )
+    fans.start_control(settings)
+    await steps(10)
+    assert fans.auto.speeds == {PWM1: 1.0, PWM2: 1.0}
+    # Cool again: each fan follows its own drive only (at its minimum).
+    temps["sdc C"] = 30.0
+    await steps(40)
+    assert fans.auto.speeds == {PWM1: 0.0, PWM2: 0.0}
+    await fans.stop()

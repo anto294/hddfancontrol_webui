@@ -483,21 +483,27 @@ class FanController:
             self._names_at = now
         return self._names
 
-    def _followed(self, settings: Settings) -> dict[str, dict[str, str] | None]:
-        """For each fan, {kernel name: settings drive} of the drives it follows, or None for every drive.
+    def _followed(self, settings: Settings) -> tuple[dict[str, set[str] | None], set[str] | None]:
+        """For each fan, the kernel names of the drives it follows (None: every drive), and those some group follows.
 
         A fan without its own drives, or whose drives are all gone from the
-        host, follows every drive: better too much air than too little.
+        host, follows every drive: better too much air than too little. The
+        second value is the drives some group follows, or None when a fan
+        follows every drive; a drive outside every group (left unticked, or
+        given as an interface name such as "ata") is followed by every fan.
         """
         names = self._kernel_names()
-        result: dict[str, dict[str, str] | None] = {}
+        result: dict[str, set[str] | None] = {}
         for pwm in settings.pwms:
-            own = {names[d]: d for d in pwm.drives if d in names}
+            own = {names[d] for d in pwm.drives if d in names}
             result[pwm.path] = own or None
-        return result
+        covered: set[str] | None = set()
+        for group in result.values():
+            covered = None if group is None or covered is None else covered | group
+        return result, covered
 
     def _entries(
-        self, temps: dict[str, float], follows: dict[str, str] | None, settings: Settings
+        self, temps: dict[str, float], follows: set[str] | None, covered: set[str] | None, settings: Settings
     ) -> list[tuple[str, float, float, tuple[float, float, float]]]:
         """(log name, averaged temperature, last reading, (min, target, max)) of the drives a fan follows.
 
@@ -510,7 +516,7 @@ class FanController:
         entries = []
         for name, temp in temps.items():
             kernel = name.split()[0]
-            if follows is None or kernel in follows:
+            if follows is None or kernel in follows or (covered is not None and kernel not in covered):
                 raw = self._temps.raw.get(name, temp)
                 entries.append((name, temp, raw, settings.limits_of(by_kernel.get(kernel, ""))))
         return entries
@@ -579,14 +585,14 @@ class FanController:
             temps = self._temps.per_drive(latest, len(settings.hwmons))
             sensor = _sensor_speed(latest, settings.hwmons)
             min_speed = settings.min_fan_speed_prct / 100
-            follows = self._followed(settings)
+            follows, covered = self._followed(settings)
             # Curve mode: what each drive asks for, with the cool-down margin.
             for name, temp in temps.items():
                 if temp > asked.get(name, -1000.0) or temp <= asked[name] - CURVE_COOLDOWN:
                     asked[name] = temp
             speeds: dict[str, float] = {}
             for pwm in settings.pwms:
-                entries = self._entries(temps, follows[pwm.path], settings)
+                entries = self._entries(temps, follows[pwm.path], covered, settings)
                 if settings.control_mode == "auto":
                     error = max((temp - limits[1] for _, temp, _, limits in entries), default=None)
                     # The maximum is checked on the last reading: an average would only delay full speed.
