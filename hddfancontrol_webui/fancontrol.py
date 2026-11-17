@@ -484,12 +484,14 @@ class FanController:
         self.error = text
         self._full_speed(paths)
 
+    async def _refresh_names(self) -> None:
+        """Read again the kernel name of every /dev path of a drive, every NAMES_REFRESH_S, in a thread (it reads /dev)."""
+        if time.monotonic() - self._names_at >= NAMES_REFRESH_S:
+            self._names = await asyncio.to_thread(self._drive_names)
+            self._names_at = time.monotonic()
+
     def _kernel_names(self) -> dict[str, str]:
-        """The kernel name of every /dev path of a drive, read again every NAMES_REFRESH_S."""
-        now = time.monotonic()
-        if now - self._names_at >= NAMES_REFRESH_S:
-            self._names = self._drive_names()
-            self._names_at = now
+        """The kernel name of every /dev path of a drive, as last read by _refresh_names."""
         return self._names
 
     def _followed(self, settings: Settings) -> tuple[dict[str, set[str] | None], set[str] | None]:
@@ -553,6 +555,7 @@ class FanController:
             self._log(f"WARNING: fan control uses only the sensors with a range; without one: {', '.join(unranged)}")
         while True:
             try:
+                await self._refresh_names()
                 self._control_step(settings, controllers, asked, interval, stale_after, started)
             except Exception as err:  # the loop must outlive any error: full speed
                 self.auto.speed = 1.0
@@ -641,6 +644,7 @@ class FanController:
         self._temps = DriveTemps(NULL_HOLD_INTERVALS * float(settings.interval_s))
         while True:
             try:
+                await self._refresh_names()
                 self._manual_step(settings, stale_after, started)
             except Exception as err:  # the loop must outlive any error: full speed
                 with self._manual_lock:

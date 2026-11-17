@@ -573,3 +573,20 @@ async def test_stop_clears_the_failsafe(fake_sys: Path, fast: None) -> None:
     fans.start_manual(SETTINGS)
     assert fans.status()["auto"]["failsafe"] is False
     await fans.stop()
+
+
+async def test_drive_names_are_read_in_a_thread(fake_sys: Path, fast: None) -> None:
+    """Hardware.kernel_names reads /dev: the control loop calls it off the event loop."""
+    import threading
+
+    threads: list[threading.Thread] = []
+
+    def names() -> dict[str, str]:
+        threads.append(threading.current_thread())
+        return NAMES
+
+    fans = FanController(PwmWriter(fake_sys), lambda: sample({"sda A": 30.0}), lambda _: None, names)
+    fans.start_control(from_dict({**SETTINGS.to_dict(), "drives": [A], "hwmons": []}))
+    await steps(3)
+    await fans.stop()
+    assert threads and threading.main_thread() not in threads
