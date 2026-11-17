@@ -49,6 +49,13 @@ _COMPONENT = r"[A-Za-z0-9_:+@,.-]+"
 _DEV_PATH = re.compile(rf"^/dev(/{_COMPONENT})+$")
 _SYS_PATH = re.compile(rf"^/sys(/{_COMPONENT})+$")
 _INTERFACE = re.compile(r"^[a-z0-9]+$")
+# What the fan controller writes as root: only a PWM output of a hwmon chip,
+# never another /sys file (/sys/block/sda/device/delete removes a drive).
+_PWM_PATH = re.compile(r"^/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+$")
+# What hddfancontrol reads: a temperature input of a hwmon chip.
+_TEMP_INPUT = re.compile(r"/temp[0-9]+_input$")
+# Where the chips of the fans live (Hardware.chip_of).
+_CHIP_PREFIX = "/sys/devices/"
 _INTERVAL = re.compile(r"^\s*(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
 _INTERVAL_FACTORS = {"": 1, "s": 1, "sec": 1, "secs": 1, "m": 60, "min": 60, "mins": 60, "h": 3600, "hr": 3600, "hrs": 3600}
 _FALSE = ("0", "false", "no", "off", "")
@@ -300,6 +307,22 @@ def is_sys_path(value: str) -> bool:
 
 
 # ---------------------------
+#   is_pwm_path
+# ---------------------------
+def is_pwm_path(value: str) -> bool:
+    """Whether the value is a PWM output of a hwmon chip: /sys/class/hwmon/hwmonN/pwmN."""
+    return bool(_PWM_PATH.match(value))
+
+
+# ---------------------------
+#   is_temp_input
+# ---------------------------
+def is_temp_input(value: str) -> bool:
+    """Whether the value is a temperature input under /sys: a path ending in /tempN_input."""
+    return is_sys_path(value) and bool(_TEMP_INPUT.search(value))
+
+
+# ---------------------------
 #   from_dict
 # ---------------------------
 def from_dict(data: Any) -> Settings:
@@ -343,8 +366,8 @@ def from_dict(data: Any) -> Settings:
             check.add(f"pwms.{index}", "invalid_document")
             continue
         path = item.get("path")
-        if not isinstance(path, str) or not is_sys_path(path):
-            check.add(prefix + "path", "invalid_sys_path")
+        if not isinstance(path, str) or not is_pwm_path(path):
+            check.add(prefix + "path", "invalid_pwm_path")
             continue
         if any(p.path == path for p in pwms):
             check.add(prefix + "path", "duplicate")
@@ -352,8 +375,8 @@ def from_dict(data: Any) -> Settings:
         start = check.integer(item, "start", -1, 0, 255, prefix)
         stop = check.integer(item, "stop", -1, 0, 255, prefix)
         chip = item.get("chip")
-        if chip is not None and (not isinstance(chip, str) or not is_sys_path(chip)):
-            check.add(prefix + "chip", "invalid_sys_path")
+        if chip is not None and (not isinstance(chip, str) or not is_sys_path(chip) or not chip.startswith(_CHIP_PREFIX)):
+            check.add(prefix + "chip", "invalid_chip")
             chip = None
         followed: list[str] = []
         for number, drive in enumerate(check.items(item, "drives")):
@@ -377,8 +400,8 @@ def from_dict(data: Any) -> Settings:
             check.add(f"hwmons.{index}", "invalid_document")
             continue
         path = item.get("path")
-        if not isinstance(path, str) or not is_sys_path(path):
-            check.add(prefix + "path", "invalid_sys_path")
+        if not isinstance(path, str) or not is_temp_input(path):
+            check.add(prefix + "path", "invalid_temp_path")
             continue
         low = check.number(item, "temp_min", None, prefix)
         high = check.number(item, "temp_max", None, prefix)

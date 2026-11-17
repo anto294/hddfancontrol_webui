@@ -9,6 +9,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- A fan's PWM path must be `/sys/class/hwmon/hwmonN/pwmN`, a sensor's
+  path a `/sys` path ending in `/tempN_input`, and a fan's chip a path
+  under `/sys/devices`. Any `/sys` file was accepted, and the fan
+  controller, which runs as root, wrote fan speeds into it: a saved
+  setting with `/sys/block/sda/device/delete` as a fan removed a drive.
+  Settings with other paths are refused (the environment's too).
 - The limit on wrong passwords counts an IPv6 /64 as one client, and
   stops every login for 15 minutes after 100 wrong passwords from all
   clients together: a host with many addresses could guess without limit.

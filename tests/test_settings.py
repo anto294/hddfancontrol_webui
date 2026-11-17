@@ -24,6 +24,8 @@ from hddfancontrol_webui.settings import (
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
 DRIVE2 = "/dev/disk/by-id/ata-WDC_WD40EFRX-68N32N0_WD-WCC7K1"
 PWM = "/sys/class/hwmon/hwmon3/pwm1"
+TEMP_A = "/sys/class/hwmon/hwmon1/temp1_input"
+TEMP_B = "/sys/devices/platform/coretemp.0/hwmon/hwmon2/temp2_input"
 
 # A docker-compose.yml environment that sets every variable.
 UPSTREAM_ENV = {
@@ -88,9 +90,18 @@ def test_interval_forms(value: str, seconds: int) -> None:
 
 def test_invalid_environment_values() -> None:
     """Bad values name the field and the problem."""
-    found = problems(env_document({"INTERVAL": "soon", "PWM": f"{PWM}:x", "DRIVE_TEMP_RANGE": "50", "VERBOSITY": "loud"}))
+    found = problems(
+        env_document(
+            {
+                "INTERVAL": "soon",
+                "PWM": f"{PWM} /sys/block/sda/device/delete:1:1",
+                "DRIVE_TEMP_RANGE": "50",
+                "VERBOSITY": "loud",
+            }
+        )
+    )
     assert found["interval_s"] == "invalid_number"
-    assert found["pwms.0.start"] == "required"
+    assert found["pwms.0.start"] == "required" and found["pwms.1.path"] == "invalid_pwm_path"
     assert found["drive_temp_max"] == "required"
     assert found["verbosity"] == "invalid_choice"
 
@@ -130,20 +141,26 @@ def test_monitored_drives() -> None:
 
 
 def test_pwm_checks() -> None:
-    """PWM paths stay under /sys and values in 0..255."""
+    """PWM paths are pwmN files of /sys/class/hwmon (never another /sys file) and values in 0..255."""
     found = problems(
         {
             "pwms": [
                 {"path": "/proc/self/mem", "start": 1, "stop": 1},
                 {"path": PWM, "start": 300, "stop": -1},
                 {"path": PWM, "start": 1, "stop": 1},
-                {"path": "/sys/a", "start": True, "stop": "x"},
+                {"path": "/sys/class/hwmon/hwmon3/pwm2", "start": True, "stop": "x"},
                 "nope",
+                {"path": "/sys/block/sda/device/delete", "start": 1, "stop": 1},
+                {"path": "/sys/class/hwmon/hwmon3/pwm1_enable", "start": 1, "stop": 1},
+                {"path": "/sys/class/hwmon/hwmon٣/pwm1", "start": 1, "stop": 1},
             ]
         }
     )
     assert found == {
-        "pwms.0.path": "invalid_sys_path",
+        "pwms.0.path": "invalid_pwm_path",
+        "pwms.5.path": "invalid_pwm_path",
+        "pwms.6.path": "invalid_pwm_path",
+        "pwms.7.path": "invalid_pwm_path",
         "pwms.1.start": "out_of_range",
         "pwms.1.stop": "out_of_range",
         "pwms.3.start": "invalid_number",
@@ -171,20 +188,22 @@ def test_hwmon_ranges() -> None:
     found = problems(
         {
             "hwmons": [
-                {"path": "/sys/a", "temp_min": 40},
-                {"path": "/sys/b", "temp_min": 60, "temp_max": 50},
+                {"path": TEMP_A, "temp_min": 40},
+                {"path": TEMP_B, "temp_min": 60, "temp_max": 50},
                 {"path": "/tmp/c"},
                 7,
+                {"path": "/sys/block/sda/device/delete"},
             ]
         }
     )
     assert found == {
         "hwmons.0.temp_max": "range_both",
         "hwmons.1.temp_max": "range_order",
-        "hwmons.2.path": "invalid_sys_path",
+        "hwmons.2.path": "invalid_temp_path",
         "hwmons.3": "invalid_document",
+        "hwmons.4.path": "invalid_temp_path",
     }
-    assert from_dict({"hwmons": [{"path": "/sys/a"}]}).hwmons == (Hwmon("/sys/a"),)
+    assert from_dict({"hwmons": [{"path": TEMP_A}]}).hwmons == (Hwmon(TEMP_A),)
 
 
 def test_lists_and_documents() -> None:
@@ -215,13 +234,11 @@ def test_hdidle_off() -> None:
 
 def test_measure_only_args() -> None:
     """In auto mode hddfancontrol gets a command that does nothing instead of the PWM files."""
-    settings = from_dict(
-        {"drives": [DRIVE], "pwms": [{"path": PWM, "start": 200, "stop": 75}], "hwmons": [{"path": "/sys/a"}]}
-    )
+    settings = from_dict({"drives": [DRIVE], "pwms": [{"path": PWM, "start": 200, "stop": 75}], "hwmons": [{"path": TEMP_A}]})
     args = hddfancontrol_args(settings, None, measure_only=True)
     assert "--pwm" not in args
     assert args[args.index("--fan-cmd") + 1] == "/bin/true"
-    assert args[args.index("--hwmons") + 1] == "/sys/a"
+    assert args[args.index("--hwmons") + 1] == TEMP_A
     assert "--temp-log" not in args
 
 
@@ -243,8 +260,8 @@ def test_new_environment_variables() -> None:
 
 def test_hwmon_env_without_range() -> None:
     """HWMONS entries may omit the range, or give only half of it."""
-    doc = env_document({"HWMONS": "/sys/a /sys/b:40"})
-    assert doc["hwmons"] == [{"path": "/sys/a"}, {"path": "/sys/b", "temp_min": "40", "temp_max": None}]
+    doc = env_document({"HWMONS": f"{TEMP_A} {TEMP_B}:40"})
+    assert doc["hwmons"] == [{"path": TEMP_A}, {"path": TEMP_B, "temp_min": "40", "temp_max": None}]
 
 
 def test_round_trip() -> None:
@@ -286,15 +303,14 @@ def test_store_with_invalid_environment(tmp_path: Path) -> None:
 
 
 def test_pwm_chip() -> None:
-    """The chip of a fan is optional, must be a /sys path, and survives a round trip."""
+    """The chip of a fan is optional, must be under /sys/devices, and survives a round trip."""
     chip = "/sys/devices/platform/nct6775.656"
     settings = from_dict({"pwms": [{"path": PWM, "start": 200, "stop": 75, "chip": chip}]})
     assert settings.pwms[0].chip == chip
     assert from_dict(json.loads(json.dumps(settings.to_dict()))) == settings
     assert from_dict({"pwms": [{"path": PWM, "start": 200, "stop": 75}]}).pwms[0].chip is None
-    assert problems({"pwms": [{"path": PWM, "start": 200, "stop": 75, "chip": "/etc/x"}]}) == {
-        "pwms.0.chip": "invalid_sys_path"
-    }
+    for chip in ("/etc/x", "/sys/block/sda"):
+        assert problems({"pwms": [{"path": PWM, "start": 200, "stop": 75, "chip": chip}]}) == {"pwms.0.chip": "invalid_chip"}
 
 
 def test_notifications() -> None:

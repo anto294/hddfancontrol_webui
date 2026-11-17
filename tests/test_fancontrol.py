@@ -111,7 +111,7 @@ SETTINGS = from_dict(
     {
         "drives": ["/dev/a", "/dev/b"],
         "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
-        "hwmons": [{"path": "/sys/x"}],
+        "hwmons": [{"path": "/sys/class/hwmon/hwmon1/temp1_input"}],
         "control_mode": "auto",
         "target_temp": 40,
         "drive_temp_max": 50,
@@ -170,9 +170,9 @@ def test_sensor_speed() -> None:
     hwmons = from_dict(
         {
             "hwmons": [
-                {"path": "/sys/a", "temp_min": 40, "temp_max": 60},
-                {"path": "/sys/b"},
-                {"path": "/sys/c", "temp_min": 30, "temp_max": 40},
+                {"path": "/sys/class/hwmon/hwmon1/temp1_input", "temp_min": 40, "temp_max": 60},
+                {"path": "/sys/class/hwmon/hwmon1/temp2_input"},
+                {"path": "/sys/class/hwmon/hwmon1/temp3_input", "temp_min": 30, "temp_max": 40},
             ]
         }
     ).hwmons
@@ -189,7 +189,10 @@ async def test_auto_mode_follows_a_hot_sensor(fake_sys: Path, fast: None) -> Non
         {
             "drives": ["/dev/a"],
             "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
-            "hwmons": [{"path": "/sys/x", "temp_min": 40, "temp_max": 60}, {"path": "/sys/y"}],
+            "hwmons": [
+                {"path": "/sys/class/hwmon/hwmon1/temp1_input", "temp_min": 40, "temp_max": 60},
+                {"path": "/sys/class/hwmon/hwmon1/temp2_input"},
+            ],
             "control_mode": "auto",
             "interval_s": 1,
         }
@@ -201,7 +204,7 @@ async def test_auto_mode_follows_a_hot_sensor(fake_sys: Path, fast: None) -> Non
     await asyncio.sleep(0.1)
     assert fans.auto.hottest == 30.0 and fans.auto.speed == 1.0
     assert read(fake_sys, "pwm1") == "255"
-    assert any("/sys/y" in line and "range" in line for line in lines)
+    assert any("temp2_input" in line and "range" in line for line in lines)
     await fans.stop()
 
 
