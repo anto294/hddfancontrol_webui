@@ -82,13 +82,13 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
 
 
 async def test_status_and_health(make_client: ClientMaker) -> None:
-    """The core answers the API and its health check; without the gateway's header the login state is open."""
+    """The core answers the API and its health check; the login state is the gateway's to add."""
     client = await make_client()
     assert (await client.get("/")).status == 404  # pages are the gateway's
     response = await client.get("/healthz")
     assert response.status == 200
     status = await (await client.get("/api/status")).json()
-    assert status["auth"]["enabled"] is False
+    assert "auth" not in status
     assert status["latest"]["temps"] == {"sda": 41.0}
     assert status["mode"] == "waiting"
 
@@ -348,17 +348,6 @@ async def test_cron_preview_far_runs(make_client: ClientMaker, monkeypatch: pyte
     monkeypatch.setattr(cron, "SEARCH_DAYS", 400)
     data = await (await client.get("/api/cron", params={"expr": "0 0 29 2 *"})).json()
     assert len(data["runs"]) <= 1
-
-
-async def test_core_takes_the_login_state_from_the_gateway(make_client: ClientMaker) -> None:
-    """The status shows the login state the gateway sent; a bad header counts as none."""
-    client = await make_client()
-    state = {"enabled": True, "source": "file", "username": "anto"}
-    status = await (await client.get("/api/status", headers={"X-Webui-Auth": json.dumps(state)})).json()
-    assert status["auth"] == state
-    for bad in ("not json", "[1]"):
-        status = await (await client.get("/api/status", headers={"X-Webui-Auth": bad})).json()
-        assert status["auth"]["enabled"] is False
 
 
 async def test_audit_log(make_client: ClientMaker) -> None:

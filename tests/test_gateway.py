@@ -18,7 +18,7 @@ from aiohttp.test_utils import TestClient
 
 from hddfancontrol_webui import gateway as gateway_module
 from hddfancontrol_webui.auth import AuthStore
-from hddfancontrol_webui.const import HEADER_AUTH, HEADER_CLIENT, HEADER_USER
+from hddfancontrol_webui.const import HEADER_CLIENT, HEADER_USER
 from hddfancontrol_webui.gateway import AUTH, LOGINS, SETUP, LoginLimiter, allowed, create_gateway, parse_allow
 
 FETCH = {"X-Requested-With": "fetch"}
@@ -135,6 +135,13 @@ async def test_network_filter(make_gateway: GatewayMaker, monkeypatch: pytest.Mo
     assert (await gw.client.get("/login")).status == 200
 
 
+def test_login_state_only_in_an_object(tmp_path: Path) -> None:
+    """A status that is not a JSON object is passed as it is."""
+    auth = AuthStore(tmp_path, {})
+    assert gateway_module._with_login_state(b"not json", auth) == b"not json"
+    assert gateway_module._with_login_state(b"[1]", auth) == b"[1]"
+
+
 def test_refused_hint() -> None:
     """A refused global IPv6 address gets the /64 to allow; others nothing."""
     hint = gateway_module.refused_hint("2a02:1210:2c00:aa00:1:2:3:4")
@@ -206,14 +213,17 @@ async def test_login_flow_and_forwarding(make_gateway: GatewayMaker) -> None:
     assert ok.status == 200 and "HttpOnly" in cookie and "SameSite=Strict" in cookie
     assert (await client.get("/login", allow_redirects=False)).status == 302
     assert (await client.get("/")).status == 200
-    forged = {HEADER_USER: "root", HEADER_CLIENT: "1.2.3.4", HEADER_AUTH: "{}", "X-Other": "x"}
+    forged = {HEADER_USER: "root", HEADER_CLIENT: "1.2.3.4", "X-Webui-Auth": "{}", "X-Other": "x"}
     response = await client.post("/api/restart?a=1", json={"x": 1}, headers={**FETCH, **forged})
     assert (await response.json()) == {"core": True, "path": "/api/restart?a=1"}
     got = gw.seen[-1]
     assert got["method"] == "POST" and json.loads(got["body"]) == {"x": 1}
     assert got["headers"][HEADER_USER] == "anto" and got["headers"][HEADER_CLIENT] == "127.0.0.1"
-    assert json.loads(got["headers"][HEADER_AUTH]) == {"enabled": True, "source": "environment", "username": "anto"}
-    assert "X-Other" not in got["headers"] and "Cookie" not in got["headers"]
+    assert all(name not in got["headers"] for name in ("X-Other", "X-Webui-Auth", "Cookie"))
+    # The status gets the login state, which only the gateway knows; other answers are passed as they are.
+    status = await (await client.get("/api/status")).json()
+    assert status["core"] is True and status["auth"] == {"enabled": True, "source": "environment", "username": "anto"}
+    assert "auth" not in await (await client.get("/api/settings")).json()
     teapot = await client.get("/api/teapot")
     assert teapot.status == 418
     csv = await client.get("/api/history.csv")

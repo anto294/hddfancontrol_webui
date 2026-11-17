@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
-import json
 import logging
 import socket
 import struct
@@ -29,7 +28,7 @@ from typing import Any
 from aiohttp import web
 
 from .bays import BayError, Bays
-from .const import HEADER_AUTH, HEADER_CLIENT, HEADER_USER, HISTORY_MAX_HOURS, SOURCE_AUDIT, SOURCE_SENSORS, VERSION
+from .const import HEADER_CLIENT, HEADER_USER, HISTORY_MAX_HOURS, SOURCE_AUDIT, SOURCE_SENSORS, VERSION
 from .cron import CronError, parse, windows
 from .hardware import Hardware
 from .history import History
@@ -160,28 +159,10 @@ async def healthz(request: web.Request) -> web.Response:
 
 
 # ---------------------------
-#   _auth_state
-# ---------------------------
-def _auth_state(request: web.Request) -> dict[str, Any]:
-    """The login state the gateway sent, for the page; a request without it (a test) gets the open state."""
-    try:
-        state = json.loads(request.headers.get(HEADER_AUTH) or "{}")
-    except ValueError:
-        state = {}
-    if not isinstance(state, dict):
-        state = {}
-    return {
-        "enabled": bool(state.get("enabled", False)),
-        "source": str(state.get("source", "none")),
-        "username": str(state.get("username", "")),
-    }
-
-
-# ---------------------------
 #   get_status
 # ---------------------------
 async def get_status(request: web.Request) -> web.Response:
-    """State of the daemons, the fans, the PWM test and the sensor modules."""
+    """State of the daemons, the fans, the PWM test and the sensor modules; the gateway adds the login state."""
     app = request.app
     # The pages ask for the status every few seconds while they are open.
     app[SUPERVISOR].touch_manual()
@@ -190,7 +171,6 @@ async def get_status(request: web.Request) -> web.Response:
     report: SensorReport = app[STATE]["sensors"]
     data.update(
         version=VERSION,
-        auth=_auth_state(request),
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
         alerts=alerts.status() if alerts is not None else [],
