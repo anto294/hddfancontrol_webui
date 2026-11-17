@@ -174,7 +174,7 @@ async def healthz(request: web.Request) -> web.Response:
 #   get_status
 # ---------------------------
 async def get_status(request: web.Request) -> web.Response:
-    """State of the daemons, the fans, the PWM test and the sensor modules; the gateway adds the login state."""
+    """State of the daemons, the fans, the PWM test and the sensor modules; never the login state (GET /api/auth has it)."""
     app = request.app
     # The pages ask for the status every few seconds while they are open.
     app[SUPERVISOR].touch_manual()

@@ -83,7 +83,7 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
 
 
 async def test_status_and_health(make_client: ClientMaker) -> None:
-    """The core answers the API and its health check; the login state is the gateway's to add."""
+    """The core answers the API and its health check; the status has no login state."""
     client = await make_client()
     assert (await client.get("/")).status == 404  # pages are the gateway's
     response = await client.get("/healthz")
