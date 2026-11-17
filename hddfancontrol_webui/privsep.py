@@ -43,6 +43,8 @@ TEMP_WEB_PREFIX = "hddfancontrol-webui-web-"
 GIVEN_TLS_DIR = "web-tls"
 GIVEN_CERT = "cert.pem"
 GIVEN_KEY = "key.pem"
+# The copies of TLS_CERT/TLS_KEY that edge builds kept in /config/web/tls.
+OLD_COPIES = ("given-cert.pem", "given-key.pem")
 # A certificate or key larger than this is not one.
 MAX_TLS_FILE = 1024 * 1024
 # The environment of the gateway: these names, and nothing else.
@@ -198,6 +200,7 @@ def _prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger) -> Pa
             old.rename(new)
             _give(new, user)
             log.info("Moved %s to %s", old, new)
+    _drop_old_copies(web_dir / TLS_DIR, log)
     if user.uid is not None:
         mode = stat.S_IMODE(config_dir.stat().st_mode)
         try:
@@ -205,6 +208,32 @@ def _prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger) -> Pa
         except OSError as err:  # an ACL of the host may forbid it: the gateway then says what it cannot open
             log.warning("Cannot let the gateway into %s: %s", config_dir, err)
     return web_dir
+
+
+# ---------------------------
+#   _drop_old_copies
+# ---------------------------
+def _drop_old_copies(tls_dir: Path, log: logging.Logger) -> None:
+    """Remove the TLS_CERT/TLS_KEY copies that edge builds made in /config/web/tls (now in /config/web-tls).
+
+    The folder is the gateway's: it is opened without following a link, and
+    the names are removed inside it, so a link there removes only itself.
+    """
+    try:
+        fd = os.open(tls_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return
+    try:
+        for name in OLD_COPIES:
+            try:
+                os.unlink(name, dir_fd=fd)
+                log.info("Removed the old copy %s", tls_dir / name)
+            except FileNotFoundError:
+                continue
+    except OSError as err:
+        log.warning("Cannot remove the old TLS copies in %s: %s", tls_dir, err)
+    finally:
+        os.close(fd)
 
 
 # ---------------------------

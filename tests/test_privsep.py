@@ -73,6 +73,14 @@ def test_prepare_web_dir(tmp_path: Path, as_root: list[tuple[str, int, int]]) ->
     assert {str(web_dir), str(web_dir / "auth.json"), str(web_dir / "tls" / "cert.pem")} <= owned
     assert str(config / "history.db") not in owned
     assert stat.S_IMODE(config.stat().st_mode) == 0o701  # only the search bit for others
+    # The copies of edge builds go, through no link.
+    secret = tmp_path / "given-key.pem"
+    secret.write_text("elsewhere")
+    (web_dir / "tls" / "given-cert.pem").symlink_to(secret)
+    (web_dir / "tls" / "given-key.pem").write_text("KEY")
+    prepare_web_dir(config, user)
+    assert not os.path.lexists(web_dir / "tls" / "given-cert.pem") and not (web_dir / "tls" / "given-key.pem").exists()
+    assert secret.read_text() == "elsewhere" and (web_dir / "tls" / "cert.pem").exists()
     # Again: nothing to move, nothing lost.
     assert prepare_web_dir(config, user) == web_dir and (web_dir / "auth.json").exists()
 
