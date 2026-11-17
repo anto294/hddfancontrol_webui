@@ -61,6 +61,8 @@ ENABLE_MANUAL = 1
 # and throttle past 80 °C.
 DRIVE_CEILING = 65.0
 NVME_CEILING = 80.0
+# A sample timed further ahead than this is not trusted (the clock jumped back).
+FUTURE_TOLERANCE_S = 60.0
 # Changes at every boot: the state saved by PwmWriter holds for one boot only.
 BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
 
@@ -277,6 +279,18 @@ def _sensor_speed(latest: dict[str, Any] | None, hwmons: tuple[Hwmon, ...]) -> f
             continue
         speed = max(speed, min(1.0, max(0.0, (temp - hwmon.temp_min) / (hwmon.temp_max - hwmon.temp_min))))
     return speed
+
+
+# ---------------------------
+#   _is_stale
+# ---------------------------
+def _is_stale(age: float | None, stale_after: float) -> bool:
+    """Whether a sample of this age (None: no sample) is too old, or too far in the future, to trust.
+
+    A sample from more than FUTURE_TOLERANCE_S ahead means a clock that
+    jumped: its age says nothing, and it would count as fresh for good.
+    """
+    return age is None or age > stale_after or age < -FUTURE_TOLERANCE_S
 
 
 # ---------------------------
@@ -682,7 +696,7 @@ class FanController:
         if self._lost is not None and latest and latest["time"] > self._lost:
             self._lost = None
         lost = self._lost is not None
-        if lost or age is None or age > stale_after:
+        if lost or _is_stale(age, stale_after):
             failsafe = lost or not waiting
             if failsafe and not self.auto.failsafe:
                 why = "hddfancontrol stopped" if lost else "no recent drive temperature"
@@ -782,7 +796,7 @@ class FanController:
             return SAFETY_HOT, max(hot)
         age = _age_seconds(latest, now)
         waiting = (now - started).total_seconds() < stale_after
-        if settings.drives and not waiting and (age is None or age > stale_after):
+        if settings.drives and not waiting and _is_stale(age, stale_after):
             return SAFETY_STALE, None
         return None, None
 

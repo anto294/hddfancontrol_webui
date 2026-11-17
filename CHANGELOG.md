@@ -45,6 +45,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   variable of the environment, and no module from its working folder,
   can change what it imports. Its `HOME` is no longer a folder it can
   write.
+- A temperature sample timed more than a minute in the future (a clock
+  that jumped back) counts as old: the fans go to full speed instead of
+  trusting it for as long as the clock is off.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

@@ -725,3 +725,15 @@ async def test_the_ceiling_wins_over_the_settings_in_every_mode(fake_sys: Path, 
     await steps(3)
     assert fans.writer.values.get(PWM1, 0) < 255  # below the ceiling the curve rules
     await fans.stop()
+
+
+async def test_a_sample_from_the_future_is_stale(fake_sys: Path, fast: None) -> None:
+    """A sample timed more than a minute ahead (a clock that jumped back) never counts as fresh: full speed."""
+    future = sample({"sda": 30.0}, age=-3600)
+    fans = FanController(PwmWriter(fake_sys), lambda: future, lambda text: None)
+    fans.start_control(SETTINGS)
+    await asyncio.sleep(0.1)
+    assert fans.auto.speed == 1.0 and fans.auto.hottest is None and read(fake_sys, "pwm1") == "255"
+    await fans.stop()
+    assert not fancontrol._is_stale(-30.0, 120.0) and fancontrol._is_stale(-61.0, 120.0)
+    assert fancontrol._is_stale(None, 120.0) and fancontrol._is_stale(121.0, 120.0)
