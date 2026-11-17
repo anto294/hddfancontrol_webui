@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pwd
+import shutil
 import stat
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from typing import Any
 import pytest
 
 from hddfancontrol_webui import privsep
-from hddfancontrol_webui.privsep import WebUser, gateway_env, prepare_web_dir, secure_socket, socket_dir, web_user
+from hddfancontrol_webui.privsep import WebUser, gateway_env, given_tls, prepare_web_dir, secure_socket, socket_dir, web_user
 
 
 def test_not_root_runs_as_the_same_user() -> None:
@@ -50,29 +51,64 @@ def test_web_user_as_root(as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_prepare_web_dir(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
-    """The gateway's folder: older auth.json and tls/ moved in, a given TLS pair copied, all given to its user."""
+    """The gateway's folder: older auth.json and tls/ moved in and given to its user, nothing else of /config."""
     config = tmp_path / "config"
     config.mkdir(mode=0o700)
     (config / "auth.json").write_text("{}")
     (config / "tls").mkdir()
     (config / "tls" / "cert.pem").write_text("old")
     (config / "history.db").write_text("")
-    cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
-    cert.write_text("CERT")
-    key.write_text("KEY")
     user = WebUser("web", 10001, 10001)
-    web_dir, given_cert, given_key = prepare_web_dir(config, user, str(cert), str(key))
+    web_dir = prepare_web_dir(config, user)
     assert web_dir == config / "web" and stat.S_IMODE(web_dir.stat().st_mode) == 0o700
     assert (web_dir / "auth.json").exists() and not (config / "auth.json").exists()
     assert (web_dir / "tls" / "cert.pem").read_text() == "old"
-    assert Path(given_cert).read_text() == "CERT" and Path(given_key).read_text() == "KEY"
-    assert stat.S_IMODE(Path(given_key).stat().st_mode) == 0o600
     owned = {path for path, uid, gid in as_root if (uid, gid) == (10001, 10001)}
-    assert str(web_dir) in owned and given_key in owned and str(config / "history.db") not in owned
+    assert {str(web_dir), str(web_dir / "auth.json"), str(web_dir / "tls" / "cert.pem")} <= owned
+    assert str(config / "history.db") not in owned
     assert stat.S_IMODE(config.stat().st_mode) == 0o701  # only the search bit for others
     # Again: nothing to move, nothing lost.
-    assert prepare_web_dir(config, user)[1:] == ("", "")
-    assert (web_dir / "auth.json").exists()
+    assert prepare_web_dir(config, user) == web_dir and (web_dir / "auth.json").exists()
+
+
+def test_prepare_web_dir_touches_nothing_the_gateway_put_there(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
+    """A link or a hard link the gateway left in its folder is never followed, written or given by root."""
+    config = tmp_path / "config"
+    web_dir = config / "web"
+    web_dir.mkdir(parents=True)
+    secret = config / "settings.json"
+    secret.write_text("root's")
+    (web_dir / "tls").symlink_to(config)
+    (web_dir / "hard").hardlink_to(secret)
+    (config / "tls").mkdir()  # an older tls/ is not moved over the link
+    user = WebUser("web", os.getuid(), os.getgid())
+    prepare_web_dir(config, user)
+    assert as_root == [] and (web_dir / "tls").is_symlink()  # already the gateway's: nothing given again
+    # Another owner: everything given, but not the hard link nor through the link.
+    other = WebUser("web", os.getuid() + 1, os.getgid())
+    prepare_web_dir(config, other)
+    given = {Path(path).name for path, _, _ in as_root}
+    assert "web" in given and "tls" in given and "hard" not in given and "settings.json" not in given
+    # A link in place of the folder itself is refused.
+    web_dir.rename(config / "moved")
+    web_dir.symlink_to(config / "moved")
+    with pytest.raises(OSError):
+        prepare_web_dir(config, user)
+
+
+def test_prepare_web_dir_without_the_search_bit(tmp_path: Path, as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A /config whose mode cannot change (an ACL of the host) is logged, not fatal."""
+    config = tmp_path / "config"
+    config.mkdir(mode=0o700)
+    real_chmod = Path.chmod
+
+    def chmod(self: Path, mode: int) -> None:
+        if self == config:
+            raise PermissionError("EPERM")
+        real_chmod(self, mode)
+
+    monkeypatch.setattr(Path, "chmod", chmod)
+    assert prepare_web_dir(config, WebUser("web", 10001, 10001)).is_dir()
 
 
 def test_prepare_web_dir_not_root(tmp_path: Path) -> None:
@@ -80,8 +116,31 @@ def test_prepare_web_dir_not_root(tmp_path: Path) -> None:
     config = tmp_path / "config"
     config.mkdir(mode=0o700)
     user = WebUser("me", None, None)
-    web_dir, _, _ = prepare_web_dir(config, user)
+    web_dir = prepare_web_dir(config, user)
     assert web_dir.is_dir() and stat.S_IMODE(config.stat().st_mode) == 0o700
+
+
+def test_given_tls(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
+    """TLS_CERT and TLS_KEY are copied to root's folder for the gateway's group; a half or unreadable pair is passed as given."""
+    config = tmp_path / "config"
+    config.mkdir()
+    cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
+    cert.write_text("CERT")
+    key.write_text("KEY")
+    user = WebUser("web", 10001, 10002)
+    copied_cert, copied_key = given_tls(config, user, str(cert), str(key))
+    folder = config / "web-tls"
+    assert (copied_cert, copied_key) == (str(folder / "cert.pem"), str(folder / "key.pem"))
+    assert Path(copied_cert).read_text() == "CERT" and Path(copied_key).read_text() == "KEY"
+    assert stat.S_IMODE(Path(copied_key).stat().st_mode) == 0o640 and stat.S_IMODE(folder.stat().st_mode) == 0o750
+    assert {(copied_key, 0, 10002), (str(folder), 0, 10002)} <= set(as_root)
+    assert given_tls(config, user, str(cert), "") == (str(cert), "")
+    assert not folder.exists()  # no pair, no copy left
+    assert given_tls(config, user, str(cert), str(tmp_path / "missing")) == (str(cert), str(tmp_path / "missing"))
+    shutil.rmtree(folder)
+    folder.symlink_to(tmp_path)  # a link in its place is dropped, not followed
+    assert given_tls(config, WebUser("me", None, None), str(cert), str(key))[0] == copied_cert
+    assert not (tmp_path / "cert.pem").exists() and not folder.is_symlink()
 
 
 def test_socket_folder_and_mode(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
@@ -106,7 +165,7 @@ def test_socket_folder_and_mode(tmp_path: Path, as_root: list[tuple[str, int, in
 
 
 def test_gateway_env(tmp_path: Path) -> None:
-    """Only the variables the gateway needs, where the core is, its folder, and the copied TLS pair."""
+    """Only the variables the gateway needs, where the core is, its folder, and the TLS pair."""
     env = {
         "PATH": "/bin",
         "WEBUI_PASSWORD": "p",
@@ -121,3 +180,6 @@ def test_gateway_env(tmp_path: Path) -> None:
     assert result["HFC_CORE_SOCKET"] == str(tmp_path / "core.sock") and result["HOME"] == str(tmp_path / "web")
     assert (result["TLS_CERT"], result["TLS_KEY"]) == ("/web/tls/c.pem", "/web/tls/k.pem")
     assert "TLS_CERT" not in gateway_env(env, tmp_path / "s", tmp_path, "", "")
+    # A half pair reaches the gateway, which reports it.
+    half = gateway_env(env, tmp_path / "s", tmp_path, "/c.pem", "")
+    assert half["TLS_CERT"] == "/c.pem" and "TLS_KEY" not in half

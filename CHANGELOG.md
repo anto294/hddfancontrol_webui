@@ -38,6 +38,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The credentials and the TLS files move from `/config` to `/config/web`
   (done by itself at the first start). `WEBUI_PASSWORD` is no longer in
   the compose example: the first visit creates the credentials.
+- A `TLS_CERT`/`TLS_KEY` pair is copied at start to `/config/web-tls`,
+  where the gateway can read it; only one of the two set is reported as
+  an error instead of falling back to a self-signed certificate.
 
 ## [0.7.1] - 2026-11-17
 

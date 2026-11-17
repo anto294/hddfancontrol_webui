@@ -219,7 +219,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; `nobody` when it does not exist |
 | `ENABLE_TLS` | `false` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; see [HTTPS](#https) |
 | `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
-| `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied there at start, so the gateway can read them |
+| `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied to `/config/web-tls` at start, so the gateway can read them |
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
 | `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request (the page polls every few seconds) |
 | `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |

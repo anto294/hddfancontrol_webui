@@ -46,7 +46,7 @@ from .hardware import Hardware
 from .history import History
 from .labels import Labels
 from .monitor import Monitor
-from .privsep import WebUser, gateway_env, prepare_web_dir, secure_socket, socket_dir, web_user
+from .privsep import WebUser, gateway_env, given_tls, prepare_web_dir, secure_socket, socket_dir, web_user
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsStore
 from .smart import read_smart, start_selftest
@@ -137,8 +137,10 @@ def build() -> Core:
             env.get("MODPROBE_BIN", MODPROBE_BIN),
         )
 
-    user = web_user(env.get("WEBUI_USER"), logging.getLogger(__name__))
-    web_dir, cert, key = prepare_web_dir(config_dir, user, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip())
+    log = logging.getLogger(__name__)
+    user = web_user(env.get("WEBUI_USER"), log)
+    web_dir = prepare_web_dir(config_dir, user, log)
+    cert, key = given_tls(config_dir, user, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), log)
     socket_path = socket_dir(user) / "core.sock"
     gateway = Daemon(
         SOURCE_GATEWAY,

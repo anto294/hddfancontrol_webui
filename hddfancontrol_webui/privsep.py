@@ -3,8 +3,11 @@
 The core runs as root and never listens on the network. It starts the
 gateway (gateway.py) as WEBUI_USER, which only gets:
 
-- /config/web (mode 0700, its own): the credentials and the TLS files. The
-  rest of /config is root's, mode 0600 (the core runs with umask 077).
+- /config/web (mode 0700, its own): the credentials and the self-signed
+  TLS pair. Root never writes in it. The rest of /config is root's, mode
+  0600 (the core runs with umask 077).
+- /config/web-tls (root's, readable by its group): a copy of TLS_CERT and
+  TLS_KEY, when they are set.
 - a Unix socket to the core, in a folder only root and that user's group
   can enter.
 - a short list of environment variables: not NOTIFY_URL or anything else
@@ -27,14 +30,16 @@ from pathlib import Path
 
 from .auth import AUTH_FILE
 from .const import CORE_SOCKET_ENV, DEFAULT_WEB_USER, WEB_DIR, WEB_DIR_ENV
+from .storage import write_atomic
 from .tls import TLS_DIR
 
 _LOGGER = logging.getLogger(__name__)
 
 FALLBACK_USER = "nobody"
 SOCKET_FILE = "core.sock"
-GIVEN_CERT = "given-cert.pem"
-GIVEN_KEY = "given-key.pem"
+GIVEN_TLS_DIR = "web-tls"
+GIVEN_CERT = "cert.pem"
+GIVEN_KEY = "key.pem"
 # The environment of the gateway: these names, and nothing else.
 GATEWAY_ENV = (
     "PATH",
@@ -101,50 +106,97 @@ def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser:
 #   _give
 # ---------------------------
 def _give(path: Path, user: WebUser) -> None:
-    """Give a file or a folder (and what is in it) to the user of the gateway, without following links."""
+    """Give a file or a folder (and what is in it) to the user of the gateway.
+
+    Never follows a link, and skips a file with more than one name: a hard
+    link could be another name of a file of root's.
+    """
     if user.uid is None or user.gid is None:
         return
     paths = [path]
     if path.is_dir() and not path.is_symlink():
-        paths += [p for p in path.rglob("*")]
+        paths += list(path.rglob("*"))
     for item in paths:
+        info = item.lstat()
+        if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+            _LOGGER.warning("Not giving %s to %s: it has more than one name", item, user.name)
+            continue
         os.chown(item, user.uid, user.gid, follow_symlinks=False)
 
 
 # ---------------------------
 #   prepare_web_dir
 # ---------------------------
-def prepare_web_dir(config_dir: Path, user: WebUser, cert: str = "", key: str = "") -> tuple[Path, str, str]:
-    """Make /config/web for the gateway and return it, with the certificate and key it should use.
+def prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger | None = None) -> Path:
+    """Make /config/web for the gateway and return it. Raises OSError.
 
-    Moves auth.json and tls/ of an older version (kept in /config) there.
-    A TLS_CERT/TLS_KEY pair is copied in, so the gateway can read it
-    whatever the owner and mode of the originals. /config itself gets the
-    search bit for others, so the gateway can reach its folder and nothing
-    else.
+    What is in the folder is the gateway's: root never writes, changes or
+    follows anything in it, so a gateway taken over cannot turn a link
+    there into a write as root. Root only makes the folder, moves in
+    auth.json and tls/ of an older version (kept in /config, root's), and
+    gives them to the user; the whole folder only when it belonged to
+    another user. /config itself gets the search bit for others, so the
+    gateway can reach its folder and nothing else.
     """
+    log = log or _LOGGER
     config_dir.mkdir(parents=True, exist_ok=True)
     web_dir = config_dir / WEB_DIR
+    if web_dir.is_symlink() or (web_dir.exists() and not web_dir.is_dir()):
+        raise OSError(f"{web_dir} is not a folder")
     web_dir.mkdir(mode=0o700, exist_ok=True)
+    web_dir.chmod(0o700)  # not a link (checked above), in root's /config
+    if user.uid is not None and web_dir.lstat().st_uid != user.uid:
+        _give(web_dir, user)
     for name in (AUTH_FILE, TLS_DIR):
         old, new = config_dir / name, web_dir / name
-        if old.exists() and not new.exists():
+        if old.exists() and not os.path.lexists(new):
             old.rename(new)
-            _LOGGER.info("Moved %s to %s", old, new)
-    given_cert = given_key = ""
-    if cert and key:
-        tls = web_dir / TLS_DIR
-        tls.mkdir(mode=0o700, exist_ok=True)
-        shutil.copyfile(cert, tls / GIVEN_CERT)
-        shutil.copyfile(key, tls / GIVEN_KEY)
-        (tls / GIVEN_KEY).chmod(0o600)
-        given_cert, given_key = str(tls / GIVEN_CERT), str(tls / GIVEN_KEY)
-    web_dir.chmod(0o700)
-    _give(web_dir, user)
+            _give(new, user)
+            log.info("Moved %s to %s", old, new)
     if user.uid is not None:
         mode = stat.S_IMODE(config_dir.stat().st_mode)
-        config_dir.chmod(mode | stat.S_IXOTH)
-    return web_dir, given_cert, given_key
+        try:
+            config_dir.chmod(mode | stat.S_IXOTH)
+        except OSError as err:  # an ACL of the host may forbid it: the gateway then says what it cannot open
+            log.warning("Cannot let the gateway into %s: %s", config_dir, err)
+    return web_dir
+
+
+# ---------------------------
+#   given_tls
+# ---------------------------
+def given_tls(config_dir: Path, user: WebUser, cert: str, key: str, log: logging.Logger | None = None) -> tuple[str, str]:
+    """Copy TLS_CERT and TLS_KEY where the gateway can read them, and return the copies.
+
+    The copies go to /config/web-tls, root's folder that only the gateway's
+    group may read, so the gateway cannot change them or what root writes.
+    A half pair, or a pair that cannot be read, is returned as it was
+    given: the gateway then reports it and leaves HTTPS off.
+    """
+    log = log or _LOGGER
+    folder = config_dir / GIVEN_TLS_DIR
+    if not (cert and key):
+        shutil.rmtree(folder, ignore_errors=True)
+        return cert, key
+    try:
+        if folder.is_symlink():
+            folder.unlink()
+        folder.mkdir(mode=0o700, exist_ok=True)
+        targets = []
+        for source, name in ((cert, GIVEN_CERT), (key, GIVEN_KEY)):
+            target = folder / name
+            write_atomic(target, Path(source).read_text(encoding="utf-8"))
+            if user.gid is not None:
+                os.chown(target, 0, user.gid, follow_symlinks=False)
+                target.chmod(0o640)
+            targets.append(str(target))
+        if user.gid is not None:
+            os.chown(folder, 0, user.gid, follow_symlinks=False)
+            folder.chmod(0o750)
+    except (OSError, ValueError) as err:
+        log.error("Cannot copy TLS_CERT and TLS_KEY for the gateway: %s", err)
+        return cert, key
+    return targets[0], targets[1]
 
 
 # ---------------------------
@@ -175,11 +227,12 @@ def secure_socket(path: Path, user: WebUser) -> None:
 #   gateway_env
 # ---------------------------
 def gateway_env(env: dict[str, str], socket_path: Path, web_dir: Path, cert: str, key: str) -> dict[str, str]:
-    """The environment of the gateway: GATEWAY_ENV, where to find the core and its folder, and the copied TLS pair."""
+    """The environment of the gateway: GATEWAY_ENV, where to find the core and its folder, and the TLS pair to use."""
     result = {name: env[name] for name in GATEWAY_ENV if name in env}
     result[CORE_SOCKET_ENV] = str(socket_path)
     result[WEB_DIR_ENV] = str(web_dir)
     result["HOME"] = str(web_dir)
-    if cert and key:
-        result["TLS_CERT"], result["TLS_KEY"] = cert, key
+    for name, value in (("TLS_CERT", cert), ("TLS_KEY", key)):
+        if value:
+            result[name] = value
     return result
