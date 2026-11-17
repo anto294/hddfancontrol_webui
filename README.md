@@ -149,6 +149,7 @@ The web UI watches for:
 - a chosen fan that stops: 0 RPM for 2 minutes while its PWM value is well over its stop value (only fans that were seen turning, so a connector without a speed sensor never counts);
 - SMART saying that a monitored drive is failing, or reporting a problem (an attribute under its threshold only in the past is shown on the drive card, not raised);
 - a monitored drive that is not on the host any more, or whose SMART data cannot be read;
+- a chosen fan that turns 15 % slower than it used to at the same PWM (its baseline is its first week of history, taken once the history is three weeks old): worn bearings show this way before the fan stops;
 - drive temperatures that stop coming in, or an error of the fan control itself, which put every fan at full speed;
 - a chosen fan whose chip is not found any more (see [Troubleshooting](#troubleshooting)).
 

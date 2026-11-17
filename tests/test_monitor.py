@@ -353,3 +353,31 @@ async def test_selftests_run_at_night(tmp_path: Path, fake_sys: Path, fake_dev: 
     # A week later the short tests are due again; DRIVE's long test was 7 days ago, so its short one runs.
     assert sorted(await monitor.run_selftests(local(25, 3))) == sorted([(DRIVE, "short"), (other, "short")])
     monitor.history.close()
+
+
+def test_fan_wear(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """A chosen fan that turns slower at the same PWM than in its first week is reported; the baseline is kept."""
+    pwm = "/sys/class/hwmon/hwmon2/pwm1"
+    settings = from_dict({"drives": [DRIVE], "pwms": [{"path": pwm, "start": 200, "stop": 75}]})
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
+    start = 1_000_000
+    day = 86400
+
+    def record(first: int, last: int, rpm: float) -> None:
+        for ts in range(first, last, 600):
+            monitor.history.record(ts, [("pwm", pwm, 50.0), ("rpm", pwm, rpm)])
+
+    record(start, start + 7 * day, 1200.0)
+    assert monitor.fan_wear(start + 10 * day) == {}  # history too young for a baseline
+    record(start + 30 * day, start + 37 * day, 1180.0)
+    assert monitor.fan_wear(start + 37 * day) == {}  # a small drop is noise
+    record(start + 37 * day, start + 44 * day, 1000.0)
+    worn = monitor.fan_wear(start + 44 * day)
+    assert worn[pwm] == pytest.approx(1 - 1000 / 1200, abs=0.01)
+    # The baseline stays when the first week is purged.
+    monitor.history.purge(10, now=start + 44 * day)
+    assert pwm in monitor.fan_wear(start + 44 * day)
+    monitor.wear = worn
+    found = monitor.conditions({})
+    assert found[f"wear:{pwm}"] == ("fan_wear", {"fan": "nct6798 pwm1", "percent": "17"})
+    monitor.history.close()

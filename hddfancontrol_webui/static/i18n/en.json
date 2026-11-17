@@ -345,6 +345,7 @@
   "error.invalid_url": "Enter an address that starts with http:// or https://.",
   "alert.drive_hot": "{drive} is at {temp} °C, at or above the maximum of {max} °C.",
   "alert.fan_stalled": "{fan} does not turn: 0 RPM with the PWM at {percent} %. Check the fan and its cable.",
+  "alert.fan_wear": "{fan} turns {percent} % slower than it did at first at the same PWM: its bearings may be wearing out. If you replaced it, take note of this.",
   "alert.smart_failing": "{drive}: SMART says the drive is failing. Back up its data and replace it.",
   "alert.smart_warning": "{drive}: {problems} (SMART)",
   "alert.safety": "No new drive temperature: every fan runs at full speed.",

@@ -47,6 +47,7 @@ KIND_SAFETY = "safety"
 KIND_FANS_MISSING = "fans_missing"
 KIND_DRIVE_MISSING = "drive_missing"
 KIND_SMART_ERROR = "smart_error"
+KIND_FAN_WEAR = "fan_wear"
 KINDS = (
     KIND_DRIVE_HOT,
     KIND_FAN_STALLED,
@@ -56,6 +57,7 @@ KINDS = (
     KIND_FANS_MISSING,
     KIND_DRIVE_MISSING,
     KIND_SMART_ERROR,
+    KIND_FAN_WEAR,
 )
 
 # Params that change at every sample: they are not part of what was taken note of.

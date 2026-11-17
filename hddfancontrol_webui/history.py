@@ -201,3 +201,27 @@ class History:
         """Keep a small value."""
         with self._lock:
             self._db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+
+    def oldest(self) -> int | None:
+        """The time of the oldest sample, or None."""
+        with self._lock:
+            row = self._db.execute("SELECT MIN(ts) FROM samples").fetchone()
+        return None if row is None or row[0] is None else int(row[0])
+
+    def fan_curve(self, path: str, start: int, end: int, step: float = 5.0) -> dict[float, tuple[float, int]]:
+        """Average RPM of a fan for each PWM band (step %), between two times: {band: (rpm, samples)}.
+
+        PWM and RPM are recorded together, so a sample of each with the same
+        time make a pair; a fan standing still (0 RPM) does not count.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT ROUND(p.value / ?) * ? AS band, AVG(r.value), COUNT(*) "
+                "FROM samples p "
+                "JOIN series sp ON sp.id = p.series AND sp.kind = 'pwm' AND sp.name = ? "
+                "JOIN series sr ON sr.kind = 'rpm' AND sr.name = ? "
+                "JOIN samples r ON r.series = sr.id AND r.ts = p.ts "
+                "WHERE p.ts >= ? AND p.ts <= ? AND r.value > 0 GROUP BY band",
+                (step, step, path, path, start, end),
+            ).fetchall()
+        return {float(band): (float(rpm), int(count)) for band, rpm, count in rows}

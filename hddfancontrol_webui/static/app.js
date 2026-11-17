@@ -271,7 +271,7 @@ function renderBanners() {
   // Safety and missing fans have their own banners.
   for (const alert of status.alerts.filter((a) => a.kind !== "safety" && a.kind !== "fans_missing")) {
     if (!shown(alert.acknowledged)) continue;
-    box.append(banner(alert.kind === "smart_warning" || alert.kind === "smart_error" ? "warning" : "error", alertText(alert), el("div", { class: "banner-actions" }, ackButton(alert.key, alert.acknowledged))));
+    box.append(banner(["smart_warning", "smart_error", "fan_wear"].includes(alert.kind) ? "warning" : "error", alertText(alert), el("div", { class: "banner-actions" }, ackButton(alert.key, alert.acknowledged))));
   }
   const anyAcked = status.alerts.some((a) => a.acknowledged) || status.acknowledged.length > 0;
   if (hidden || (state.showAcked && anyAcked)) {

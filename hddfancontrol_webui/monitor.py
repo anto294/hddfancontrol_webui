@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -15,6 +16,7 @@ from .alerts import (
     KIND_DRIVE_HOT,
     KIND_DRIVE_MISSING,
     KIND_FAN_STALLED,
+    KIND_FAN_WEAR,
     KIND_FANS_MISSING,
     KIND_SAFETY,
     KIND_SMART_ERROR,
@@ -58,6 +60,17 @@ SUMMARY_KEY = "summary_last"
 
 # Self-tests start in this window of local hours (at night), at most one long one per night.
 SELFTEST_HOURS = range(2, 5)
+
+# Fan wear: the RPM of a chosen fan at the same PWM, over the last WEAR_WINDOW,
+# against a baseline of its first WEAR_WINDOW of history, once the history is
+# WEAR_BASELINE_AGE old. The baseline is kept, so a slow drop over months
+# still shows. A drop of WEAR_DROP or more raises the fan_wear alert.
+WEAR_WINDOW = 7 * 86400
+WEAR_BASELINE_AGE = 21 * 86400
+WEAR_DROP = 0.15
+WEAR_MIN_SAMPLES = 30
+WEAR_MIN_RPM = 300.0
+WEAR_PERIOD = 86400.0
 
 # How often the SMART loop looks at its interval.
 SMART_CHECK_PERIOD = 60.0
@@ -113,6 +126,9 @@ class Monitor:
         self._logged_at = 0.0
         self._tasks: list[asyncio.Task[None]] = []
         self._smart_lock = asyncio.Lock()
+        # Fans turning slower than their baseline: {path: drop}, checked daily.
+        self.wear: dict[str, float] = {}
+        self._wear_at = -WEAR_PERIOD
         # The last error of each loop, logged once until the loop works again.
         self._errors: dict[str, str] = {}
 
@@ -255,6 +271,9 @@ class Monitor:
         while True:
             try:
                 await self._record_step()
+                if time.monotonic() - self._wear_at >= WEAR_PERIOD:
+                    self.wear = await asyncio.to_thread(self.fan_wear)
+                    self._wear_at = time.monotonic()
                 if time.monotonic() - last_purge >= PURGE_PERIOD:
                     settings = self._settings()
                     await asyncio.to_thread(self.history.purge, settings.history_days)
@@ -276,6 +295,38 @@ class Monitor:
                 status = self._status() if self._status is not None else {}
                 await self.alerts.update(await asyncio.to_thread(self.conditions, status))
                 await self._send_summary()
+
+    def fan_wear(self, now: float | None = None) -> dict[str, float]:
+        """How much slower each chosen fan turns than at first, at the same PWM: {path: drop} for drops of WEAR_DROP. Blocking."""
+        now = time.time() if now is None else now
+        oldest = self.history.oldest()
+        worn: dict[str, float] = {}
+        for pwm in self._settings().pwms:
+            key = f"fan_baseline_{pwm.path}"
+            saved = self.history.get_meta(key)
+            if saved is None:
+                if oldest is None or now - oldest < WEAR_BASELINE_AGE:
+                    continue
+                base = self.history.fan_curve(pwm.path, oldest, oldest + WEAR_WINDOW)
+                if not base:
+                    continue
+                self.history.set_meta(key, json.dumps({str(band): value for band, value in base.items()}))
+            else:
+                base = {float(band): (rpm, count) for band, (rpm, count) in json.loads(saved).items()}
+            recent = self.history.fan_curve(pwm.path, int(now - WEAR_WINDOW), int(now))
+            weight = ratio = 0.0
+            for band, (rpm, count) in recent.items():
+                if band not in base:
+                    continue
+                base_rpm, base_count = base[band]
+                if min(count, base_count) < WEAR_MIN_SAMPLES or base_rpm < WEAR_MIN_RPM:
+                    continue
+                share = min(count, base_count)
+                ratio += share * rpm / base_rpm
+                weight += share
+            if weight and 1 - ratio / weight >= WEAR_DROP:
+                worn[pwm.path] = 1 - ratio / weight
+        return worn
 
     @staticmethod
     def summary_time(kind: str, now: float) -> float:
@@ -416,6 +467,11 @@ class Monitor:
                     )
             else:
                 self._stall_since.pop(pwm.path, None)
+
+        chosen = {pwm.path for pwm in settings.pwms}
+        for path, drop in self.wear.items():
+            if path in chosen:
+                found[f"wear:{path}"] = (KIND_FAN_WEAR, {"fan": self._fan_name(path), "percent": f"{drop * 100:.0f}"})
 
         # The chip of a chosen fan is gone (a kernel update can rename it): those fans are not controlled.
         if status.get("missing_pwms"):

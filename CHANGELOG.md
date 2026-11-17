@@ -28,6 +28,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   (`SELFTEST_SHORT_DAYS`, `SELFTEST_LONG_DAYS`), started at night without
   waking a sleeping drive, one long test per night. The drive card shows
   the last self-test, and a failed one is a SMART warning.
+- Fan wear: once the history is three weeks old, the speed of each chosen
+  fan at a given PWM is kept as its baseline; a fan that turns 15 % slower
+  than that over the last week raises an alert (worn bearings show this
+  way well before the fan stops).
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.
