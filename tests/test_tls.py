@@ -69,8 +69,10 @@ async def test_one_port_for_https_and_http(tmp_path: Path) -> None:
         _ = listener.port
     await listener.start()
     port = listener.port
+    # The client trusts the certificate just made (its names include 127.0.0.1): verification stays on.
+    trusted = ssl.create_default_context(cafile=str(tmp_path / "tls" / "cert.pem"))
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://127.0.0.1:{port}/", ssl=False) as response:
+        async with session.get(f"https://127.0.0.1:{port}/", ssl=trusted) as response:
             assert await response.text() == "secure=True"
         async with session.get(f"http://127.0.0.1:{port}/") as response:
             assert await response.text() == "secure=False"
