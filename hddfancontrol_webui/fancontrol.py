@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -47,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from .aio import cancel_and_wait
-from .settings import Hwmon, Pwm, Settings
+from .settings import Hwmon, Pwm, Settings, is_pwm_path
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -302,12 +303,33 @@ class PwmWriter:
         except OSError:
             return None
 
+    def _take(self, path: str, always: bool) -> None:
+        """Put the output in manual mode the first time, and only then save its state.
+
+        Saved only once the mode is written: after a failed write, the next
+        one tries the mode again instead of writing a value into a file that
+        may not be a fan at all. An output whose driver has no pwmN_enable
+        file is saved as it is. always: write the mode even when it already
+        reads as manual.
+        """
+        if path in self._saved:
+            return
+        if not is_pwm_path(path):
+            raise ValueError(f"{path} is not a PWM output")
+        enable_file = self._file(f"{path}_enable")
+        enable = self._read(f"{path}_enable")
+        value = self._read(path)
+        if enable is None and not os.path.lexists(enable_file):
+            self._saved[path] = (None, value)
+            return
+        if always or enable != str(ENABLE_MANUAL):
+            enable_file.write_text(f"{ENABLE_MANUAL}\n", encoding="utf-8")
+        self._saved[path] = (enable, value)
+
     def write(self, path: str, value: int) -> None:
         """Take the output in manual mode, the first time, and set its value."""
         value = max(0, min(PWM_MAX, int(value)))
-        if path not in self._saved:
-            self._saved[path] = (self._read(f"{path}_enable"), self._read(path))
-            self._file(f"{path}_enable").write_text(f"{ENABLE_MANUAL}\n", encoding="utf-8")
+        self._take(path, always=True)
         self._file(path).write_text(f"{value}\n", encoding="utf-8")
         self.values[path] = value
 
@@ -318,11 +340,7 @@ class PwmWriter:
         the output; hddfancontrol pwm-test writes values without switching
         the mode first, so the PWM test takes the output with this.
         """
-        if path not in self._saved:
-            enable = self._read(f"{path}_enable")
-            self._saved[path] = (enable, self._read(path))
-            if enable is not None and enable != str(ENABLE_MANUAL):
-                self._file(f"{path}_enable").write_text(f"{ENABLE_MANUAL}\n", encoding="utf-8")
+        self._take(path, always=False)
 
     def forget(self) -> None:
         """Drop what was saved without giving it back: the outputs stay as they are now."""

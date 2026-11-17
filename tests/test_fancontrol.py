@@ -593,3 +593,45 @@ async def test_drive_names_are_read_in_a_thread(fake_sys: Path, fast: None) -> N
     await steps(3)
     await fans.stop()
     assert threads and threading.main_thread() not in threads
+
+
+def test_writer_saves_an_output_only_once_it_is_taken(fake_sys: Path) -> None:
+    """A failed write of the mode leaves nothing saved, so the next write fails too instead of writing the value."""
+    chip = fake_sys / "class" / "hwmon" / "hwmon2"
+    (chip / "pwm4").write_text("120\n")
+    (chip / "pwm4_enable").mkdir()  # cannot be written
+    path = "/sys/class/hwmon/hwmon2/pwm4"
+    writer = PwmWriter(fake_sys)
+    for _ in range(2):
+        with pytest.raises(OSError):
+            writer.write(path, 200)
+        with pytest.raises(OSError):
+            writer.take(path)
+    assert (chip / "pwm4").read_text() == "120\n" and writer.values == {}
+    writer.restore()  # nothing to give back
+    assert (chip / "pwm4").read_text() == "120\n"
+
+
+def test_writer_writes_only_pwm_outputs(fake_sys: Path) -> None:
+    """Whatever the caller passes, only /sys/class/hwmon/hwmonN/pwmN files are written."""
+    (fake_sys / "block" / "sda" / "device").mkdir(parents=True)
+    delete = fake_sys / "block" / "sda" / "device" / "delete"
+    delete.write_text("")
+    writer = PwmWriter(fake_sys)
+    for _ in range(2):
+        with pytest.raises(ValueError):
+            writer.write("/sys/block/sda/device/delete", 255)
+    with pytest.raises(ValueError):
+        writer.take("/sys/block/sda/device/delete")
+    assert delete.read_text() == ""
+
+
+def test_writer_without_an_enable_file_still_writes(fake_sys: Path) -> None:
+    """An output whose driver has no pwmN_enable is written at once, and gets its value back from restore."""
+    chip = fake_sys / "class" / "hwmon" / "hwmon2"
+    (chip / "pwm5").write_text("100\n")
+    writer = PwmWriter(fake_sys)
+    writer.write("/sys/class/hwmon/hwmon2/pwm5", 80)
+    assert (chip / "pwm5").read_text() == "80\n" and not (chip / "pwm5_enable").exists()
+    writer.restore()
+    assert (chip / "pwm5").read_text() == "100\n"
