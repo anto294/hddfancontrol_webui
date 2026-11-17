@@ -48,13 +48,16 @@ from .hardware import Hardware
 from .history import History
 from .labels import Labels
 from .monitor import Monitor
-from .privsep import WebUser, gateway_env, given_tls, prepare_web_dir, secure_socket, socket_dir, web_user
+from .privsep import WebUser, gateway_command, gateway_env, given_tls, prepare_web_dir, secure_socket, socket_dir, web_user
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsStore
 from .smart import read_smart, start_selftest
 from .supervisor import Daemon, LogBuffer, Supervisor
 from .templog import TempLog
 from .web import STATE, create_app
+
+# Where the package is imported from (root's): the gateway imports it from there only.
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
 
 # ---------------------------
@@ -227,7 +230,7 @@ async def serve(core: Core) -> None:
         if core.gateway is not None and core.socket_path is not None and core.user is not None:
             await web.UnixSite(runner, str(core.socket_path)).start()
             secure_socket(core.socket_path, core.user)
-            core.gateway.start(["-m", "hddfancontrol_webui.gateway"])
+            core.gateway.start(gateway_command(PACKAGE_ROOT))
         await stop.wait()
     finally:
         try:

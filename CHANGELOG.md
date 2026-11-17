@@ -41,6 +41,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - With `LOAD_SENSOR_MODULES=false` the **Scan again** button (and
   `POST /api/sensors/scan`) no longer runs `sensors-detect` and
   `modprobe` anyway: it answers that loading modules is off.
+- The web server's Python runs isolated (`python -I`): no Python
+  variable of the environment, and no module from its working folder,
+  can change what it imports. Its `HOME` is no longer a folder it can
+  write.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

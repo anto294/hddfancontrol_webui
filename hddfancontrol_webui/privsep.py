@@ -36,6 +36,8 @@ from .tls import TLS_DIR
 _LOGGER = logging.getLogger(__name__)
 
 SOCKET_FILE = "core.sock"
+GATEWAY_MODULE = "hddfancontrol_webui.gateway"
+GATEWAY_HOME = "/nonexistent"
 TEMP_WEB_PREFIX = "hddfancontrol-webui-web-"
 GIVEN_TLS_DIR = "web-tls"
 GIVEN_CERT = "cert.pem"
@@ -49,7 +51,6 @@ PEM_MARK = "-----BEGIN "
 # The environment of the gateway: these names, and nothing else.
 GATEWAY_ENV = (
     "PATH",
-    "PYTHONPATH",
     "PYTHONDONTWRITEBYTECODE",
     "PYTHONUNBUFFERED",
     "TZ",
@@ -381,6 +382,22 @@ def secure_socket(path: Path, user: WebUser) -> None:
 
 
 # ---------------------------
+#   gateway_command
+# ---------------------------
+def gateway_command(package_root: Path, module: str = GATEWAY_MODULE) -> list[str]:
+    """The arguments of the Python interpreter that runs the gateway.
+
+    -I: no PYTHON* variable, no user site, and neither the working folder
+    nor the script's folder on the import path, so a module planted there
+    is never imported. The package itself is found at package_root (root's:
+    /app in the image, the venv's site-packages on bare metal), passed as
+    an argument instead of PYTHONPATH, which -I ignores.
+    """
+    code = "import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); runpy.run_module(sys.argv.pop(1), run_name='__main__')"
+    return ["-I", "-c", code, str(package_root), module]
+
+
+# ---------------------------
 #   gateway_env
 # ---------------------------
 def gateway_env(env: dict[str, str], socket_path: Path, web_dir: Path, cert: str, key: str) -> dict[str, str]:
@@ -388,7 +405,8 @@ def gateway_env(env: dict[str, str], socket_path: Path, web_dir: Path, cert: str
     result = {name: env[name] for name in GATEWAY_ENV if name in env}
     result[CORE_SOCKET_ENV] = str(socket_path)
     result[WEB_DIR_ENV] = str(web_dir)
-    result["HOME"] = str(web_dir)
+    # Nothing writable: no program of the gateway (openssl) keeps files there.
+    result["HOME"] = GATEWAY_HOME
     for name, value in (("TLS_CERT", cert), ("TLS_KEY", key)):
         if value:
             result[name] = value

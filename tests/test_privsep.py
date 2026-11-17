@@ -258,7 +258,7 @@ def test_gateway_env(tmp_path: Path) -> None:
     assert result["PATH"] == "/bin" and result["WEBUI_PASSWORD"] == "p" and result["WEBUI_ALLOW"] == "all"
     assert result["WEBUI_ACCESS_LOG"] == "true"
     assert "NOTIFY_URL" not in result and "DRIVES" not in result
-    assert result["HFC_CORE_SOCKET"] == str(tmp_path / "core.sock") and result["HOME"] == str(tmp_path / "web")
+    assert result["HFC_CORE_SOCKET"] == str(tmp_path / "core.sock") and result["HOME"] == "/nonexistent"
     assert (result["TLS_CERT"], result["TLS_KEY"]) == ("/web/tls/c.pem", "/web/tls/k.pem")
     assert "TLS_CERT" not in gateway_env(env, tmp_path / "s", tmp_path, "", "")
     # A half pair reaches the gateway, which reports it.
@@ -321,3 +321,33 @@ class _ListHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         """Keep one message."""
         self.lines.append(record.getMessage())
+
+
+def test_the_gateway_runs_isolated_from_its_folder_and_environment(tmp_path: Path) -> None:
+    """python -I with the package's own root: a module planted in the working folder or PYTHONPATH is never imported."""
+    import subprocess
+    import sys
+
+    import hddfancontrol_webui
+
+    planted = tmp_path / "hddfancontrol_webui"
+    planted.mkdir()
+    (planted / "__init__.py").write_text("raise SystemExit('HIJACKED')\n")
+    root = Path(hddfancontrol_webui.__file__).parent.parent
+    command = privsep.gateway_command(root, "hddfancontrol_webui.const")
+    assert command[0] == "-I"
+    result = subprocess.run(  # noqa: S603  # our own interpreter and arguments
+        [sys.executable, *command],
+        cwd=tmp_path,
+        env={"PYTHONPATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0 and "HIJACKED" not in result.stderr
+
+
+def test_the_gateway_has_no_writable_home(tmp_path: Path) -> None:
+    """HOME is a folder that does not exist, and PYTHONPATH is not passed on."""
+    env = gateway_env({"PYTHONPATH": "/x", "PATH": "/bin"}, tmp_path / "s", tmp_path / "web", "", "")
+    assert env["HOME"] == "/nonexistent" and "PYTHONPATH" not in env
