@@ -29,7 +29,7 @@ jobs:
       - name: Open an issue for each newer release
         run: |
           check() {
-            arg="$1" repo="$2"
+            arg="$1" commit_arg="$2" repo="$3"
             pinned=$(sed -n "s/^ARG $arg=//p" Dockerfile)
             latest=$(gh api "repos/$repo/releases/latest" --jq .tag_name)
             echo "$repo: pinned $pinned, latest $latest"
@@ -39,8 +39,11 @@ jobs:
               echo "An issue is already open: $title"
               return 0
             fi
+            # The commit the tag points to (the dereferenced one for an annotated tag).
+            commit=$(git ls-remote "https://github.com/$repo.git" "refs/tags/$latest^{}" "refs/tags/$latest" \
+              | sort -k2 -r | head -n 1 | cut -f1)
             gh issue create --title "$title" --label dependencies --body \
-              "The Dockerfile pins \`$arg=$pinned\`, and [$repo](https://github.com/$repo/releases/tag/$latest) released \`$latest\`. Read its changes, update the ARG, check that the command line in \`settings.py\` still matches, and add an entry to CHANGELOG.md."
+              "The Dockerfile pins \`$arg=$pinned\`, and [$repo](https://github.com/$repo/releases/tag/$latest) released \`$latest\`, commit \`$commit\` today. Read its changes, update \`$arg=$latest\` and \`$commit_arg=$commit\` (check the commit with \`git ls-remote https://github.com/$repo.git 'refs/tags/$latest^{}' 'refs/tags/$latest'\`: the build fails when the tag does not point to it), check that the command line in \`settings.py\` still matches, and add an entry to CHANGELOG.md."
           }
-          check HDDFANCONTROL_VERSION desbma/hddfancontrol
-          check HDIDLE_VERSION adelolmo/hd-idle
+          check HDDFANCONTROL_VERSION HDDFANCONTROL_COMMIT desbma/hddfancontrol
+          check HDIDLE_VERSION HDIDLE_COMMIT adelolmo/hd-idle
