@@ -471,12 +471,17 @@ async def test_auto_mode_follows_each_drive_target(fake_sys: Path, fast: None) -
 
 
 async def test_restore_off_leaves_full_speed(fake_sys: Path, fast: None) -> None:
-    """With restore_fan_settings off, the fans stay at full speed when control ends."""
+    """With restore_fan_settings off, the fans stay at full speed when the web UI exits, not at a restart."""
     settings = from_dict({**SETTINGS.to_dict(), "restore_fan_settings": False})
     fans = FanController(PwmWriter(fake_sys), lambda: sample({"sda": 30.0, "coretemp.0/1": 50.0}), lambda _: None)
     fans.start_control(settings)
     await steps(10)
+    # A stop to restart (apply) gives the fans back, so the chip's state is never lost.
     await fans.stop()
+    assert read(fake_sys, "pwm1_enable") == "5"
+    fans.start_control(settings)
+    await steps(10)
+    await fans.stop(final=True)
     assert read(fake_sys, "pwm1") == "255" and read(fake_sys, "pwm1_enable") == "1"
 
 

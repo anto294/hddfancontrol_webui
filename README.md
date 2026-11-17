@@ -227,7 +227,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `INTERVAL` | `20s` | Check interval (`10s`, `1min`, …) |
 | `AVERAGE` | `1` | Number of samples of each drive to average |
 | `HWMONS` | — | Other temperature inputs, as `PATH[:MIN:MAX]`, separated by spaces |
-| `RESTORE_FAN_SETTINGS` | `true` | When fan control stops, give the fans back their settings; `false` leaves them at full speed |
+| `RESTORE_FAN_SETTINGS` | `true` | When the web UI stops, give the fans back their settings; `false` leaves them at full speed (a restart after a change always gives them back) |
 | `VERBOSITY` | `INFO` | `TRACE`, `DEBUG`, `INFO`, `WARN` or `ERROR` |
 | `SPIN_DOWN_TIME_S` | `600` | Idle time before spin down, seconds; `0` turns hd-idle off |
 | `SPIN_DOWN_COMMAND` | `ata` | `ata` or `scsi` |

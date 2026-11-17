@@ -439,10 +439,10 @@ class Supervisor:
         self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
         self.fans.start_control(settings)
 
-    async def _stop_daemons(self) -> None:
-        """Stop both daemons, then the fan controller, which gives the fans back last."""
+    async def _stop_daemons(self, final: bool = False) -> None:
+        """Stop both daemons, then the fan controller, which gives the fans back last (final: the web UI exits)."""
         await asyncio.gather(self.hddfancontrol.stop(), self.hdidle.stop())
-        await self.fans.stop()
+        await self.fans.stop(final)
 
     async def _restart(self) -> None:
         """Stop and start again. The lock is held."""
@@ -455,7 +455,7 @@ class Supervisor:
         if self._manual_watch is not None:
             await cancel_and_wait(self._manual_watch)
         async with self._lock:
-            await self._stop_daemons()
+            await self._stop_daemons(final=True)
 
     async def restart(self) -> None:
         """Restart with the settings in force."""

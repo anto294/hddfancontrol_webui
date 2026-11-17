@@ -430,15 +430,22 @@ class FanController:
                 return
             self.writer.write(path, value)
 
-    async def stop(self) -> None:
-        """Stop and give the fans back (or leave them at full speed when restore_fan_settings is off)."""
+    async def stop(self, final: bool = False) -> None:
+        """Stop and give the fans back.
+
+        Only at the final stop (the web UI exits) does restore_fan_settings
+        off leave the fans at full speed instead. A stop to restart (apply,
+        a mode change) always gives them back: forgetting what was saved
+        there would make the next run save "manual, 255" as the chip's own
+        state, and the fans would never go back to the chip.
+        """
         task, self._task = self._task, None
         if task is not None:
             await cancel_and_wait(task)
         with self._manual_lock:
             controlled = self.mode in ("curve", "auto")
             self.mode = None
-            if controlled and not self._settings.restore_fan_settings:
+            if final and controlled and not self._settings.restore_fan_settings:
                 self._full_speed([p.path for p in self._settings.pwms])
                 self.writer.forget()
             else:
