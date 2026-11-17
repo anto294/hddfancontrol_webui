@@ -214,7 +214,8 @@ async def authentication(request: web.Request, handler: Handler) -> web.StreamRe
             return await handler(request)
         logins.failed(address)
         await asyncio.sleep(AUTH_FAILURE_DELAY)
-    if path.startswith("/api/"):
+    # Programs (the API, a Prometheus scraper) get 401; a browser goes to the login page.
+    if path.startswith("/api/") or path == "/metrics":
         return _json_error(401, "unauthorized")
     raise web.HTTPFound("/login")
 
@@ -649,6 +650,117 @@ async def post_sensor_scan(request: web.Request) -> web.Response:
 
 
 # ---------------------------
+#   _metric_labels
+# ---------------------------
+def _metric_labels(**labels: Any) -> str:
+    """Prometheus labels, escaped: {name="value",...}."""
+    parts = []
+    for name, value in labels.items():
+        text = str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        parts.append(f'{name}="{text}"')
+    return "{" + ",".join(parts) + "}"
+
+
+# ---------------------------
+#   get_metrics
+# ---------------------------
+async def get_metrics(request: web.Request) -> web.Response:
+    """The state in the Prometheus text format, for Prometheus or Grafana Agent (behind the login, like the API)."""
+    app = request.app
+    supervisor = app[SUPERVISOR]
+    status = supervisor.status()
+    latest = await asyncio.to_thread(app[TEMP_LOG].latest)
+    hwmons = await asyncio.to_thread(app[HARDWARE].hwmons)
+    drives = await asyncio.to_thread(app[HARDWARE].drives)
+    smart = await asyncio.to_thread(app[MONITOR].smart)
+    labels = app[LABELS].all()
+    alerts = app[MONITOR].alerts
+    chosen = {pwm.path for pwm in supervisor.settings.pwms}
+    lines: list[str] = []
+
+    def metric(name: str, kind: str, help_text: str, samples: list[tuple[dict[str, Any], float]]) -> None:
+        lines.append(f"# HELP hddfancontrol_{name} {help_text}")
+        lines.append(f"# TYPE hddfancontrol_{name} {kind}")
+        for sample_labels, value in samples:
+            lines.append(f"hddfancontrol_{name}{_metric_labels(**sample_labels) if sample_labels else ''} {value:g}")
+
+    metric("up", "gauge", "The web UI runs.", [({}, 1)])
+    metric(
+        "info",
+        "gauge",
+        "Version and modes.",
+        [({"version": VERSION, "mode": status["mode"], "control_mode": status["control_mode"]}, 1)],
+    )
+    metric(
+        "failsafe",
+        "gauge",
+        "1 when the fans run at full speed for safety.",
+        [({}, int(bool(status["fans"]["auto"]["failsafe"] or status["fans"]["safety"] or status["fans"]["error"])))],
+    )
+    by_name = {drive.name: drive for drive in drives}
+    temps: list[tuple[dict[str, Any], float]] = []
+    asleep: list[tuple[dict[str, Any], float]] = []
+    if latest:
+        settings = supervisor.settings
+        count = max(0, len(latest["temps"]) - len(settings.hwmons))
+        for name, value in list(latest["temps"].items())[:count]:
+            kernel = name.split()[0]
+            drive = by_name.get(kernel)
+            label = next((labels[i] for i in (drive.ids if drive else []) if i in labels), "")
+            sample = {"drive": kernel, "model": drive.model if drive else " ".join(name.split()[1:]), "label": label}
+            asleep.append((sample, int(value is None)))
+            if value is not None:
+                temps.append((sample, value))
+    metric("drive_temperature_celsius", "gauge", "Drive temperature measured by hddfancontrol.", temps)
+    metric("drive_asleep", "gauge", "1 when the drive sleeps (or its probe failed).", asleep)
+    pwm_samples: list[tuple[dict[str, Any], float]] = []
+    rpm_samples: list[tuple[dict[str, Any], float]] = []
+    for device in hwmons:
+        for pwm in device.pwms:
+            sample = {
+                "fan": pwm.path,
+                "chip": device.name,
+                "label": labels.get(pwm.path, ""),
+                "chosen": str(pwm.path in chosen).lower(),
+            }
+            if pwm.value is not None:
+                pwm_samples.append((sample, round(pwm.value * 100 / 255, 1)))
+            if pwm.rpm is not None:
+                rpm_samples.append((sample, pwm.rpm))
+    metric("fan_pwm_percent", "gauge", "PWM value of each output, in percent.", pwm_samples)
+    metric("fan_rpm", "gauge", "Speed of each fan.", rpm_samples)
+    speeds = status["fans"]["auto"].get("speeds") or {}
+    metric(
+        "fan_target_ratio",
+        "gauge",
+        "Speed that fan control asks of each chosen fan, from 0 to 1.",
+        [({"fan": path, "label": labels.get(path, "")}, speed) for path, speed in speeds.items()],
+    )
+    by_id = {i: drive for drive in drives for i in drive.ids}
+    health: list[tuple[dict[str, Any], float]] = []
+    warnings: list[tuple[dict[str, Any], float]] = []
+    for path, data in smart.items():
+        drive = by_id.get(path)
+        sample = {"device": path, "drive": drive.name if drive else "", "status": data.get("status", "")}
+        health.append((sample, int(data.get("status") == "ok")))
+        warnings.append(({"device": path}, len(data.get("warnings", []))))
+    metric("smart_ok", "gauge", "1 when the last SMART read found nothing wrong.", health)
+    metric("smart_warnings", "gauge", "Number of SMART warnings of the drive.", warnings)
+    kinds: dict[str, int] = {}
+    for alert in alerts.status() if alerts is not None else []:
+        kinds[alert["kind"]] = kinds.get(alert["kind"], 0) + 1
+    metric(
+        "alerts_active",
+        "gauge",
+        "Alerts in force, by kind.",
+        [({"kind": kind}, count) for kind, count in sorted(kinds.items())],
+    )
+    return web.Response(
+        text="\n".join(lines) + "\n", content_type="text/plain", charset="utf-8", headers={"Cache-Control": "no-store"}
+    )
+
+
+# ---------------------------
 #   get_logs
 # ---------------------------
 async def get_logs(request: web.Request) -> web.Response:
@@ -719,5 +831,6 @@ def create_app(
     router.add_delete("/api/pwm-test", delete_pwm_test)
     router.add_post("/api/sensors/scan", post_sensor_scan)
     router.add_get("/api/logs", get_logs)
+    router.add_get("/metrics", get_metrics)
     router.add_static("/static/", STATIC_DIR, show_index=False, follow_symlinks=False)
     return app

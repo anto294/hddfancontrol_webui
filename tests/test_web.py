@@ -450,3 +450,27 @@ async def test_session_cookie_is_secure_behind_an_https_proxy(make_client: Clien
     assert "Secure" not in plain.headers["Set-Cookie"]
     proxied = await client.post("/api/login", json=good, headers={**FETCH, "X-Forwarded-Proto": "https, http"})
     assert "Secure" in proxied.headers["Set-Cookie"]
+
+
+async def test_metrics(make_client: ClientMaker) -> None:
+    """The Prometheus text has the drives, the fans, SMART and the alerts; it needs the login like the API."""
+    client = await make_client()
+    await client.put("/api/settings", json={"drives": [DRIVE]}, headers=FETCH)
+    await client.put("/api/labels", json={"key": PWM1, "label": 'Back "1"'}, headers=FETCH)
+    client.app[MONITOR].history.save_smart(DRIVE, {"status": "warning", "warnings": ["crc_errors"]})
+    response = await client.get("/metrics")
+    assert response.status == 200 and response.content_type == "text/plain"
+    text = await response.text()
+    assert "hddfancontrol_up 1" in text
+    assert 'hddfancontrol_drive_temperature_celsius{drive="sda"' in text and "} 41" in text
+    assert 'label="Back \\"1\\""' in text  # quotes escaped
+    assert f'hddfancontrol_smart_warnings{{device="{DRIVE}"}} 1' in text
+    assert "# TYPE hddfancontrol_fan_rpm gauge" in text
+
+
+async def test_metrics_need_the_login(make_client: ClientMaker) -> None:
+    """With credentials set, /metrics needs them (HTTP Basic works for Prometheus)."""
+    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
+    assert (await client.get("/metrics")).status == 401
+    basic = "Basic " + base64.b64encode(b"anto:a-long-password").decode()
+    assert (await client.get("/metrics", headers={"Authorization": basic})).status == 200

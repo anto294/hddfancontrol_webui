@@ -32,6 +32,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   fan at a given PWM is kept as its baseline; a fan that turns 15 % slower
   than that over the last week raises an alert (worn bearings show this
   way well before the fan stops).
+- `/metrics` in the Prometheus text format: drive temperatures, fan PWM
+  and RPM, the speed asked of each fan, SMART state, alerts and safety.
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.

@@ -141,6 +141,20 @@ hd-idle spins the chosen drives down after an idle time: one for every drive, an
 - **SMART:** `smartctl -a -n standby` reads the drives marked as monitored in **Settings** (by default, the drives that drive the fans) every 6 hours by default, and when you press **Read SMART now**. A drive asleep at that time is not woken and keeps its last data.
 - **Names:** give a fan or a drive a name in the **Fans** tab or the drive list of **Settings**. Names are kept in `/config/labels.json`, and changing one does not restart fan control. Drives are named by their `/dev/disk/by-id` path, which does not change between boots.
 
+## Prometheus and Grafana
+
+`/metrics` gives the state in the Prometheus text format: drive temperatures (and whether each drive sleeps), PWM and RPM of every fan, the speed fan control asks of each chosen fan, SMART state and warnings, alerts in force by kind, and whether the fans run at full speed for safety. With a username and password set it needs them, as HTTP Basic credentials:
+
+```yaml
+scrape_configs:
+  - job_name: hddfancontrol
+    static_configs:
+      - targets: ["truenas.lan:28462"]
+    basic_auth:
+      username: admin
+      password: your-password
+```
+
 ## Alerts
 
 The web UI watches for:
