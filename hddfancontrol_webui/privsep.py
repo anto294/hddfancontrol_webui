@@ -47,6 +47,8 @@ GIVEN_KEY = "key.pem"
 OLD_COPIES = ("given-cert.pem", "given-key.pem")
 # A certificate or key larger than this is not one.
 MAX_TLS_FILE = 1024 * 1024
+# What every PEM certificate or key holds.
+PEM_MARK = "-----BEGIN "
 # The environment of the gateway: these names, and nothing else.
 GATEWAY_ENV = (
     "PATH",
@@ -240,17 +242,27 @@ def _drop_old_copies(tls_dir: Path, log: logging.Logger) -> None:
 #   _gateway_can_change
 # ---------------------------
 def _gateway_can_change(source: str, user: WebUser) -> bool:
-    """Whether a part of the path, as written or as its links lead, belongs to the gateway's user."""
+    """Whether the gateway's user could change the file or put another in its place.
+
+    Every part of the path, as written and as its links lead, is checked:
+    one that the user owns, or a folder that it may write (its group's, or
+    everyone's without the sticky bit), lets it swap the file for a link to
+    a file of root's, which root would then copy for it.
+    """
     if user.uid is None:
         return False
     for text in (os.path.abspath(source), os.path.realpath(source)):
         path = Path(text)
         for part in (path, *path.parents):
             try:
-                if part.lstat().st_uid == user.uid:
-                    return True
+                info = part.lstat()
             except FileNotFoundError:
                 continue
+            if info.st_uid == user.uid:
+                return True
+            if stat.S_ISDIR(info.st_mode) and not info.st_mode & stat.S_ISVTX:
+                if info.st_mode & stat.S_IWOTH or (info.st_mode & stat.S_IWGRP and info.st_gid == user.gid):
+                    return True
     return False
 
 
@@ -258,7 +270,11 @@ def _gateway_can_change(source: str, user: WebUser) -> bool:
 #   _read_pem
 # ---------------------------
 def _read_pem(source: str) -> str:
-    """Read a PEM file as root: a regular file, not through a last link, at most MAX_TLS_FILE bytes. Raises OSError, ValueError."""
+    """Read a PEM file as root: a regular file, not through a last link, at most MAX_TLS_FILE bytes. Raises OSError, ValueError.
+
+    A file without a PEM block is refused, so a wrong path never hands the
+    gateway the text of another file of root's.
+    """
     fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as handle:
         if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
@@ -266,7 +282,10 @@ def _read_pem(source: str) -> str:
         data = handle.read(MAX_TLS_FILE + 1)
     if len(data) > MAX_TLS_FILE:
         raise ValueError(f"{source} is larger than {MAX_TLS_FILE} bytes")
-    return data.decode("utf-8")
+    text = data.decode("utf-8")
+    if PEM_MARK not in text:
+        raise ValueError(f"{source} is not a PEM file")
+    return text
 
 
 # ---------------------------

@@ -142,18 +142,22 @@ def test_prepare_web_dir_not_root(tmp_path: Path) -> None:
     assert web_dir.is_dir() and stat.S_IMODE(config.stat().st_mode) == 0o700
 
 
+CERT = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+KEY = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"
+
+
 def test_given_tls(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
     """TLS_CERT and TLS_KEY are copied to root's folder for the gateway's group; a half or unreadable pair is passed as given."""
     config = tmp_path / "config"
     config.mkdir()
     cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
-    cert.write_text("CERT")
-    key.write_text("KEY")
+    cert.write_text(CERT)
+    key.write_text(KEY)
     user = WebUser("web", 10001, 10002)
     copied_cert, copied_key = given_tls(config, user, str(cert), str(key))
     folder = config / "web-tls"
     assert (copied_cert, copied_key) == (str(folder / "cert.pem"), str(folder / "key.pem"))
-    assert Path(copied_cert).read_text() == "CERT" and Path(copied_key).read_text() == "KEY"
+    assert Path(copied_cert).read_text() == CERT and Path(copied_key).read_text() == KEY
     assert stat.S_IMODE(Path(copied_key).stat().st_mode) == 0o640 and stat.S_IMODE(folder.stat().st_mode) == 0o750
     assert {(copied_key, 0, 10002), (str(folder), 0, 10002)} <= set(as_root)
     assert given_tls(config, user, str(cert), "") == (str(cert), "")
@@ -176,7 +180,7 @@ def test_given_tls_never_reads_what_the_gateway_can_change(
     web = config / "web"
     web.mkdir()
     (web / "cert.pem").symlink_to(secret)
-    (web / "key.pem").write_text("KEY")
+    (web / "key.pem").write_text(KEY)
     # The gateway's user owns /config/web (here: the current user plays it).
     gateway = WebUser("web", os.getuid(), os.getgid())
     root_owned = WebUser("web", os.getuid() + 1, os.getgid())
@@ -185,16 +189,39 @@ def test_given_tls_never_reads_what_the_gateway_can_change(
     assert not (config / "web-tls").exists()
     # Not the gateway's: still no last link, no FIFO, nothing huge, nothing binary; never a half copy.
     key = tmp_path / "k.pem"
-    key.write_text("KEY")
+    key.write_text(KEY)
     fifo = tmp_path / "fifo"
     os.mkfifo(fifo)
     huge = tmp_path / "huge"
     huge.write_bytes(b"x" * (privsep.MAX_TLS_FILE + 1))
     binary = tmp_path / "binary"
     binary.write_bytes(b"\xff\xfe")
-    for bad in (web / "cert.pem", fifo, huge, binary):
+    plain = tmp_path / "plain"
+    plain.write_text("root:$6$hash:19000::::::")  # a file of root's given by mistake: not PEM, not copied
+    for bad in (web / "cert.pem", fifo, huge, binary, plain):
         assert given_tls(config, root_owned, str(key), str(bad)) == (str(key), str(bad))
         assert not (config / "web-tls").exists()
+
+
+def test_given_tls_refuses_a_folder_the_gateway_can_write(tmp_path: Path, as_root: Any) -> None:
+    """A pair in a folder of the gateway's group, or everyone's without the sticky bit, is passed as given."""
+    config = tmp_path / "config"
+    config.mkdir()
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    cert, key = shared / "c.pem", shared / "k.pem"
+    cert.write_text(CERT)
+    key.write_text(KEY)
+    other = WebUser("web", os.getuid() + 1, os.getgid() + 1)
+    pair = (str(cert), str(key))
+    for mode in (0o770, 0o707):
+        shared.chmod(mode)
+        group = WebUser("web", other.uid, os.getgid())
+        assert given_tls(config, group if mode == 0o770 else other, *pair) == pair
+        assert not (config / "web-tls").exists()
+    shared.chmod(0o1777)  # sticky, like /tmp: a file of another owner cannot be swapped
+    assert given_tls(config, other, *pair)[0] == str(config / "web-tls" / "cert.pem")
+    shared.chmod(0o755)
 
 
 def test_socket_folder_and_mode(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
