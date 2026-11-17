@@ -246,6 +246,27 @@ def allowed(address: str | None, networks: tuple[Network, ...]) -> bool:
 
 
 # ---------------------------
+#   refused_hint
+# ---------------------------
+def refused_hint(address: str) -> str:
+    """What to add to WEBUI_ALLOW for a refused address that may well be on the LAN: a global IPv6 one.
+
+    A LAN with IPv6 gives its hosts global addresses too, and a browser
+    prefers them when the NAS's name has an AAAA record. They cannot be
+    allowed by default (they are Internet addresses), so the log names
+    the /64 to allow.
+    """
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return ""
+    if ip.version != 6 or not ip.is_global:
+        return ""
+    network = ipaddress.ip_network(f"{ip}/64", strict=False)
+    return f" (a global IPv6 address: if it is your LAN's, add {network} to WEBUI_ALLOW)"
+
+
+# ---------------------------
 #   _is_https
 # ---------------------------
 def _is_https(request: web.Request) -> bool:
@@ -297,7 +318,7 @@ async def network_filter(request: web.Request, handler: Handler) -> web.StreamRe
         if len(refused) > LOGIN_MAX_ADDRESSES:
             refused.clear()
         refused[address] = now
-        request.app[LOG](f"Refused {address}: not in WEBUI_ALLOW")
+        request.app[LOG](f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
     return web.Response(status=403, text="Forbidden")
 
 

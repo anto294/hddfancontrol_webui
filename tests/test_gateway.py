@@ -135,6 +135,15 @@ async def test_network_filter(make_gateway: GatewayMaker, monkeypatch: pytest.Mo
     assert (await gw.client.get("/login")).status == 200
 
 
+def test_refused_hint() -> None:
+    """A refused global IPv6 address gets the /64 to allow; others nothing."""
+    hint = gateway_module.refused_hint("2a02:1210:2c00:aa00:1:2:3:4")
+    assert "2a02:1210:2c00:aa00::/64" in hint and "WEBUI_ALLOW" in hint
+    assert gateway_module.refused_hint("8.8.8.8") == ""
+    assert gateway_module.refused_hint("fd00::1") == ""
+    assert gateway_module.refused_hint("?") == ""
+
+
 async def test_first_setup(make_gateway: GatewayMaker) -> None:
     """Without credentials only the setup answers; the code of the log creates them and logs in, once."""
     gw = await make_gateway()
