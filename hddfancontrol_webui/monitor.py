@@ -267,27 +267,44 @@ class Monitor:
             self._log(f"{loop} works again")
 
     async def _record_loop(self) -> None:
-        """Record every RECORD_PERIOD seconds, log the temperatures and purge every hour.
+        """Record every RECORD_PERIOD seconds, log the temperatures, send the summary, check fan wear and purge.
 
-        An error (a full disk, a locked database) is logged and the loop goes
-        on: it also raises the alerts, which must never stop for good.
+        Each job has its own guard: an error (a full disk, a locked
+        database, a bad value in meta) is logged once and the loop goes on,
+        and one failing job never keeps the others from running. The alerts
+        must never stop for good, and the purge must not stop either, or
+        history.db grows without limit.
         """
         last_purge = 0.0
         while True:
             try:
                 await self._record_step()
-                if time.monotonic() - self._wear_at >= WEAR_PERIOD:
+                self._worked("recording")
+            except Exception as err:  # the loop must outlive any error
+                self._failed("recording", err)
+            try:
+                await self._send_summary()
+                self._worked("summary")
+            except Exception as err:  # the loop must outlive any error
+                self._failed("summary", err)
+            if time.monotonic() - self._wear_at >= WEAR_PERIOD:
+                # Set first: a check that fails waits for the next period too.
+                self._wear_at = time.monotonic()
+                try:
                     self.wear = await asyncio.to_thread(self.fan_wear)
-                    self._wear_at = time.monotonic()
-                if time.monotonic() - last_purge >= PURGE_PERIOD:
+                    self._worked("fan wear check")
+                except Exception as err:  # the loop must outlive any error
+                    self._failed("fan wear check", err)
+            if time.monotonic() - last_purge >= PURGE_PERIOD:
+                last_purge = time.monotonic()
+                try:
                     settings = self._settings()
                     await asyncio.to_thread(self.history.purge, settings.history_days)
                     # SMART data of a drive no longer monitored (or gone) is not shown: drop it.
                     await asyncio.to_thread(self.history.forget_smart, set(settings.monitor_drives))
-                    last_purge = time.monotonic()
-                self._worked("recording")
-            except Exception as err:  # the loop must outlive any error
-                self._failed("recording", err)
+                    self._worked("purge")
+                except Exception as err:  # the loop must outlive any error
+                    self._failed("purge", err)
             await asyncio.sleep(RECORD_PERIOD)
 
     async def _record_step(self) -> None:
@@ -299,7 +316,6 @@ class Monitor:
             if self.alerts is not None:
                 status = self._status() if self._status is not None else {}
                 await self.alerts.update(await asyncio.to_thread(self.conditions, status))
-                await self._send_summary()
 
     def fan_wear(self, now: float | None = None) -> dict[str, float]:
         """How much slower each chosen fan turns than at first, at the same PWM: {path: drop} for drops of WEAR_DROP. Blocking."""

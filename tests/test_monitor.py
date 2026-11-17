@@ -382,3 +382,38 @@ def test_fan_wear(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     found = monitor.conditions({})
     assert found[f"wear:{pwm}"] == ("fan_wear", {"fan": "nct6798 pwm1", "percent": "17"})
     monitor.history.close()
+
+
+async def test_a_failing_job_does_not_stop_the_purge(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fan wear check or a summary that fails is logged on its own; recording and the purge go on."""
+    real = asyncio.sleep
+
+    async def quick(_: float) -> None:
+        await real(0.01)
+
+    monkeypatch.setattr(monitor_module.asyncio, "sleep", quick)
+    monkeypatch.setattr(monitor_module, "PURGE_PERIOD", 0.0)
+    lines: list[str] = []
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, from_dict({"drives": [DRIVE]}))
+    monitor._log = lines.append
+    purges: list[int] = []
+
+    def broken_wear(*_: Any) -> dict[str, float]:
+        raise ValueError("bad baseline")
+
+    async def broken_summary() -> None:
+        raise ValueError("bad summary")
+
+    monkeypatch.setattr(monitor, "fan_wear", broken_wear)
+    monkeypatch.setattr(monitor, "_send_summary", broken_summary)
+    monkeypatch.setattr(monitor.history, "purge", lambda days, now=None: purges.append(days))
+    monitor.start()
+    await real(0.1)
+    await monitor.stop()
+    assert len(purges) > 1
+    assert sum("fan wear check failed" in line for line in lines) == 1
+    assert sum("summary failed" in line for line in lines) == 1
+    assert not any("recording failed" in line for line in lines)
+    monitor.history.close()
