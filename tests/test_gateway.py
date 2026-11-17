@@ -280,6 +280,20 @@ async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path) ->
     assert any("Credentials changed" in line for line in gw.lines)
 
 
+async def test_wrong_current_password_counts_as_a_wrong_login(
+    make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a session, guessing the current password still meets the login limit."""
+    gw = await make_gateway()
+    client = gw.client
+    await client.post("/api/setup", json={"code": client.app[SETUP].code, **GOOD}, headers=FETCH)
+    monkeypatch.setattr(client.app[LOGINS], "_max", 1)
+    guess = {"username": "x", "password": "another-password", "current": "guess"}
+    assert (await client.put("/api/auth", json=guess, headers=FETCH)).status == 400
+    blocked = await client.put("/api/auth", json={**guess, "current": "a-long-password"}, headers=FETCH)
+    assert blocked.status == 429 and (await blocked.json())["error"] == "too_many_attempts"
+
+
 async def test_credentials_from_the_environment_cannot_change(make_gateway: GatewayMaker) -> None:
     """WEBUI_USERNAME and WEBUI_PASSWORD win, and are read only."""
     gw = await logged_in(make_gateway)

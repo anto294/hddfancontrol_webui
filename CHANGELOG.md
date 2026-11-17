@@ -17,6 +17,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A path with a `..` part, such as `/static/i18n/../app.js`, could pass
   the login as a public file of the login page and then be served as a
   file of the web UI (only from its own folder). Such paths now get 404.
+- A wrong current password, when changing the credentials, counts
+  against the login limit like a wrong login.
 
 ## [0.8.0] - 2026-11-17
 

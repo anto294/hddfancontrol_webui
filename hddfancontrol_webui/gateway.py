@@ -630,12 +630,17 @@ async def put_auth(request: web.Request) -> web.Response:
     data = await read_json(request)
     if not isinstance(data, dict) or not all(isinstance(data.get(k, ""), str) for k in ("username", "password", "current")):
         return json_error(400, "invalid_document")
+    # The current password is a password check like a login: a stolen session must not guess it freely.
+    address = request.remote or ""
+    if request.app[LOGINS].blocked(address):
+        return json_error(429, "too_many_attempts")
     try:
         await _password_work(
             request, auth.set_credentials, data.get("username", ""), data.get("password", ""), data.get("current", "")
         )
     except AuthError as err:
         if err.code == "wrong_password":
+            _failed_login(request, address)
             _log(request, "Wrong current password when changing the credentials")
             await asyncio.sleep(AUTH_FAILURE_DELAY)
         return json_error(400, err.code)
