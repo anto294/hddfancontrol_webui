@@ -24,6 +24,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   manual control included, and raises the hot drive alert. Drive
   temperatures in the settings go up to 80 °C (they took 120), and a
   drive's own limits up to 70 °C unless it is NVMe; sensors keep 120.
+- A `/config` that the web server's user could write (its own, its
+  group's, or everyone's) is given to root and closed to writes by
+  others at start, with an error in the log; when that fails, the login
+  data are not kept there. The files of `/config` are written through a
+  new temporary file with a random name, never a fixed `.tmp` name that
+  could be a planted link.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

@@ -186,9 +186,12 @@ def _prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger) -> Pa
     auth.json and tls/ of an older version (kept in /config, root's), and
     gives them to the user; the whole folder only when it belonged to
     another user. /config itself gets the search bit for others, so the
-    gateway can reach its folder and nothing else.
+    gateway can reach its folder and nothing else, after _close_config
+    made sure the gateway cannot write it.
     """
     config_dir.mkdir(parents=True, exist_ok=True)
+    if user.uid is not None:
+        _close_config(config_dir, user, log)
     web_dir = config_dir / WEB_DIR
     if web_dir.is_symlink() or (web_dir.exists() and not web_dir.is_dir()):
         raise OSError(f"{web_dir} is not a folder")
@@ -210,6 +213,40 @@ def _prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger) -> Pa
         except OSError as err:  # an ACL of the host may forbid it: the gateway then says what it cannot open
             log.warning("Cannot let the gateway into %s: %s", config_dir, err)
     return web_dir
+
+
+# ---------------------------
+#   _close_config
+# ---------------------------
+def _close_config(config_dir: Path, user: WebUser, log: logging.Logger) -> None:
+    """Make sure the gateway's user cannot write /config, where root keeps its files. Raises OSError when it cannot.
+
+    The core writes settings, history and the fans' state there, and takes
+    for granted that only root can add or swap a name in it. A folder the
+    gateway could write (its own, its group's, or everyone's without the
+    sticky bit) is given to root and closed to writes by others; when that
+    fails, the gateway's folder is not made there.
+    """
+    info = config_dir.stat()
+    mode = stat.S_IMODE(info.st_mode)
+    own = info.st_uid == user.uid
+    group = bool(mode & stat.S_IWGRP) and info.st_gid == user.gid
+    everyone = bool(mode & stat.S_IWOTH) and not mode & stat.S_ISVTX
+    if not (own or group or everyone):
+        return
+    log.error(
+        "%s: the gateway could write it (owner %d, group %d, mode %o): giving it to root and closing it to writes by others",
+        config_dir,
+        info.st_uid,
+        info.st_gid,
+        mode,
+    )
+    try:
+        if own:
+            os.chown(config_dir, 0, -1)
+        config_dir.chmod(mode & ~(stat.S_IWGRP | stat.S_IWOTH))
+    except OSError as err:
+        raise OSError(f"{config_dir} is writable by the gateway's user and cannot be closed: {err}") from err
 
 
 # ---------------------------

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import pwd
 import stat
@@ -99,7 +100,9 @@ def test_prepare_web_dir_touches_nothing_the_gateway_put_there(
     (config / "tls").mkdir()  # an older tls/ is not moved over the link
     user = WebUser("web", os.getuid(), os.getgid())
     prepare_web_dir(config, user)
-    assert as_root == [] and (web_dir / "tls").is_symlink()  # already the gateway's: nothing given again
+    # Already the gateway's: nothing in it given again. (This /config belongs to the
+    # current user, who plays the gateway here: it goes to root.)
+    assert as_root == [(str(config), 0, -1)] and (web_dir / "tls").is_symlink()
     # Another owner: everything given, but not the hard link nor through the link.
     other = WebUser("web", os.getuid() + 1, os.getgid())
     prepare_web_dir(config, other)
@@ -266,3 +269,60 @@ def test_gateway_env(tmp_path: Path) -> None:
     # A half pair reaches the gateway, which reports it.
     half = gateway_env(env, tmp_path / "s", tmp_path, "/c.pem", "")
     assert half["TLS_CERT"] == "/c.pem" and "TLS_KEY" not in half
+
+
+@pytest.mark.parametrize(
+    ("mode", "owner_is_gateway", "group_is_gateway"),
+    [(0o777, False, False), (0o775, False, True), (0o755, True, False)],
+)
+def test_a_config_folder_the_gateway_can_write_is_closed(
+    tmp_path: Path, as_root: list[tuple[str, int, int]], mode: int, owner_is_gateway: bool, group_is_gateway: bool
+) -> None:
+    """A /config the gateway could write (everyone's, its group's, its own) is logged, closed and given to root."""
+    config = tmp_path / "config"
+    config.mkdir()
+    config.chmod(mode)
+    me, other = os.getuid(), os.getuid() + 1
+    user = WebUser("web", me if owner_is_gateway else other, os.getgid() if group_is_gateway else os.getgid() + 1)
+    lines: list[str] = []
+    log = logging.getLogger("test-config")
+    log.addHandler(_ListHandler(lines))
+    assert prepare_web_dir(config, user, log) == config / "web"
+    assert stat.S_IMODE(config.stat().st_mode) & 0o022 == 0
+    assert any("the gateway could write" in line for line in lines)
+    if owner_is_gateway:
+        assert (str(config), 0, -1) in as_root
+
+
+def test_a_config_folder_that_cannot_be_closed_is_not_used(
+    tmp_path: Path, as_root: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When /config cannot be closed, the gateway gets a temporary folder, not one inside it."""
+    config = tmp_path / "config"
+    config.mkdir()
+    config.chmod(0o777)
+    real_chmod = Path.chmod
+
+    def chmod(self: Path, mode: int) -> None:
+        if self == config:
+            raise PermissionError("EPERM")
+        real_chmod(self, mode)
+
+    monkeypatch.setattr(Path, "chmod", chmod)
+    monkeypatch.setattr(privsep.tempfile, "tempdir", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    folder = prepare_web_dir(config, WebUser("web", os.getuid() + 1, os.getgid() + 1))
+    assert folder.parent == tmp_path / "tmp" and not (config / "web").exists()
+
+
+class _ListHandler(logging.Handler):
+    """Keep the messages logged."""
+
+    def __init__(self, lines: list[str]) -> None:
+        """Append to lines."""
+        super().__init__()
+        self.lines = lines
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Keep one message."""
+        self.lines.append(record.getMessage())
