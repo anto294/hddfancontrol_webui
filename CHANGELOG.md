@@ -22,9 +22,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   removed.
 - The port answers only private networks by default (LAN, loopback,
   link-local, carrier-grade NAT and unique local IPv6, so VPNs such as
-  Tailscale work); `WEBUI_ALLOW` sets others, or `all`. A refused
-  global IPv6 address, which a LAN with IPv6 also uses, is logged with
-  the network to add.
+  Tailscale work); `WEBUI_ALLOW` sets others, `private` for the default
+  ones (`private 2a02:…::/64`), or `all`. A refused global IPv6 address,
+  which a LAN with IPv6 also uses, is logged with the value to set.
 - Sessions end after 12 hours without use (and 7 days after the login).
 - Audit log: every change is logged with the user and the client address;
   logins, wrong passwords and setup codes, and refused addresses too.

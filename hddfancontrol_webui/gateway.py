@@ -217,16 +217,23 @@ REFUSED: web.AppKey[dict[str, float]] = web.AppKey("refused", dict)
 #   parse_allow
 # ---------------------------
 def parse_allow(text: str | None) -> tuple[Network, ...]:
-    """The networks of WEBUI_ALLOW (CIDRs or addresses, by commas or spaces); empty means DEFAULT_ALLOW; "all" is every address.
+    """The networks of WEBUI_ALLOW (CIDRs or addresses, by commas or spaces); empty means DEFAULT_ALLOW.
 
-    Raises ValueError on a value that is not a network.
+    "private" stands for DEFAULT_ALLOW, so "private 2a02:…::/64" adds a
+    network to them; "all" is every address. Raises ValueError on a value
+    that is not a network.
     """
-    items = (text or "").replace(",", " ").split()
-    if not items:
-        items = list(DEFAULT_ALLOW)
-    if [item.lower() for item in items] == ["all"]:
-        items = ["0.0.0.0/0", "::/0"]
-    return tuple(ipaddress.ip_network(item, strict=False) for item in items)
+    items = (text or "").replace(",", " ").split() or ["private"]
+    networks: list[Network] = []
+    for item in items:
+        word = item.lower()
+        if word == "all":
+            networks += [ipaddress.ip_network("0.0.0.0/0"), ipaddress.ip_network("::/0")]
+        elif word == "private":
+            networks += [ipaddress.ip_network(net) for net in DEFAULT_ALLOW]
+        else:
+            networks.append(ipaddress.ip_network(item, strict=False))
+    return tuple(networks)
 
 
 # ---------------------------
@@ -264,7 +271,7 @@ def refused_hint(address: str) -> str:
     if ip.version != 6 or not ip.is_global:
         return ""
     network = ipaddress.ip_network(f"{ip}/64", strict=False)
-    return f" (a global IPv6 address: if it is your LAN's, add {network} to WEBUI_ALLOW)"
+    return f" (a global IPv6 address: if it is your LAN's, set WEBUI_ALLOW=private {network})"
 
 
 # ---------------------------

@@ -115,6 +115,9 @@ def test_parse_allow_and_allowed() -> None:
     only = parse_allow("192.168.1.0/24, 10.1.2.3")
     assert allowed("192.168.1.99", only) and allowed("10.1.2.3", only) and not allowed("10.1.2.4", only)
     assert allowed("127.0.0.1", only) and allowed("::1", only)  # loopback always (the health check)
+    more = parse_allow("private, 2a02:1210::/64")
+    assert allowed("192.168.1.10", more) and allowed("2a02:1210::5", more) and not allowed("8.8.8.8", more)
+    assert set(default) <= set(more)
     with pytest.raises(ValueError):
         parse_allow("192.168.1.0/33")
 
@@ -145,7 +148,7 @@ def test_login_state_only_in_an_object(tmp_path: Path) -> None:
 def test_refused_hint() -> None:
     """A refused global IPv6 address gets the /64 to allow; others nothing."""
     hint = gateway_module.refused_hint("2a02:1210:2c00:aa00:1:2:3:4")
-    assert "2a02:1210:2c00:aa00::/64" in hint and "WEBUI_ALLOW" in hint
+    assert "WEBUI_ALLOW=private 2a02:1210:2c00:aa00::/64" in hint
     assert gateway_module.refused_hint("8.8.8.8") == ""
     assert gateway_module.refused_hint("fd00::1") == ""
     assert gateway_module.refused_hint("?") == ""
