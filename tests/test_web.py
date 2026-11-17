@@ -493,7 +493,6 @@ async def test_history_csv(make_client: ClientMaker) -> None:
     assert (await client.get("/api/history.csv?hours=0")).status == 400
 
 
-
 async def test_web_app_manifest(make_client: ClientMaker) -> None:
     """The manifest and its icons are public (the browser fetches them without the session) and typed."""
     client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
@@ -503,3 +502,13 @@ async def test_web_app_manifest(make_client: ClientMaker) -> None:
     assert manifest["display"] == "standalone" and manifest["start_url"] == "/"
     for item in manifest["icons"]:
         assert (await client.get(item["src"], allow_redirects=False)).status == 200
+
+
+async def test_bays_api(make_client: ClientMaker) -> None:
+    """The bay map is read and stored; a bad one is refused with its code."""
+    client = await make_client()
+    assert await (await client.get("/api/bays")).json() == {"rows": 0, "cols": 0, "slots": []}
+    response = await client.put("/api/bays", json={"rows": 1, "cols": 2, "slots": [DRIVE, ""]}, headers=FETCH)
+    assert response.status == 200 and (await response.json())["slots"] == [DRIVE, ""]
+    bad = await client.put("/api/bays", json={"rows": 1, "cols": 1, "slots": ["/tmp/x"]}, headers=FETCH)
+    assert bad.status == 400 and (await bad.json())["error"] == "invalid_dev_path"

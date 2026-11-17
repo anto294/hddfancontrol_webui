@@ -1602,3 +1602,139 @@ details.help p {
 .pair input {
   width: 5rem;
 }
+
+/* Bay map: one tile per bay, in the columns of the case. */
+.bays {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.bays.cols-1 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+.bays.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bays.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bays.cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.bays.cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.bays.cols-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.bays.cols-7 {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.bays.cols-8 {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.bays.cols-9 {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+}
+
+.bays.cols-10 {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+}
+
+.bays.cols-11 {
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+}
+
+.bays.cols-12 {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.bay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.bay.cool,
+.bay.mild {
+  border-left-color: var(--ok);
+}
+
+.bay strong,
+.bay small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bay select {
+  width: 100%;
+}
+
+.bay-number {
+  font-size: 0.7rem;
+}
+
+.bay-temp {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.bay.warm {
+  border-left-color: var(--warn);
+}
+
+.bay.hot {
+  border-left-color: var(--danger);
+}
+
+.bay.hot .bay-temp {
+  color: var(--danger);
+}
+
+.bay.asleep,
+.bay.empty {
+  border-left-color: var(--border);
+}
+
+.bay.gone {
+  border-left-color: var(--danger);
+  border-style: dashed;
+}
+
+.bay.smart-failing,
+.bay.smart-warning {
+  outline: 2px solid var(--warn);
+  outline-offset: -2px;
+}
+
+.bay.smart-failing {
+  outline-color: var(--danger);
+}
+
+/* Many columns on a phone: the tiles get smaller, the names shorter. */
+@media (max-width: 640px) {
+  .bays {
+    gap: 0.3rem;
+  }
+
+  .bay {
+    padding: 0.35rem 0.4rem;
+    font-size: 0.8rem;
+  }
+}

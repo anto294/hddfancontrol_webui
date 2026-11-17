@@ -66,6 +66,10 @@
           <strong class="stat-value"></strong>
         </div>
       </div>
+      <article class="card" id="bay-card" hidden>
+        <h2 data-icon="bays" data-i18n="bays.title"></h2>
+        <div id="bay-map" class="bays"></div>
+      </article>
       <article class="card">
         <div class="card-head">
           <h2 data-icon="drive" data-i18n="overview.drives"></h2>
@@ -120,6 +124,21 @@
           <button id="smart-refresh" class="secondary" data-icon="restart" data-i18n="action.refresh_smart"></button>
         </div>
         <p class="muted small" data-i18n="smart.intro"></p>
+      </article>
+      <article class="card">
+        <details id="bay-edit">
+          <summary data-i18n="bays.edit"></summary>
+          <p class="muted small" data-i18n="bays.help"></p>
+          <div class="fields">
+            <label class="field"><span data-i18n="bays.rows"></span><input type="number" id="bay-rows" min="0" max="12"></label>
+            <label class="field"><span data-i18n="bays.cols"></span><input type="number" id="bay-cols" min="0" max="12"></label>
+          </div>
+          <div id="bay-editor" class="bays"></div>
+          <div class="actions">
+            <button type="button" id="bay-save" data-icon="check" data-i18n="bays.save"></button>
+            <span id="bay-result" class="small"></span>
+          </div>
+        </details>
       </article>
       <div id="smart-list" class="grid"></div>
     </section>

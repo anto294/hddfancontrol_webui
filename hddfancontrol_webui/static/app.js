@@ -19,6 +19,8 @@ const state = {
   trend: new Map(),
   // The last SMART data, for the hints of the settings (recommended maximum).
   smartData: null,
+  // Where each drive sits in the case (drives.js).
+  bays: null,
 };
 
 const POLL_STATUS_MS = 3000;
@@ -412,6 +414,8 @@ function renderOverview() {
   setStat("stat-drives", total ? `${values.length} / ${total}` : "–");
   $("stat-drives").title = asleep ? t("overview.asleep_count", { count: asleep }) : "";
 
+  renderBays();
+
   const fans = $("fan-summary");
   const configured = new Set((state.settings ? state.settings.pwms : []).map((pwm) => pwm.path));
   // The configured fans, or every PWM output when none of them is found.
@@ -610,7 +614,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch {
     // pollStatus shows the problem.
   }
-  await Promise.all([pollStatus(), pollHardware(), pollLogs()]);
+  await Promise.all([pollStatus(), pollHardware(), pollLogs(), loadBays()]);
   let first;
   try {
     first = localStorage.getItem("tab") || "overview";

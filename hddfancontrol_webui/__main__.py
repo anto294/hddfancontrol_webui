@@ -13,6 +13,7 @@ from aiohttp import web
 
 from .alerts import Alerts
 from .auth import AuthStore
+from .bays import Bays
 from .const import (
     DEFAULT_CONFIG_DIR,
     DEFAULT_PORT,
@@ -115,7 +116,7 @@ def build() -> tuple[web.Application, int]:
             env.get("MODPROBE_BIN", MODPROBE_BIN),
         )
 
-    app = create_app(supervisor, hardware, temp_log, history, monitor, auth, labels, scan)
+    app = create_app(supervisor, hardware, temp_log, history, monitor, auth, labels, scan, Bays(config_dir))
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:
         """Scan the sensors, then start everything; stop it all when the server stops."""

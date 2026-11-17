@@ -31,6 +31,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 from .auth import SESSION_COOKIE, SESSION_LIFETIME, AuthError, AuthStore
+from .bays import BayError, Bays
 from .const import HISTORY_MAX_HOURS, SOURCE_SENSORS, VERSION
 from .hardware import Hardware
 from .history import History
@@ -81,6 +82,7 @@ HISTORY: web.AppKey[History] = web.AppKey("history", History)
 MONITOR: web.AppKey[Monitor] = web.AppKey("monitor", Monitor)
 AUTH: web.AppKey[AuthStore] = web.AppKey("auth", AuthStore)
 LABELS: web.AppKey[Labels] = web.AppKey("labels", Labels)
+BAYS: web.AppKey[Bays] = web.AppKey("bays", Bays)
 SENSOR_SCAN: web.AppKey[SensorScan] = web.AppKey("sensor_scan")
 STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
 PASSWORD_CHECKS: web.AppKey[asyncio.Semaphore] = web.AppKey("password_checks", asyncio.Semaphore)
@@ -514,6 +516,30 @@ async def put_labels(request: web.Request) -> web.Response:
 
 
 # ---------------------------
+#   get_bays
+# ---------------------------
+async def get_bays(request: web.Request) -> web.Response:
+    """Where each drive sits in the case."""
+    return web.json_response(request.app[BAYS].get())
+
+
+# ---------------------------
+#   put_bays
+# ---------------------------
+async def put_bays(request: web.Request) -> web.Response:
+    """Store the bay map: {rows, cols, slots}. Fan control is not restarted."""
+    data = await _read_json(request)
+    try:
+        bays = await asyncio.to_thread(request.app[BAYS].set, data)
+    except BayError as err:
+        return _json_error(400, err.code)
+    except OSError as err:
+        _LOGGER.error("Cannot save the bay map: %s", err)
+        return _json_error(500, "save_failed")
+    return web.json_response(bays)
+
+
+# ---------------------------
 #   get_settings
 # ---------------------------
 async def get_settings(request: web.Request) -> web.Response:
@@ -828,6 +854,7 @@ def create_app(
     auth: AuthStore,
     labels: Labels,
     sensor_scan: SensorScan | None = None,
+    bays: Bays | None = None,
 ) -> web.Application:
     """Build the application around parts that the caller starts and stops."""
 
@@ -842,6 +869,8 @@ def create_app(
     app[MONITOR] = monitor
     app[AUTH] = auth
     app[LABELS] = labels
+    # Without a store (tests), the map lives next to the labels.
+    app[BAYS] = bays or Bays(labels.path.parent)
     app[SENSOR_SCAN] = sensor_scan or default_scan
     app[STATE] = {"sensors": SensorReport()}
     app[PASSWORD_CHECKS] = asyncio.Semaphore(1)
@@ -863,6 +892,8 @@ def create_app(
     router.add_post("/api/smart", post_smart)
     router.add_get("/api/labels", get_labels)
     router.add_put("/api/labels", put_labels)
+    router.add_get("/api/bays", get_bays)
+    router.add_put("/api/bays", put_bays)
     router.add_get("/api/settings", get_settings)
     router.add_put("/api/settings", put_settings)
     router.add_delete("/api/settings", delete_settings)

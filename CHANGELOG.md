@@ -38,6 +38,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   label, value), at most 20000 points per line.
 - The web UI can go on the home screen of a phone as an app (web app
   manifest, icons, full screen on iPhone; Chrome installs it over HTTPS).
+- Bay map: draw the bays of the case and put each drive in its bay; the
+  overview shows the drives as in the case, with temperature and SMART
+  problems (`/config/bays.json`).
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.

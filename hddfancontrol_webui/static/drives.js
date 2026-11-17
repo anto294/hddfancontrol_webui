@@ -167,3 +167,98 @@ async function refreshSmart() {
     button.disabled = false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Bay map: where each drive sits in the case
+// ---------------------------------------------------------------------------
+
+// The drive of the host behind a stable name, and its temperature entry.
+function bayDrive(id) {
+  const drive = state.hardware.drives.find((d) => d.ids.includes(id) || `/dev/${d.name}` === id);
+  const temps = state.status && state.status.latest ? state.status.latest.temps : {};
+  const entry = drive ? Object.entries(temps).find(([name]) => name.split(" ")[0] === drive.name) : undefined;
+  return { drive, logName: entry ? entry[0] : drive ? drive.name : "", temp: entry ? entry[1] : undefined };
+}
+
+// The bays as a grid; each holds the name and the temperature of its drive.
+function renderBays() {
+  const bays = state.bays;
+  const card = $("bay-card");
+  const shown = bays && bays.rows * bays.cols > 0 && bays.slots.some(Boolean);
+  card.hidden = !shown;
+  if (!shown) return;
+  const box = $("bay-map");
+  box.className = `bays cols-${bays.cols}`;
+  box.replaceChildren(
+    ...bays.slots.map((id, index) => {
+      if (!id) return el("div", { class: "bay empty" }, el("span", { class: "muted small", text: t("bays.empty", { number: index + 1 }) }));
+      const { drive, logName, temp } = bayDrive(id);
+      const name = drive ? driveTitle(logName).name : shortPath(id);
+      const smart = state.smartData && state.smartData[id] ? state.smartData[id].status : "";
+      const level = temp === undefined ? "gone" : temp === null ? "asleep" : tempLevel(temp, drive.name);
+      const value = temp === undefined ? t("bays.missing") : temp === null ? t("state.asleep") : fmtTemp(temp);
+      return el(
+        "div",
+        { class: `bay ${level}${smart === "failing" || smart === "warning" ? ` smart-${smart}` : ""}`, title: id },
+        el("span", { class: "bay-number muted", text: String(index + 1) }),
+        el("strong", { class: "bay-name", text: name }),
+        el("small", { class: "muted", text: drive ? drive.name : "" }),
+        el("span", { class: "bay-temp", text: value }),
+      );
+    }),
+  );
+}
+
+// The editor: rows and columns, and a list of drives per bay.
+function renderBayEditor() {
+  const bays = state.bays || { rows: 0, cols: 0, slots: [] };
+  const rows = Math.max(0, Math.min(12, Number($("bay-rows").value) || 0));
+  const cols = Math.max(0, Math.min(12, Number($("bay-cols").value) || 0));
+  const kept = [...$("bay-editor").querySelectorAll("select")].map((select) => select.value);
+  const before = kept.length ? kept : bays.slots;
+  const box = $("bay-editor");
+  box.className = `bays cols-${cols}`;
+  const choices = state.hardware.drives.map((drive) => {
+    // The stable name the settings use for the drive, else its first one.
+    const chosen = state.settings ? drive.ids.find((id) => state.settings.drives.includes(id) || state.settings.monitor_drives.includes(id)) : undefined;
+    return { id: chosen || drive.ids[0], ids: drive.ids, text: `${driveLabelById(drive.ids[0]) || shortModel(drive.model)} · ${drive.name}` };
+  });
+  const slots = [];
+  for (let index = 0; index < rows * cols; index += 1) {
+    const current = before[index] || "";
+    const select = el("select", { "aria-label": t("bays.empty", { number: index + 1 }) }, el("option", { value: "", text: "—" }));
+    for (const choice of choices) select.append(el("option", { value: choice.id, text: choice.text, selected: choice.ids.includes(current) }));
+    slots.push(el("div", { class: "bay" }, el("span", { class: "bay-number muted", text: String(index + 1) }), select));
+  }
+  box.replaceChildren(...slots);
+}
+
+async function saveBays() {
+  const rows = Number($("bay-rows").value) || 0;
+  const cols = Number($("bay-cols").value) || 0;
+  const slots = [...$("bay-editor").querySelectorAll("select")].map((select) => select.value);
+  try {
+    state.bays = await api("PUT", "/api/bays", { rows, cols, slots });
+    $("bay-result").textContent = t("bays.saved");
+    renderBays();
+  } catch (error) {
+    $("bay-result").textContent = errorText(error);
+  }
+}
+
+async function loadBays() {
+  try {
+    state.bays = await api("GET", "/api/bays");
+  } catch {
+    state.bays = { rows: 0, cols: 0, slots: [] };
+  }
+  $("bay-rows").value = state.bays.rows || "";
+  $("bay-cols").value = state.bays.cols || "";
+  renderBays();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  for (const id of ["bay-rows", "bay-cols"]) $(id).addEventListener("input", renderBayEditor);
+  $("bay-edit").addEventListener("toggle", () => $("bay-edit").open && renderBayEditor());
+  $("bay-save").addEventListener("click", saveBays);
+});
