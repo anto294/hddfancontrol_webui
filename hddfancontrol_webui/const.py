@@ -45,6 +45,8 @@ VERSION = _version()
 
 DEFAULT_CONFIG_DIR = Path("/config")
 SETTINGS_FILE = "settings.json"
+# The state of each fan output before the web UI took it, kept for a run after an unclean exit.
+PWM_STATE_FILE = "pwm-state.json"
 TEMP_LOG_DIR = "templog"
 TEMP_LOG_FILE = "temps.jsonl"
 

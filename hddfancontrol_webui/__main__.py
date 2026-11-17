@@ -29,6 +29,7 @@ from .const import (
     HDIDLE_BIN,
     HISTORY_DB,
     MODPROBE_BIN,
+    PWM_STATE_FILE,
     SENSORS_DETECT_BIN,
     SMARTCTL_BIN,
     SOURCE_ALERTS,
@@ -82,7 +83,12 @@ def build() -> Core:
     temp_log_path = config_dir / TEMP_LOG_DIR / TEMP_LOG_FILE
     temp_log = TempLog(temp_log_path)
     hardware = Hardware()
-    fans = FanController(PwmWriter(), temp_log.latest, lambda text: logs.add(SOURCE_FAN_CONTROL, text), hardware.kernel_names)
+    fans = FanController(
+        PwmWriter(state_file=config_dir / PWM_STATE_FILE),
+        temp_log.latest,
+        lambda text: logs.add(SOURCE_FAN_CONTROL, text),
+        hardware.kernel_names,
+    )
     # The programs are looked up in PATH unless a variable names them: a
     # bare metal installation keeps its own hddfancontrol in its own folder.
     env = os.environ

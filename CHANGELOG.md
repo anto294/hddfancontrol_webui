@@ -50,6 +50,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   container after 10 s: the fans could stay at a manual value. The
   compose example sets `stop_grace_period: 60s` (add it to an existing
   TrueNAS app), and the systemd unit `TimeoutStopSec=60`.
+- After the web UI was killed (out of memory, `docker kill`), the next
+  start saved the fans' manual leftovers as the chip's own state and gave
+  them back at every stop: the fans stayed fixed for good. The chip's
+  state is now kept in `/config/pwm-state.json` for the current boot and
+  used again after such a kill; an output found in manual mode with no
+  saved state gets full speed when given back.
 - A JSON body nested too deep gets 400 `invalid_json` instead of an
   internal error with a traceback in the log.
 

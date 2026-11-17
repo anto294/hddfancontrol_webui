@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import threading
@@ -49,11 +50,14 @@ from typing import Any
 
 from .aio import cancel_and_wait
 from .settings import Hwmon, Pwm, Settings, is_pwm_path
+from .storage import write_atomic
 
 _LOGGER = logging.getLogger(__name__)
 
 PWM_MAX = 255
 ENABLE_MANUAL = 1
+# Changes at every boot: the state saved by PwmWriter holds for one boot only.
+BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
 
 # Gains of the PI controller, per °C of error. The proportional part adds 8 %
 # of speed per °C above the target; the integral part adds about 9 % per
@@ -284,13 +288,60 @@ def _age_seconds(latest: dict[str, Any] | None, now: datetime) -> float | None:
 #   PwmWriter
 # ---------------------------
 class PwmWriter:
-    """Write PWM files and give each one back its mode at the end."""
+    """Write PWM files and give each one back its mode at the end.
 
-    def __init__(self, sys_root: Path = Path("/sys")) -> None:
-        """Write under this tree: the real /sys, or a copy in the tests."""
+    The state an output had before it was first taken (its mode and value)
+    is also kept in state_file, with the boot it belongs to. A run that
+    was killed (SIGKILL, out of memory) never gave the outputs back: the
+    next run of the same boot finds them in manual mode at its own last
+    value, and would save that as the chip's state, leaving the fans fixed
+    for good. It takes the saved state instead. After a reboot the chip
+    starts afresh, so the state of another boot is ignored. An entry is
+    removed once its output is given back.
+    """
+
+    def __init__(self, sys_root: Path = Path("/sys"), state_file: Path | None = None, boot_id_file: Path = BOOT_ID) -> None:
+        """Write under this tree (the real /sys, or a copy in the tests); keep the chip's state in state_file."""
         self._sys = sys_root
         self._saved: dict[str, tuple[str | None, str | None]] = {}
         self.values: dict[str, int] = {}
+        self._state_file = state_file
+        try:
+            self._boot = boot_id_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            self._boot = ""
+        self._original = self._load_state()
+
+    def _load_state(self) -> dict[str, tuple[str | None, str | None]]:
+        """The states saved by an earlier run of this boot; empty when there are none or the file is broken."""
+        if self._state_file is None or not self._boot:
+            return {}
+        try:
+            data = json.loads(self._state_file.read_text(encoding="utf-8"))
+            if data.get("boot") != self._boot:
+                return {}
+            outputs = {
+                str(path): (None if enable is None else str(enable), None if value is None else str(value))
+                for path, (enable, value) in data["outputs"].items()
+            }
+        except FileNotFoundError:
+            return {}
+        except Exception as err:  # broken or nested too deep: the outputs are taken as they are now
+            _LOGGER.error("Cannot read %s, ignoring it: %r", self._state_file, err)
+            return {}
+        if outputs:
+            _LOGGER.warning("The last run did not give the fans back: using the state it saved for %s", ", ".join(outputs))
+        return outputs
+
+    def _store_state(self) -> None:
+        """Write the saved states, for a run after an unclean exit. Never raises: the fans come first."""
+        if self._state_file is None or not self._boot:
+            return
+        document = {"boot": self._boot, "outputs": {path: list(state) for path, state in self._original.items()}}
+        try:
+            write_atomic(self._state_file, json.dumps(document))
+        except OSError as err:
+            _LOGGER.error("Cannot save the state of the fans in %s: %s", self._state_file, err)
 
     def _file(self, path: str) -> Path:
         """Map a real /sys path into the tree."""
@@ -318,13 +369,17 @@ class PwmWriter:
             raise ValueError(f"{path} is not a PWM output")
         enable_file = self._file(f"{path}_enable")
         enable = self._read(f"{path}_enable")
-        value = self._read(path)
+        original = self._original.get(path)
+        if original is None:
+            original = (enable, self._read(path))
+            self._original[path] = original
+            self._store_state()
         if enable is None and not os.path.lexists(enable_file):
-            self._saved[path] = (None, value)
+            self._saved[path] = original
             return
         if always or enable != str(ENABLE_MANUAL):
             enable_file.write_text(f"{ENABLE_MANUAL}\n", encoding="utf-8")
-        self._saved[path] = (enable, value)
+        self._saved[path] = original
 
     def write(self, path: str, value: int) -> None:
         """Take the output in manual mode, the first time, and set its value."""
@@ -348,17 +403,26 @@ class PwmWriter:
         self.values.clear()
 
     def restore(self) -> None:
-        """Give every output back the mode, and in manual mode the value, it had."""
+        """Give every output back the mode it had; one that was in manual mode already gets full speed.
+
+        An output found in manual mode may hold a value that a killed run
+        left: its old value is not trusted, and 255 is the safe one. An
+        output without an enable file gets its value back.
+        """
         for path, (enable, value) in self._saved.items():
             try:
                 if enable is not None and enable != str(ENABLE_MANUAL):
                     self._file(f"{path}_enable").write_text(f"{enable}\n", encoding="utf-8")
-                elif value is not None:
+                elif enable is None and value is not None:
                     self._file(path).write_text(f"{value}\n", encoding="utf-8")
                 else:
                     self._file(path).write_text(f"{PWM_MAX}\n", encoding="utf-8")
             except OSError as err:
                 _LOGGER.error("Cannot restore %s: %s", path, err)
+                continue
+            self._original.pop(path, None)
+        if self._saved:
+            self._store_state()
         self._saved.clear()
         self.values.clear()
 

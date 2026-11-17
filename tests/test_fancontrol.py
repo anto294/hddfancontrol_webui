@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import stat
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -635,3 +637,54 @@ def test_writer_without_an_enable_file_still_writes(fake_sys: Path) -> None:
     assert (chip / "pwm5").read_text() == "80\n" and not (chip / "pwm5_enable").exists()
     writer.restore()
     assert (chip / "pwm5").read_text() == "100\n"
+
+
+def boot(tmp_path: Path, text: str) -> Path:
+    """A boot_id file with this boot id."""
+    path = tmp_path / "boot_id"
+    path.write_text(text + "\n")
+    return path
+
+
+def test_writer_keeps_the_chip_state_across_an_unclean_exit(fake_sys: Path, tmp_path: Path) -> None:
+    """Killed without restore, the next run of the same boot gives the fans the chip's state, not its own leftovers."""
+    state = tmp_path / "config" / "pwm-state.json"
+    first = PwmWriter(fake_sys, state, boot(tmp_path, "boot-1"))
+    first.write(PWM1, 40)  # the chip had mode 5; SIGKILL now, no restore
+    assert read(fake_sys, "pwm1_enable") == "1" and state.exists()
+    assert stat.S_IMODE(state.stat().st_mode) == 0o600
+    second = PwmWriter(fake_sys, state, boot(tmp_path, "boot-1"))
+    second.write(PWM1, 60)
+    second.restore()
+    assert read(fake_sys, "pwm1_enable") == "5"  # not "1" with 40, which would leave the fan fixed for good
+    assert json.loads(state.read_text())["outputs"] == {}  # given back: forgotten
+
+
+def test_writer_ignores_the_state_of_another_boot(fake_sys: Path, tmp_path: Path) -> None:
+    """After a reboot the chip starts afresh: what an earlier boot saved no longer holds."""
+    state = tmp_path / "pwm-state.json"
+    PwmWriter(fake_sys, state, boot(tmp_path, "boot-1")).write(PWM1, 40)
+    (fake_sys / "class/hwmon/hwmon2/pwm1_enable").write_text("2\n")  # what the BIOS set at this boot
+    writer = PwmWriter(fake_sys, state, boot(tmp_path, "boot-2"))
+    writer.write(PWM1, 60)
+    writer.restore()
+    assert read(fake_sys, "pwm1_enable") == "2"
+
+
+def test_writer_gives_full_speed_to_an_output_found_in_manual_mode(fake_sys: Path, tmp_path: Path) -> None:
+    """An output already in manual mode at the first take may hold a value left by a killed run: restore puts 255."""
+    (fake_sys / "class/hwmon/hwmon2/pwm2").write_text("30\n")  # pwm2_enable is 1 in the fake tree
+    writer = PwmWriter(fake_sys, tmp_path / "pwm-state.json", boot(tmp_path, "boot-1"))
+    writer.write(PWM2, 90)
+    writer.restore()
+    assert read(fake_sys, "pwm2") == "255"
+
+
+def test_writer_survives_a_broken_state_file(fake_sys: Path, tmp_path: Path) -> None:
+    """An unreadable state file is ignored: the outputs are taken as they are now."""
+    state = tmp_path / "pwm-state.json"
+    state.write_text("[" * 100000)
+    writer = PwmWriter(fake_sys, state, boot(tmp_path, "boot-1"))
+    writer.write(PWM1, 60)
+    writer.restore()
+    assert read(fake_sys, "pwm1_enable") == "5"
