@@ -37,6 +37,18 @@ def test_environment_credentials(tmp_path: Path) -> None:
     assert AuthStore(tmp_path, {"WEBUI_PASSWORD": "x"}).username == "admin"
 
 
+def test_environment_password_goes_through_scrypt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A guess at WEBUI_PASSWORD costs a scrypt hash, like one at a stored password; the password is not kept."""
+    from hddfancontrol_webui import auth as auth_module
+
+    auth = AuthStore(tmp_path, {"WEBUI_PASSWORD": "s3cret-pass"})
+    assert "s3cret-pass" not in repr(vars(auth))
+    calls: list[str] = []
+    real = auth_module._hash
+    monkeypatch.setattr(auth_module, "_hash", lambda password, salt: calls.append(password) or real(password, salt))
+    assert not auth.check("admin", "guess") and calls == ["guess"]
+
+
 def test_stored_credentials(tmp_path: Path) -> None:
     """Set and change the stored credentials; the file holds no password."""
     auth = AuthStore(tmp_path, {})

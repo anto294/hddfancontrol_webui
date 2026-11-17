@@ -12,6 +12,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The limit on wrong passwords counts an IPv6 /64 as one client, and
   stops every login for 15 minutes after 100 wrong passwords from all
   clients together: a host with many addresses could guess without limit.
+- A guess at `WEBUI_PASSWORD` now costs a scrypt hash, like one at a
+  stored password, and the password itself is not kept in memory.
 
 ## [0.8.0] - 2026-11-17
 

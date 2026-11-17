@@ -78,7 +78,11 @@ class AuthStore:
         env = os.environ if env is None else env
         self.path = config_dir / AUTH_FILE
         self._env_user = env.get("WEBUI_USERNAME", "admin") or "admin"
-        self._env_password = env.get("WEBUI_PASSWORD", "")
+        password = env.get("WEBUI_PASSWORD", "")
+        self._env_password = bool(password)
+        # Checked through scrypt like a stored password, so a guess costs the same.
+        self._env_salt = secrets.token_bytes(16)
+        self._env_hash = _hash(password, self._env_salt) if password else b""
         # token -> (end of its lifetime, last request).
         self._sessions: dict[str, tuple[float, float]] = {}
         self._file: dict[str, str] | None = self._load()
@@ -120,7 +124,7 @@ class AuthStore:
         """Whether the credentials are right. Takes the same time whichever part is wrong."""
         if self.source == SOURCE_ENV:
             user_ok = hmac.compare_digest(username.encode(), self._env_user.encode())
-            password_ok = hmac.compare_digest(password.encode(), self._env_password.encode())
+            password_ok = hmac.compare_digest(_hash(password, self._env_salt), self._env_hash)
             return user_ok and password_ok
         if self._file is not None:
             try:
