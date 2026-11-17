@@ -34,6 +34,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   web server no longer runs as `nobody`, which other services may share:
   it does not start, the log says why, and the fans are still controlled.
   The installer stops when it cannot create its user.
+- Notifications never follow a redirect (the message would go wherever
+  the server says), and a failure shows a short reason in the web UI's
+  log; the detail, with the server's host but never the address's query
+  (a Gotify token), goes to the container's log.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

@@ -29,7 +29,9 @@ async def receiver(aiohttp_server: Any) -> tuple[TestServer, list[dict[str, Any]
     received: list[dict[str, Any]] = []
 
     async def take(request: web.Request) -> web.Response:
-        received.append({"headers": dict(request.headers), "body": await request.text()})
+        received.append({"path": request.path, "headers": dict(request.headers), "body": await request.text()})
+        if request.path == "/redirect":
+            raise web.HTTPTemporaryRedirect("/elsewhere")
         return web.Response(status=500 if request.path == "/fail" else 200)
 
     app = web.Application()
@@ -51,6 +53,22 @@ async def test_send_formats(receiver: tuple[TestServer, list[dict[str, Any]]]) -
         await send(str(server.make_url("/fail")), "ntfy", "x", True)
     with pytest.raises(NotifyError):
         await send("http://127.0.0.1:1/", "ntfy", "x", True)
+
+
+async def test_send_never_follows_a_redirect(receiver: tuple[TestServer, list[dict[str, Any]]]) -> None:
+    """A redirect is a failure: the message is not sent on to wherever the server points."""
+    server, received = receiver
+    with pytest.raises(NotifyError, match="HTTP 307"):
+        await send(str(server.make_url("/redirect")), "json", "x", True)
+    assert [r["path"] for r in received] == ["/redirect"]
+
+
+async def test_send_errors_say_little(caplog: pytest.LogCaptureFixture) -> None:
+    """The error shown in the web UI's log is generic; the detail (without the address's secrets) is in Python's log."""
+    with pytest.raises(NotifyError) as failed:
+        await send("http://127.0.0.1:1/message?token=s3cret", "gotify", "x", True)
+    assert str(failed.value) == "cannot connect"
+    assert "s3cret" not in caplog.text and "127.0.0.1:1" in caplog.text
 
 
 async def test_alerts_start_and_end() -> None:
