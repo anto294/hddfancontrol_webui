@@ -65,16 +65,16 @@ fi
 wheel=$(find "$HERE" -maxdepth 1 -name "hddfancontrol_webui-*.whl" | head -n 1)
 [ -n "$wheel" ] || die "no wheel next to install.sh: run it from the extracted release"
 
-running=false
-systemctl is-active --quiet hddfancontrol-webui.service && running=true
-$running && systemctl stop hddfancontrol-webui.service
-
 # The gateway (the part the network reaches) runs as this user, not root.
 if ! getent passwd hddfancontrol-webui >/dev/null; then
     useradd --system --user-group --no-create-home --home-dir /nonexistent \
         --shell /usr/sbin/nologin hddfancontrol-webui \
-        || say "warning: cannot create the user hddfancontrol-webui; the web server will run as nobody"
+        || die "cannot create the user hddfancontrol-webui, which the web server runs as"
 fi
+running=false
+systemctl is-active --quiet hddfancontrol-webui.service && running=true
+$running && systemctl stop hddfancontrol-webui.service
+
 install -d -m 0755 "$PREFIX/bin"
 install -m 0755 "$HERE"/bin/hddfancontrol "$HERE"/bin/hd-idle "$HERE"/bin/sdparm "$PREFIX/bin/"
 # A new venv each time, so an update never mixes old and new packages.
