@@ -186,11 +186,17 @@ class LoginLimiter:
 
     @staticmethod
     def client(address: str) -> str:
-        """The client an address belongs to: itself for IPv4 (or a name), its /64 for IPv6."""
+        """The client an address belongs to: itself for IPv4 (or a name), its /64 for IPv6.
+
+        An IPv4-mapped address (::ffff:a.b.c.d, from a dual-stack socket) is
+        the IPv4 client, as in allowed(): its /64 would hold every IPv4 host.
+        """
         try:
             ip = ipaddress.ip_address(address)
         except ValueError:
             return address
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
         if ip.version == 6:
             return str(ipaddress.ip_network(f"{ip}/64", strict=False))
         return address

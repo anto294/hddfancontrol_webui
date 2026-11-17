@@ -429,6 +429,14 @@ def test_login_limiter_counts_an_ipv6_64_as_one_client() -> None:
     assert LoginLimiter.client("not an address") == "not an address"
 
 
+def test_login_limiter_counts_an_ipv4_mapped_address_as_ipv4() -> None:
+    """::ffff:a.b.c.d (a dual-stack socket) is the IPv4 client a.b.c.d, not a /64 shared by every IPv4 host."""
+    assert LoginLimiter.client("::ffff:192.168.1.10") == "192.168.1.10"
+    limiter = LoginLimiter(max_failures=1, window=10)
+    limiter.failed("::ffff:192.168.1.10")
+    assert limiter.blocked("192.168.1.10") and not limiter.blocked("::ffff:192.168.1.11")
+
+
 def test_login_limiter_slows_down_past_the_global_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     """Past the global limit nobody is refused: clients that failed wait longer and longer, the others not at all."""
     clock = {"now": 1000.0}
