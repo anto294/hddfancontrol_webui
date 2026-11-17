@@ -57,8 +57,10 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
             fans,
             hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
             hdidle=make_script("hd-idle", "time.sleep(60)"),
+            hardware=Hardware(fake_dev, fake_sys),
         )
-        hardware = Hardware(fake_dev, fake_sys)
+        hardware = supervisor.hardware
+        assert hardware is not None
         history = History(config / "history.db")
 
         async def smart_reader(device: str) -> dict[str, Any]:
@@ -107,6 +109,10 @@ async def test_settings_api(make_client: ClientMaker) -> None:
     assert broken.status == 400 and (await broken.json())["error"] == "invalid_json"
     deep = await client.put("/api/settings", data="[" * 60000, headers={**FETCH, "Content-Type": "application/json"})
     assert deep.status == 400 and (await deep.json())["error"] == "invalid_json"  # not a 500 with a traceback
+
+    ghost = {"drives": [DRIVE], "pwms": [{"path": "/sys/class/hwmon/hwmon9/pwm1", "start": 200, "stop": 75}]}
+    refused = await client.put("/api/settings", json=ghost, headers=FETCH)
+    assert refused.status == 400 and (await refused.json())["problems"][0]["code"] == "unknown_pwm"
 
     doc = {"drives": [DRIVE], "pwms": [{"path": PWM1, "start": 200, "stop": 75}]}
     saved = await client.put("/api/settings", json=doc, headers=FETCH)

@@ -15,6 +15,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   controller, which runs as root, wrote fan speeds into it: a saved
   setting with `/sys/block/sda/device/delete` as a fan removed a drive.
   Settings with other paths are refused (the environment's too).
+- Saving settings with a fan that is no PWM output of the host answers
+  400 `unknown_pwm`. Such a fan in a saved file is not controlled, like
+  one whose chip is gone, and manual control never writes it either.
 - The limit on wrong passwords counts an IPv6 /64 as one client, and
   stops every login for 15 minutes after 100 wrong passwords from all
   clients together: a host with many addresses could guess without limit.

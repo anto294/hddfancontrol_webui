@@ -372,6 +372,8 @@ async def put_settings(request: web.Request) -> web.Response:
         return _json_error(400, "invalid_settings", err.problems)
     try:
         await supervisor.apply(settings)
+    except SettingsError as err:  # a fan that is no PWM output of the host
+        return _json_error(400, "invalid_settings", err.problems)
     except Busy:
         return _json_error(409, "busy")
     except OSError as err:

@@ -44,7 +44,7 @@ from .const import (
 )
 from .fancontrol import FanController, NotManual
 from .hardware import Hardware
-from .settings import SOURCE_FILE, Settings, SettingsStore, hddfancontrol_args, hdidle_args
+from .settings import SOURCE_FILE, Settings, SettingsError, SettingsStore, hddfancontrol_args, hdidle_args
 
 _THRESHOLDS = re.compile(r"start/stop thresholds: (\d+)/(\d+)")
 _TEST_FAILED = re.compile(r"test failed: (.*)$")
@@ -394,7 +394,28 @@ class Supervisor:
                 if self._on_pwm_moved is not None:
                     await asyncio.to_thread(self._on_pwm_moved, pwm.path, where)
             pwms.append(replace(pwm, path=where, chip=chip))
+        if self.hardware is not None:
+            # A fan that is no PWM output of the host (and not one whose chip is
+            # merely gone) is never written: the path came from a file, not from
+            # the list of outputs.
+            known = await asyncio.to_thread(self.hardware.pwm_paths)
+            missing += [pwm.path for pwm in pwms if pwm.path not in known and pwm.path not in missing]
         return replace(settings, pwms=tuple(pwms)), missing
+
+    async def _unknown_pwms(self, settings: Settings) -> list[dict[str, Any]]:
+        """The problems of fans in settings (as _placed returned them) that are no PWM output of the host.
+
+        A fan whose chip was recorded but is gone is not one: it comes back
+        with its chip, and stays missing until then.
+        """
+        if self.hardware is None:
+            return []
+        known = await asyncio.to_thread(self.hardware.pwm_paths)
+        return [
+            {"field": f"pwms.{index}.path", "code": "unknown_pwm", "params": {}}
+            for index, pwm in enumerate(settings.pwms)
+            if pwm.path not in known and pwm.chip is None
+        ]
 
     def _measuring_lost(self) -> None:
         """hddfancontrol ended by itself: the fan controller stops trusting the temperatures until new ones come."""
@@ -432,7 +453,8 @@ class Supervisor:
                 self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
             else:
                 self._log("WARNING: no drive is set, so manual control cannot watch the drive temperatures.")
-            self.fans.start_manual(settings)
+            # A missing fan's path may belong to another chip now, or to nothing: never written, even for safety.
+            self.fans.start_manual(replace(settings, pwms=tuple(p for p in settings.pwms if p.path not in self.missing_pwms)))
             self._log("Manual control: the fans keep the values you set")
             return
         if self.missing_pwms:
@@ -481,6 +503,8 @@ class Supervisor:
         async with self._lock:
             self._refuse_during_test()
             settings, missing = await self._placed(settings)
+            if problems := await self._unknown_pwms(settings):
+                raise SettingsError(problems)
             await asyncio.to_thread(self.store.save, settings)
             self.settings, self.source, self.missing_pwms = settings, SOURCE_FILE, missing
             self._log("Settings saved, restarting")

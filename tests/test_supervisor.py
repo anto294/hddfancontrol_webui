@@ -13,7 +13,7 @@ from conftest import ScriptMaker
 from hddfancontrol_webui import supervisor as supervisor_module
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.hardware import Hardware
-from hddfancontrol_webui.settings import SettingsStore, from_dict
+from hddfancontrol_webui.settings import SettingsError, SettingsStore, from_dict
 from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, ReadOnly, Supervisor
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
@@ -453,3 +453,42 @@ async def test_set_pwm_while_manual_control_restarts(setup: tuple[Supervisor, Pa
     with pytest.raises(Busy):
         supervisor.set_pwm(PWM1, 10)
     supervisor.manual = False
+
+
+async def test_fans_must_be_pwm_outputs_of_the_host(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """apply refuses a fan that is no PWM output of the host; at start such a fan is not controlled, manual mode too."""
+    monkeypatch.setenv("FAKE_LOG", str(tmp_path / "calls.log"))
+    store = SettingsStore(tmp_path / "config", {})
+    logs = LogBuffer(echo=False)
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+    supervisor = Supervisor(
+        store,
+        logs,
+        None,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", FAKE_HDDFANCONTROL),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+    )
+    ghost = "/sys/class/hwmon/hwmon9/pwm1"  # no such chip on this host, and no chip recorded
+    doc = {**CONFIG, "pwms": [{"path": PWM1, "start": 200, "stop": 75}, {"path": ghost, "start": 200, "stop": 75}]}
+    with pytest.raises(SettingsError) as refused:
+        await supervisor.apply(from_dict(doc))
+    assert refused.value.problems == [{"field": "pwms.1.path", "code": "unknown_pwm", "params": {}}]
+    assert not store.path.exists()
+    # The same document already saved (an older version, or written by hand): kept, but that fan is not controlled.
+    store.save(from_dict(doc))
+    supervisor.settings, supervisor.source = store.load()
+    await supervisor.start()
+    assert supervisor.missing_pwms == [ghost] and not supervisor.hddfancontrol.active
+    # Manual control never writes it either, not even at full speed for safety.
+    await supervisor.set_manual(True)
+    supervisor.fans._full_speed([p.path for p in supervisor.fans._settings.pwms])
+    assert (
+        PWM1 in supervisor.fans.writer.values
+        and ghost not in supervisor.fans.writer.values
+        and not (fake_sys / "class/hwmon/hwmon9").exists()
+    )
+    await supervisor.stop()
