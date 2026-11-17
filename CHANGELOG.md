@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-17
+
 ### Security
 
 - Privilege separation: the web server no longer runs as root. The core,
@@ -392,7 +394,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.7.1...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.8.0...main
+[0.8.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.5.1...v0.6.0
