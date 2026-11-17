@@ -473,3 +473,31 @@ def test_an_unexpected_error_in_the_environment_gives_the_defaults(monkeypatch: 
     store = SettingsStore(Path("/nonexistent"), {})
     assert store.from_env() == Settings() and store.error is not None
     assert store.error.problems[0]["code"] == "unreadable_env"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW",
+        "/dev/disk/by-path/pci-0000:00:17.0-ata-1",
+        "/dev/sda",
+        "/dev/sdab",
+        "/dev/nvme0n1",
+    ],
+)
+def test_drive_paths_that_name_a_drive(path: str) -> None:
+    """Stable names and kernel names of whole drives are drives, for control and for SMART."""
+    settings = from_dict({"drives": [path], "monitor_drives": [path]})
+    assert settings.drives == (path,) and settings.monitor_drives == (path,)
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/dev/mem", "/dev/sda1", "/dev/nvme0n1p1", "/dev/disk/by-uuid/1234", "/dev/mapper/x", "/dev/sg0", "/dev/disk/by-id"],
+)
+def test_other_dev_nodes_are_not_drives(path: str) -> None:
+    """Any other /dev node is refused: these paths go to smartctl, hdparm and hd-idle as root."""
+    assert problems({"drives": [path], "monitor_drives": [path]}) == {
+        "drives.0": "invalid_drive",
+        "monitor_drives.0": "invalid_dev_path",
+    }

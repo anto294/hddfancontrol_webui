@@ -111,7 +111,7 @@ def fast(monkeypatch: pytest.MonkeyPatch) -> None:
 
 SETTINGS = from_dict(
     {
-        "drives": ["/dev/a", "/dev/b"],
+        "drives": ["/dev/sda", "/dev/sdb"],
         "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
         "hwmons": [{"path": "/sys/class/hwmon/hwmon1/temp1_input"}],
         "control_mode": "auto",
@@ -189,7 +189,7 @@ async def test_auto_mode_follows_a_hot_sensor(fake_sys: Path, fast: None) -> Non
     """A sensor with a range past its maximum puts the fans at full speed with cool drives."""
     settings = from_dict(
         {
-            "drives": ["/dev/a"],
+            "drives": ["/dev/sda"],
             "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
             "hwmons": [
                 {"path": "/sys/class/hwmon/hwmon1/temp1_input", "temp_min": 40, "temp_max": 60},

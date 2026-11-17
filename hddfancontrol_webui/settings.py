@@ -52,6 +52,10 @@ _INTERFACE = re.compile(r"^[a-z0-9]+$")
 # What the fan controller writes as root: only a PWM output of a hwmon chip,
 # never another /sys file (/sys/block/sda/device/delete removes a drive).
 _PWM_PATH = re.compile(r"^/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+$")
+# A drive: its stable names (by-id, by-path) or the kernel's name of a
+# whole SATA/SAS or NVMe drive. They go to smartctl, hddfancontrol (hdparm)
+# and hd-idle as root: no other /dev node (a partition table, /dev/mem).
+_DRIVE_PATH = re.compile(rf"^/dev/(?:disk/by-(?:id|path)/{_COMPONENT}|sd[a-z]+|nvme[0-9]+n[0-9]+)$")
 # What hddfancontrol reads: a temperature input of a hwmon chip.
 _TEMP_INPUT = re.compile(r"/temp[0-9]+_input$")
 # Where the chips of the fans live (Hardware.chip_of).
@@ -307,6 +311,14 @@ def is_sys_path(value: str) -> bool:
 
 
 # ---------------------------
+#   is_drive_path
+# ---------------------------
+def is_drive_path(value: str) -> bool:
+    """Whether the value names a whole drive: /dev/disk/by-id/…, /dev/disk/by-path/…, /dev/sdX or /dev/nvmeNnN."""
+    return is_dev_path(value) and bool(_DRIVE_PATH.match(value))
+
+
+# ---------------------------
 #   is_pwm_path
 # ---------------------------
 def is_pwm_path(value: str) -> bool:
@@ -338,7 +350,7 @@ def from_dict(data: Any) -> Settings:
     drives: list[str] = []
     for index, drive in enumerate(check.items(data, "drives")):
         name = f"drives.{index}"
-        if not isinstance(drive, str) or not (is_dev_path(drive) or _INTERFACE.match(drive)):
+        if not isinstance(drive, str) or not (is_drive_path(drive) or _INTERFACE.match(drive)):
             check.add(name, "invalid_drive")
         elif drive in drives:
             check.add(name, "duplicate")
@@ -352,7 +364,7 @@ def from_dict(data: Any) -> Settings:
         monitor_drives = [drive for drive in drives if drive.startswith("/")]
     for index, drive in enumerate(check.items(data, "monitor_drives")):
         name = f"monitor_drives.{index}"
-        if not isinstance(drive, str) or not is_dev_path(drive):
+        if not isinstance(drive, str) or not is_drive_path(drive):
             check.add(name, "invalid_dev_path")
         elif drive in monitor_drives:
             check.add(name, "duplicate")

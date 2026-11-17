@@ -15,6 +15,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   controller, which runs as root, wrote fan speeds into it: a saved
   setting with `/sys/block/sda/device/delete` as a fan removed a drive.
   Settings with other paths are refused (the environment's too).
+- A drive must be `/dev/disk/by-id/…`, `/dev/disk/by-path/…`, `/dev/sdX`
+  or `/dev/nvmeNnN` (or an interface name such as `ata`, for the fans):
+  any `/dev` node was accepted and handed to smartctl, hdparm and hd-idle
+  as root.
 - Saving settings with a fan that is no PWM output of the host answers
   400 `unknown_pwm`. Such a fan in a saved file is not controlled, like
   one whose chip is gone, and manual control never writes it either.
