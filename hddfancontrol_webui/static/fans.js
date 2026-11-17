@@ -159,6 +159,9 @@ function renderPwmTest() {
     table.append(row(pwmLabel(path), status, String(result.start ?? "–"), String(result.stop ?? "–")));
   }
   $("pwmtest-use").disabled = !Object.values(test.results).some((r) => r.status === "done");
+  const stopped = $("pwmtest-stopped");
+  stopped.hidden = !test.stopped_by;
+  stopped.textContent = test.stopped_by ? t(`pwmtest.stopped_${test.stopped_by}`) : "";
 }
 
 async function startPwmTest() {

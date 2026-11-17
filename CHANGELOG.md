@@ -41,6 +41,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- The PWM test is watched: hddfancontrol keeps measuring the drives
+  during it, and the test stops by itself, with the fans given back to
+  their control, when a drive reaches its maximum or the temperatures
+  stop coming in. The test of one fan stops after 10 minutes. The page
+  says why a test was stopped.
 - Odd numbers in the settings or a schedule (a `²` in a cron field, a
   temperature of `1e400`, an interval with thousands of digits) are
   reported as invalid values instead of stopping the start or answering

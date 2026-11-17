@@ -736,23 +736,41 @@ class FanController:
             # The temperatures change only once per interval of hddfancontrol.
             await asyncio.sleep(settings.interval_s)
 
-    def _manual_step(self, settings: Settings, stale_after: float, started: datetime) -> None:
-        """Check the drives once; a drive at its maximum or old temperatures put every fan at full speed."""
+    def drive_danger(
+        self, settings: Settings, temps_state: DriveTemps, started: datetime, stale_after: float
+    ) -> tuple[str | None, float | None]:
+        """Check the drives once: (SAFETY_HOT, hottest), (SAFETY_STALE, None) or (None, None).
+
+        SAFETY_HOT when a drive is at its maximum; SAFETY_STALE when drives
+        are set and no sample is newer than stale_after (counted from
+        started). Blocking (reads the temperature log). Used by manual control and by
+        the watch of the PWM test; temps_state keeps a sleeping drive's last
+        temperature between calls.
+        """
         now = datetime.now(UTC)
         latest = self._latest()
-        temps = self._temps.per_drive(latest, len(settings.hwmons))
+        temps = temps_state.per_drive(latest, len(settings.hwmons))
         names = self._kernel_names()
         by_kernel = {names[d]: d for d in settings.drives if d in names}
-        hot = [
-            (temp, name) for name, temp in temps.items() if temp >= settings.limits_of(by_kernel.get(name.split()[0], ""))[2]
-        ]
+        hot = [temp for name, temp in temps.items() if temp >= settings.limits_of(by_kernel.get(name.split()[0], ""))[2]]
+        if hot:
+            return SAFETY_HOT, max(hot)
         age = _age_seconds(latest, now)
         waiting = (now - started).total_seconds() < stale_after
-        reason = None
-        if hot:
-            reason = SAFETY_HOT
-        elif settings.drives and not waiting and (age is None or age > stale_after):
-            reason = SAFETY_STALE
+        if settings.drives and not waiting and (age is None or age > stale_after):
+            return SAFETY_STALE, None
+        return None, None
+
+    async def watch_drives(
+        self, settings: Settings, temps_state: DriveTemps, started: datetime, stale_after: float
+    ) -> tuple[str | None, float | None]:
+        """drive_danger, with the drive names refreshed first; the blocking part runs in a thread."""
+        await self._refresh_names()
+        return await asyncio.to_thread(self.drive_danger, settings, temps_state, started, stale_after)
+
+    def _manual_step(self, settings: Settings, stale_after: float, started: datetime) -> None:
+        """Check the drives once; a drive at its maximum or old temperatures put every fan at full speed."""
+        reason, hottest = self.drive_danger(settings, self._temps, started, stale_after)
         if reason is not None and not self.safety:
             with self._manual_lock:
                 self.safety = True
@@ -761,7 +779,7 @@ class FanController:
                     with contextlib.suppress(OSError):
                         self.writer.write(path, PWM_MAX)
             if reason == SAFETY_HOT:
-                self._log(f"WARNING: a drive is at {max(hot)[0]:g} °C, every fan goes to full speed")
+                self._log(f"WARNING: a drive is at {hottest:g} °C, every fan goes to full speed")
             else:
                 self._log("WARNING: no recent drive temperature, every fan goes to full speed")
 

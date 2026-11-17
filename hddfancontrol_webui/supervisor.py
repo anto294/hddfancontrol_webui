@@ -42,7 +42,7 @@ from .const import (
     SOURCE_WEBUI,
     STOP_TIMEOUT,
 )
-from .fancontrol import FanController, NotManual
+from .fancontrol import NULL_HOLD_INTERVALS, SAFETY_HOT, DriveTemps, FanController, NotManual
 from .hardware import Hardware
 from .settings import SOURCE_FILE, Settings, SettingsError, SettingsStore, hddfancontrol_args, hdidle_args
 
@@ -59,6 +59,12 @@ MODE_READ_ONLY = "read_only"
 
 # ---------------------------
 #   Busy
+# The PWM test of one output takes a few minutes; past this it is stopped.
+PWM_TEST_MAX_S = 600.0
+# The temperatures are old, and the PWM test stops, after 3 intervals and at least this.
+PWM_TEST_STALE_MIN_S = 120.0
+
+
 # ---------------------------
 class Busy(RuntimeError):
     """The request cannot run now, because a PWM test is running."""
@@ -287,6 +293,8 @@ class PwmTestState:
     results: dict[str, dict[str, Any]] = field(default_factory=dict)
     started_at: str | None = None
     finished_at: str | None = None
+    # Why the watch stopped it: "hot" (a drive at its maximum) or "stale" (no recent temperature).
+    stopped_by: str | None = None
 
 
 # ---------------------------
@@ -612,6 +620,9 @@ class Supervisor:
         async with self._lock:
             self._refuse_during_test()
             await self._stop_daemons()
+            # hddfancontrol keeps measuring (it never writes a fan this way), so the test can be watched.
+            if self.settings.drives:
+                self.hddfancontrol.start(hddfancontrol_args(self.settings, self._temp_log(), measure_only=True))
             self.test = PwmTestState(running=True, paths=list(paths), started_at=datetime.now(UTC).isoformat())
             self._test_task = asyncio.create_task(self._run_pwm_test(list(paths)), name="pwm-test")
 
@@ -669,10 +680,16 @@ class Supervisor:
         def log(text: str) -> None:
             self.logs.add(SOURCE_PWM_TEST, text)
 
+        task = asyncio.current_task()
+        watch = asyncio.create_task(self._watch_test(task, log), name="pwm-test-watch") if task is not None else None
         try:
             for path in paths:
                 self.test.current = path
-                await self._test_one(path, log)
+                try:
+                    await asyncio.wait_for(self._test_one(path, log), PWM_TEST_MAX_S)
+                except TimeoutError:
+                    log(f"The test of {path} took longer than {PWM_TEST_MAX_S / 60:g} minutes: stopped")
+                    self.test.results[path].update(status="failed", error="timeout")
         except asyncio.CancelledError:
             for result in self.test.results.values():
                 if result["status"] == "running":
@@ -680,7 +697,38 @@ class Supervisor:
             log("PWM test cancelled")
             raise
         finally:
+            if watch is not None:
+                await asyncio.shield(cancel_and_wait(watch))
             await asyncio.shield(self._after_test(log))
+
+    async def _watch_test(self, task: asyncio.Task[Any], log: Callable[[str], None]) -> None:
+        """Cancel the PWM test when a drive reaches its maximum or the temperatures stop coming in.
+
+        The test stops and starts the fans for minutes. hddfancontrol keeps
+        measuring meanwhile, and this reads its samples every interval, with
+        the checks of manual control. Without drives there is nothing to
+        watch: only the time limit of each output holds.
+        """
+        settings = self.settings
+        if not settings.drives:
+            log("WARNING: no drive is set, so the drive temperatures are not watched during the test")
+            return
+        interval = float(settings.interval_s)
+        temps = DriveTemps(NULL_HOLD_INTERVALS * interval)
+        started = datetime.now(UTC)
+        stale_after = max(3 * interval, PWM_TEST_STALE_MIN_S)
+        while True:
+            await asyncio.sleep(interval)
+            reason, hottest = await self.fans.watch_drives(settings, temps, started, stale_after)
+            if reason is None:
+                continue
+            if reason == SAFETY_HOT:
+                log(f"WARNING: a drive is at {hottest:g} °C: the PWM test stops, the fans go back to their control")
+            else:
+                log("WARNING: no recent drive temperature: the PWM test stops, the fans go back to their control")
+            self.test.stopped_by = reason
+            task.cancel()
+            return
 
     async def _after_test(self, log: Callable[[str], None]) -> None:
         """Give the outputs back and start everything again, holding the lock.
@@ -692,6 +740,7 @@ class Supervisor:
             # hddfancontrol pwm-test leaves the outputs in manual mode at its
             # last value: give each one back the mode and value it had.
             await asyncio.to_thread(self.fans.writer.restore)
+            await self.hddfancontrol.stop()  # it measured for the watch; _start_daemons starts it again
             self.test.running = False
             self.test.current = None
             self.test.finished_at = datetime.now(UTC).isoformat()
@@ -721,5 +770,6 @@ class Supervisor:
                 "results": test.results,
                 "started_at": test.started_at,
                 "finished_at": test.finished_at,
+                "stopped_by": test.stopped_by,
             },
         }

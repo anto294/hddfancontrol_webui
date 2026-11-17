@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -441,8 +442,9 @@ async def test_pwm_test_starts_again_under_the_lock(setup: tuple[Supervisor, Pat
     await supervisor.start_pwm_test([PWM1])
     async with supervisor._lock:
         await asyncio.sleep(0.5)
-        assert supervisor.test.running and not supervisor.hddfancontrol.active
-    await wait_for(lambda: not supervisor.test.running and supervisor.hddfancontrol.active)
+        # hddfancontrol only measures meanwhile (for the watch); the fan control waits.
+        assert supervisor.test.running and not supervisor.fans.active
+    await wait_for(lambda: not supervisor.test.running and supervisor.fans.active)
     await supervisor.stop()
 
 
@@ -565,4 +567,72 @@ async def test_apply_refuses_a_drive_path_that_is_no_block_device(
         await supervisor.apply(from_dict(doc))
     assert [p["field"] for p in refused.value.problems] == ["drives.0", "monitor_drives.0"]  # /dev/sda: a plain file here
     assert {p["code"] for p in refused.value.problems} == {"not_block_device"}
+    await supervisor.stop()
+
+
+SLOW_PWM_TEST = """
+if "pwm-test" in sys.argv:
+    print("INFO Testing fan, this may take a long time", flush=True)
+    time.sleep(60)
+print("running", flush=True)
+time.sleep(60)
+"""
+
+
+def watched_supervisor(tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, latest: Any) -> Supervisor:
+    """A supervisor whose fan controller reads the temperatures from latest()."""
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict({**CONFIG, "drives": ["/dev/sda"], "drive_temp_max": 50, "target_temp": 40}))
+    logs = LogBuffer(echo=False)
+    fans = FanController(PwmWriter(fake_sys), latest, lambda text: None, lambda: {"/dev/sda": "sda"})
+    return Supervisor(
+        store,
+        logs,
+        None,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", SLOW_PWM_TEST),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+    )
+
+
+async def test_pwm_test_stops_when_a_drive_gets_hot(tmp_path: Path, fake_sys: Path, make_script: ScriptMaker) -> None:
+    """A drive at its maximum during the test cancels it; the outputs go back and the control starts again."""
+    sample: dict[str, Any] = {"time": datetime.now(UTC).isoformat(), "temps": {"sda": 40.0}}
+    supervisor = watched_supervisor(tmp_path, fake_sys, make_script, lambda: sample)
+    await supervisor.start()
+    await supervisor.start_pwm_test([PWM1])
+    assert supervisor.hddfancontrol.active  # still measuring, for the watch
+    await asyncio.sleep(1.2)
+    assert supervisor.test.running
+    sample = {"time": datetime.now(UTC).isoformat(), "temps": {"sda": 50.0}}
+    await wait_for(lambda: not supervisor.test.running, 4)
+    assert supervisor.test.stopped_by == "hot" and supervisor.test.results[PWM1]["status"] == "cancelled"
+    assert any("PWM test stops" in line["text"] for line in supervisor.logs.since(0))
+    await wait_for(lambda: supervisor.fans.active)
+    await supervisor.stop()
+
+
+async def test_pwm_test_stops_when_the_temperatures_stop(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No sample newer than the stale limit during the test cancels it too."""
+    old = {"time": (datetime.now(UTC) - timedelta(hours=1)).isoformat(), "temps": {"sda": 40.0}}
+    supervisor = watched_supervisor(tmp_path, fake_sys, make_script, lambda: old)
+    monkeypatch.setattr(supervisor_module, "PWM_TEST_STALE_MIN_S", 0.0)  # stale after 3 intervals (3 s)
+    await supervisor.start_pwm_test([PWM1])
+    await wait_for(lambda: not supervisor.test.running, 6)
+    assert supervisor.test.stopped_by == "stale"
+    await supervisor.stop()
+
+
+async def test_each_output_has_a_time_limit(
+    setup: tuple[Supervisor, Path], make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test of one output that never ends is stopped at PWM_TEST_MAX_S and counted as failed."""
+    supervisor, _ = setup
+    supervisor.hddfancontrol.binary = make_script("hddfancontrol", SLOW_PWM_TEST)
+    monkeypatch.setattr(supervisor_module, "PWM_TEST_MAX_S", 0.5)
+    await supervisor.start_pwm_test([PWM1])
+    await wait_for(lambda: not supervisor.test.running, 4)
+    assert supervisor.test.results[PWM1] == {"status": "failed", "error": "timeout"}
     await supervisor.stop()
