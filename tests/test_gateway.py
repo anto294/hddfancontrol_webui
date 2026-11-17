@@ -13,6 +13,7 @@ from typing import Any
 
 import aiohttp
 import pytest
+import yarl
 from aiohttp import web
 from aiohttp.test_utils import TestClient
 
@@ -343,6 +344,16 @@ def test_login_limiter_window_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
     clock["now"] += 11
     limiter.failed("d")  # expired entries make room
     assert limiter.blocked("d")
+
+
+async def test_dot_segments_never_pass_as_public(make_gateway: GatewayMaker) -> None:
+    """A path with . or .. parts is refused before the login check, however it is written."""
+    gw = await make_gateway(CREDENTIALS)
+    # The test client resolves a literal ".." itself (curl --path-as-is does not): the encoded forms reach the server.
+    for path in ("/static/i18n/%2e%2e/app.js", "/static/i18n/..%2fapp.js", "/static/i18n/%2e/../app.js", "/static/%2E/app.js"):
+        response = await gw.client.get(yarl.URL(path, encoded=True))
+        assert response.status == 404, path
+    assert (await gw.client.get("/static/i18n/en.json")).status == 200  # the public files still are
 
 
 def test_login_limiter_counts_an_ipv6_64_as_one_client() -> None:

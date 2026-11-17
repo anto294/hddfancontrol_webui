@@ -14,6 +14,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   clients together: a host with many addresses could guess without limit.
 - A guess at `WEBUI_PASSWORD` now costs a scrypt hash, like one at a
   stored password, and the password itself is not kept in memory.
+- A path with a `..` part, such as `/static/i18n/../app.js`, could pass
+  the login as a public file of the login page and then be served as a
+  file of the web UI (only from its own folder). Such paths now get 404.
 
 ## [0.8.0] - 2026-11-17
 

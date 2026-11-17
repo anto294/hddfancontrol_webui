@@ -426,9 +426,17 @@ async def https_only(request: web.Request, handler: Handler) -> web.StreamRespon
 # ---------------------------
 @web.middleware
 async def authentication(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Let a request through with a session or Basic credentials; without credentials, only the setup."""
+    """Let a request through with a session or Basic credentials; without credentials, only the setup.
+
+    A path with a "." or ".." part (also written %2e or after %2f) gets a
+    404: the public paths are matched as written, so /static/i18n/../app.js
+    would pass as a translation and then be served as app.js.
+    """
     auth = request.app[AUTH]
     path = request.path
+    parts = path.split("/")
+    if "." in parts or ".." in parts:
+        raise web.HTTPNotFound()
     if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
         return await handler(request)
     if not auth.enabled:
