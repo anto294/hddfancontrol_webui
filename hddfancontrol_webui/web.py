@@ -58,6 +58,7 @@ SENSOR_SCAN: web.AppKey[SensorScan] = web.AppKey("sensor_scan")
 STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
 PEERS: web.AppKey[frozenset[int] | None] = web.AppKey("peers")
 AUDIT: web.AppKey[AuditLog] = web.AppKey("audit")
+LOAD_MODULES: web.AppKey[bool] = web.AppKey("load_modules", bool)
 
 # The same change sent again within this many seconds (a slider, a script)
 # is counted instead of logged again.
@@ -523,7 +524,13 @@ async def delete_pwm_test(request: web.Request) -> web.Response:
 #   post_sensor_scan
 # ---------------------------
 async def post_sensor_scan(request: web.Request) -> web.Response:
-    """Scan for the sensor modules again, after loading them on the host for example."""
+    """Scan for the sensor modules again, after loading them on the host for example.
+
+    With LOAD_SENSOR_MODULES=false no scan ever runs: sensors-detect and
+    modprobe change the host, which whoever set it does not want.
+    """
+    if not request.app[LOAD_MODULES]:
+        return _json_error(409, "scan_disabled")
     state = request.app[STATE]
     if state["sensors"].state == "running":
         return _json_error(409, "busy")
@@ -669,11 +676,13 @@ def create_app(
     sensor_scan: SensorScan | None = None,
     bays: Bays | None = None,
     peers: frozenset[int] | None = None,
+    load_modules: bool = True,
 ) -> web.Application:
     """Build the core API around parts that the caller starts and stops.
 
     peers are the user ids that may connect (None: anyone, as in the tests
-    over TCP); the gateway's and root's in production.
+    over TCP); the gateway's and root's in production. load_modules is
+    LOAD_SENSOR_MODULES: without it, POST /api/sensors/scan is refused.
     """
 
     async def default_scan() -> SensorReport:
@@ -697,6 +706,7 @@ def create_app(
     # Without a store (tests), the map lives next to the labels.
     app[BAYS] = bays or Bays(labels.path.parent)
     app[SENSOR_SCAN] = sensor_scan or default_scan
+    app[LOAD_MODULES] = load_modules
     app[STATE] = {"sensors": SensorReport()}
     router = app.router
     router.add_get("/healthz", healthz)

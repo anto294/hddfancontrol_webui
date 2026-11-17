@@ -151,7 +151,18 @@ def build() -> Core:
             env=gateway_env(dict(env), socket_path, web_dir, cert, key),
         )
     peers = user.peers if user is not None else frozenset({0})
-    app = create_app(supervisor, hardware, temp_log, history, monitor, labels, scan, Bays(config_dir), peers=peers)
+    app = create_app(
+        supervisor,
+        hardware,
+        temp_log,
+        history,
+        monitor,
+        labels,
+        scan,
+        Bays(config_dir),
+        peers=peers,
+        load_modules=load_modules,
+    )
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:
         """Scan the sensors, then start everything; stop it all when the server stops."""

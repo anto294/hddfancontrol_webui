@@ -38,6 +38,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the server says), and a failure shows a short reason in the web UI's
   log; the detail, with the server's host but never the address's query
   (a Gotify token), goes to the container's log.
+- With `LOAD_SENSOR_MODULES=false` the **Scan again** button (and
+  `POST /api/sensors/scan`) no longer runs `sensors-detect` and
+  `modprobe` anyway: it answers that loading modules is off.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

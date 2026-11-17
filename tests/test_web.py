@@ -40,7 +40,7 @@ ClientMaker = Callable[..., Awaitable[Client]]
 def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker) -> ClientMaker:
     """Build a client on an app with fake hardware and programs."""
 
-    async def make(peers: frozenset[int] | None = None) -> Client:
+    async def make(peers: frozenset[int] | None = None, load_modules: bool = True) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
         log_path = config / "templog" / "temps.jsonl"
@@ -71,7 +71,9 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         async def scan() -> SensorReport:
             return SensorReport(state="done")
 
-        app = create_app(supervisor, hardware, temp_log, history, monitor, Labels(config), scan, peers=peers)
+        app = create_app(
+            supervisor, hardware, temp_log, history, monitor, Labels(config), scan, peers=peers, load_modules=load_modules
+        )
 
         async def stop(app: web.Application) -> None:
             await supervisor.stop()
@@ -209,6 +211,13 @@ async def test_read_endpoints(make_client: ClientMaker) -> None:
     assert "lines" in logs
     scan = await client.post("/api/sensors/scan", headers=FETCH)
     assert (await scan.json())["state"] == "done"
+
+
+async def test_no_sensor_scan_when_loading_modules_is_off(make_client: ClientMaker) -> None:
+    """With LOAD_SENSOR_MODULES=false the API never runs sensors-detect or modprobe: 409 scan_disabled."""
+    client = await make_client(load_modules=False)
+    scan = await client.post("/api/sensors/scan", headers=FETCH)
+    assert scan.status == 409 and (await scan.json())["error"] == "scan_disabled"
 
 
 async def test_labels_api(make_client: ClientMaker) -> None:
