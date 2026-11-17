@@ -44,6 +44,8 @@ def test_stored_credentials(tmp_path: Path) -> None:
         auth.set_credentials("admin", "short", "")
     with pytest.raises(AuthError, match="invalid_username"):
         auth.set_credentials("a:b", "longenough", "")
+    with pytest.raises(AuthError, match="invalid_username"):
+        auth.set_credentials("a\nb", "longenough", "")
     auth.set_credentials(" anto ", "first-password", "")
     stored = (tmp_path / "auth.json").read_text()
     assert "first-password" not in stored and json.loads(stored)["username"] == "anto"

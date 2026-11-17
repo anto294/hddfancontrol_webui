@@ -105,7 +105,9 @@ def _audit(request: web.Request, status: int) -> None:
     """One line of the audit log: what changed, by whom, from where, and how it ended."""
     user = request.headers.get(HEADER_USER) or "?"
     client = request.headers.get(HEADER_CLIENT) or "?"
-    request.app[SUPERVISOR].logs.add(SOURCE_AUDIT, f"{request.method} {request.path} by {user} from {client}: {status}")
+    # The raw path keeps %0A encoded: a client cannot add lines of its own to the log.
+    path = request.rel_url.raw_path
+    request.app[SUPERVISOR].logs.add(SOURCE_AUDIT, f"{request.method} {path} by {user!r} from {client}: {status}")
 
 
 # ---------------------------

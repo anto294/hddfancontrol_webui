@@ -449,11 +449,10 @@ async def healthz(request: web.Request) -> web.Response:
     """Answer the health check of Docker: ok when the core answers too. No login."""
     try:
         async with request.app[CORE].get("http://core/healthz", timeout=aiohttp.ClientTimeout(total=10)) as response:
-            if response.status == 200:
-                return web.Response(text="ok")
+            healthy = response.status == 200
     except (aiohttp.ClientError, TimeoutError):
-        pass
-    return web.Response(status=503, text="core not answering")
+        healthy = False
+    return web.Response(text="ok") if healthy else web.Response(status=503, text="core not answering")
 
 
 # ---------------------------
@@ -602,7 +601,8 @@ async def forward(request: web.Request) -> web.StreamResponse:
             back = {name: answer.headers[name] for name in RETURN_HEADERS if name in answer.headers}
             return web.Response(status=answer.status, body=content, headers=back)
     except (aiohttp.ClientError, TimeoutError) as err:
-        _LOGGER.warning("The core did not answer %s %s: %s", request.method, path, err)
+        # Not the path: it comes from the client, and must not write lines of its own in the log.
+        _LOGGER.warning("The core did not answer a request: %s", err)
         return json_error(502, "core_unavailable")
 
 

@@ -179,7 +179,7 @@ class AuthStore:
         if self.enabled and not self.check(self.username, current):
             raise AuthError("wrong_password")
         username = username.strip()
-        if not username or len(username) > MAX_FIELD_LENGTH or ":" in username:
+        if not username or len(username) > MAX_FIELD_LENGTH or ":" in username or not username.isprintable():
             raise AuthError("invalid_username")
         if len(password) < MIN_PASSWORD_LENGTH or len(password) > MAX_FIELD_LENGTH:
             raise AuthError("password_too_short")

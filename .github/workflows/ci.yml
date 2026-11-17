@@ -168,8 +168,16 @@ jobs:
             curl -sf http://127.0.0.1:8080/healthz && break
             sleep 1
           done
-          curl -sf http://127.0.0.1:8080/api/status | python3 -m json.tool
-          curl -sf http://127.0.0.1:8080/ | grep -q hddfancontrol
+          # First start: nothing but the setup, with the code of the log.
+          curl -s http://127.0.0.1:8080/api/status | grep -q setup_required
+          code=$(docker logs webui 2>&1 | grep -o 'setup code: [0-9a-f-]*' | tail -n 1 | cut -d' ' -f3)
+          curl -sf -c "$RUNNER_TEMP/jar" -H 'X-Requested-With: fetch' -H 'Content-Type: application/json' \
+            -d "{\"code\":\"$code\",\"username\":\"ci\",\"password\":\"ci-password-1234\"}" \
+            http://127.0.0.1:8080/api/setup
+          curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:8080/api/status | python3 -m json.tool
+          curl -sf -b "$RUNNER_TEMP/jar" http://127.0.0.1:8080/ | grep -q hddfancontrol
+          # The web server (the gateway) does not run as root.
+          docker exec webui ps -o user,args | grep '[h]ddfancontrol_webui.gateway' | grep -qv '^ *root\b'
           docker stats --no-stream webui
           docker stop webui
           docker logs webui

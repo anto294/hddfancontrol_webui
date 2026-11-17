@@ -370,10 +370,12 @@ async def test_audit_log(make_client: ClientMaker) -> None:
     await client.get("/api/settings", headers=headers)
     await client.put("/api/history.csv", headers=headers)
     lines = [line["text"] for line in client.app[SUPERVISOR].logs.since(0) if line["source"] == "audit"]
-    assert lines[0] == "POST /api/restart by anto from 192.168.1.5: 200"
-    assert lines[1].startswith("PUT /api/labels by anto from 192.168.1.5: 400")
-    assert lines[2] == "PUT /api/history.csv by anto from 192.168.1.5: 405"
-    assert len(lines) == 3
+    assert lines[0] == "POST /api/restart by 'anto' from 192.168.1.5: 200"
+    assert lines[1].startswith("PUT /api/labels by 'anto' from 192.168.1.5: 400")
+    assert lines[2] == "PUT /api/history.csv by 'anto' from 192.168.1.5: 405"
+    await client.post("/api/restart%0Afake", headers=headers)
+    lines = [line["text"] for line in client.app[SUPERVISOR].logs.since(0) if line["source"] == "audit"]
+    assert lines[3] == "POST /api/restart%0Afake by 'anto' from 192.168.1.5: 404" and len(lines) == 4
 
 
 async def test_only_the_gateway_may_connect(make_client: ClientMaker, tmp_path: Path) -> None:
