@@ -28,6 +28,7 @@ import asyncio
 import json
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -67,6 +68,10 @@ VOLATILE_PARAMS = ("temp", "percent")
 BANNER_KEYS = ("banner:no_auth",)
 # Messages waiting to be sent; more than this while the server is down are dropped.
 QUEUE_SIZE = 100
+# The starts of alerts are kept this long, for a summary (which covers at
+# most MAX_SUMMARY_DAYS of monitor.py), in the meta table under RAISED_KEY.
+RAISED_KEEP_S = 32 * 86400
+RAISED_KEY = "alerts_raised"
 # Alerts sent even in the quiet hours: something needs a hand now.
 URGENT_KINDS = (KIND_DRIVE_HOT, KIND_SAFETY, KIND_SMART_FAILING, KIND_FANS_MISSING, KIND_DRIVE_MISSING)
 # At most this many held messages go in the message sent after the quiet hours.
@@ -143,8 +148,11 @@ class Alerts:
         self._clock = clock
         # Texts held during the quiet hours.
         self._held: list[str] = []
-        # When each kind of alert started, for the summary.
+        # When each kind of alert started, for the summary: kept RAISED_KEEP_S, in the store across restarts.
         self.raised: list[tuple[float, str]] = []
+        if store is not None:
+            with suppress(ValueError, TypeError):
+                self.raised = [(float(ts), str(kind)) for ts, kind in json.loads(store.get_meta(RAISED_KEY) or "[]")]
 
     @staticmethod
     def signature(params: dict[str, Any]) -> str:
@@ -173,6 +181,7 @@ class Alerts:
         """Raise the alerts that start now, remind of those still on, and end those that are over."""
         now = self._clock()
         settings = self._settings()
+        count = len(self.raised)
         for key, (kind, params) in conditions.items():
             if key in self.active:
                 self.active[key]["params"] = params
@@ -195,8 +204,12 @@ class Alerts:
         self._remind(settings, now)
         if self._held and not in_quiet_hours(settings, now):
             self._send_held(settings)
-        # The summary counts the alerts of the last week at most.
-        self.raised = [(ts, kind) for ts, kind in self.raised if now - ts < 8 * 86400]
+        # A summary covers MAX_SUMMARY_DAYS at most.
+        kept = [(ts, kind) for ts, kind in self.raised if now - ts < RAISED_KEEP_S]
+        changed = len(self.raised) != count or len(kept) != len(self.raised)
+        self.raised = kept
+        if changed and self._store is not None:
+            await asyncio.to_thread(self._store.set_meta, RAISED_KEY, json.dumps(self.raised))
 
     def _remind(self, settings: Settings, now: float) -> None:
         """Send again the alerts still on after notify_repeat_h hours, unless taken note of."""

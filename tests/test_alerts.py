@@ -324,3 +324,27 @@ def test_quiet_hours_expression() -> None:
     assert in_quiet_hours(settings, local(14)) and not in_quiet_hours(settings, local(15))
     assert not in_quiet_hours(settings, local(14, day=7))
     assert not in_quiet_hours(Settings(), local(3))
+
+
+async def test_raised_alerts_are_kept_for_a_month_across_restarts(tmp_path: Path) -> None:
+    """The starts of alerts count in a monthly summary, also after a restart."""
+    from hddfancontrol_webui.history import History
+
+    store = History(tmp_path / "history.db")
+    clock = {"now": 1_000_000.0}
+    alerts = Alerts(Settings, lambda _: None, store=store, clock=lambda: clock["now"])
+    await alerts.update({"hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})})
+    clock["now"] += 20 * 86400
+    await alerts.update({})
+    assert [kind for _, kind in alerts.raised] == ["drive_hot"]  # 20 days later: still counted
+    again = Alerts(Settings, lambda _: None, store=store, clock=lambda: clock["now"])
+    assert again.raised == alerts.raised
+    clock["now"] += 13 * 86400
+    await again.update({})
+    assert again.raised == []
+    assert Alerts(Settings, lambda _: None, store=store).raised == []
+    store.set_meta("alerts_raised", "not json")
+    assert Alerts(Settings, lambda _: None, store=store).raised == []
+    await alerts.stop()
+    await again.stop()
+    store.close()
