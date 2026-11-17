@@ -30,6 +30,7 @@ import ipaddress
 import logging
 import mimetypes
 import os
+import re
 import secrets
 import signal
 import ssl
@@ -120,7 +121,13 @@ DEFAULT_ALLOW = (
     "fc00::/7",
     "fe80::/10",
 )
-# A refused address is logged at most once in this many seconds.
+# The host names a browser may use without WEBUI_HOSTS: names of the LAN and
+# of the usual routers and VPNs. An Internet name can be pointed at the NAS
+# by anyone (DNS rebinding): a page of theirs would then talk to the web UI
+# from the browser of someone on the LAN.
+LOCAL_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localdomain", ".fritz.box", ".home", ".ts.net")
+# A Host header: a name (letters, digits, dots, hyphens) or an IPv6 address in brackets, then maybe a port.
+_HOST = re.compile(r"^(?:\[(?P<v6>[0-9A-Fa-f:.]+)\]|(?P<name>[A-Za-z0-9.-]{1,253}))(?::[0-9]{1,5})?$")
 REFUSED_LOG_PERIOD = 3600.0
 # The endpoints the gateway answers itself.
 GATEWAY_API = ("/api/login", "/api/logout", "/api/setup", "/api/auth")
@@ -293,6 +300,8 @@ ALLOW: web.AppKey[tuple[Network, ...]] = web.AppKey("allow", tuple)
 CORE: web.AppKey[aiohttp.ClientSession] = web.AppKey("core", aiohttp.ClientSession)
 LOG: web.AppKey[Callable[[str], None]] = web.AppKey("log")
 REFUSED: web.AppKey[dict[str, float]] = web.AppKey("refused", dict)
+HOSTS: web.AppKey[tuple[str, ...] | None] = web.AppKey("hosts")
+REFUSED_HOSTS: web.AppKey[dict[str, float]] = web.AppKey("refused_hosts", dict)
 
 
 # ---------------------------
@@ -354,6 +363,61 @@ def refused_hint(address: str) -> str:
         return ""
     network = ipaddress.ip_network(f"{ip}/64", strict=False)
     return f" (a global IPv6 address: if it is your LAN's, set WEBUI_ALLOW=private {network})"
+
+
+# ---------------------------
+#   parse_hosts
+# ---------------------------
+def parse_hosts(text: str | None) -> tuple[str, ...] | None:
+    """The host names of WEBUI_HOSTS (by commas or spaces), lower case; "*.example.com" stands for its subdomains.
+
+    None ("any") turns the check off. Raises ValueError on a value that is
+    not a host name.
+    """
+    names: list[str] = []
+    for item in (text or "").replace(",", " ").split():
+        word = item.lower().rstrip(".")
+        if word == "any":
+            return None
+        bare = word[2:] if word.startswith("*.") else word
+        match = _HOST.match(bare)
+        if match is None or match.group("name") is None or ":" in bare:
+            raise ValueError(f"{item!r} is not a host name")
+        names.append(word)
+    return tuple(names)
+
+
+# ---------------------------
+#   host_of
+# ---------------------------
+def host_of(header: str | None) -> str | None:
+    """The host name or address of a Host header, lower case and without the port; None when it is not one."""
+    match = _HOST.match((header or "").strip())
+    if match is None:
+        return None
+    if match.group("v6") is not None:
+        try:
+            return str(ipaddress.IPv6Address(match.group("v6")))
+        except ValueError:
+            return None
+    return match.group("name").lower().rstrip(".") or None
+
+
+# ---------------------------
+#   host_allowed
+# ---------------------------
+def host_allowed(host: str, names: tuple[str, ...] | None) -> bool:
+    """Whether a browser may use this host name: an IP address, a name of the LAN, or one of WEBUI_HOSTS."""
+    if names is None:
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    if host == "localhost" or "." not in host or host.endswith(LOCAL_SUFFIXES):
+        return True
+    return any(host == name or (name.startswith("*.") and host.endswith(name[1:])) for name in names)
 
 
 # ---------------------------
@@ -439,6 +503,36 @@ async def network_filter(request: web.Request, handler: Handler) -> web.StreamRe
             refused.clear()
         refused[address] = now
         request.app[LOG](f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
+    return web.Response(status=403, text="Forbidden")
+
+
+# ---------------------------
+#   host_check
+# ---------------------------
+@web.middleware
+async def host_check(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """Answer only the host names of host_allowed: a bare 403 for others (logged once an hour per name), 400 without one.
+
+    Against DNS rebinding: a page of a site whose name was pointed at the
+    NAS reaches it from the browser with that name in the Host header.
+    /healthz answers whatever the name (the health check of Docker).
+    """
+    if request.path == "/healthz":
+        return await handler(request)
+    host = host_of(request.headers.get("Host"))
+    if host is None:
+        return web.Response(status=400, text="Bad Request")
+    if host_allowed(host, request.app[HOSTS]):
+        return await handler(request)
+    refused = request.app[REFUSED_HOSTS]
+    now = time.monotonic()
+    if now - refused.get(host, -REFUSED_LOG_PERIOD) >= REFUSED_LOG_PERIOD:
+        if len(refused) > LOGIN_MAX_ADDRESSES:
+            refused.clear()
+        refused[host] = now
+        request.app[LOG](
+            f"Refused the host name {host[:100]!r}: not a name of the LAN (if it is yours, set WEBUI_HOSTS={host[:100]})"
+        )
     return web.Response(status=403, text="Forbidden")
 
 
@@ -780,10 +874,14 @@ def create_gateway(
     log: Callable[[str], None],
     force_https: bool = False,
     allow: tuple[Network, ...] | None = None,
+    hosts: tuple[str, ...] | None = (),
 ) -> web.Application:
-    """Build the gateway around a session to the core (or a function that makes one at startup)."""
+    """Build the gateway around a session to the core (or a function that makes one at startup).
+
+    hosts are the names of WEBUI_HOSTS besides those of the LAN; None lets every name in.
+    """
     app = web.Application(
-        middlewares=[network_filter, security_headers, https_only, authentication, csrf],
+        middlewares=[network_filter, host_check, security_headers, https_only, authentication, csrf],
         client_max_size=CLIENT_MAX_SIZE,
     )
     app[AUTH] = auth
@@ -795,6 +893,8 @@ def create_gateway(
     app[ALLOW] = parse_allow(None) if allow is None else allow
     app[LOG] = log
     app[REFUSED] = {}
+    app[HOSTS] = hosts
+    app[REFUSED_HOSTS] = {}
 
     async def core_session(app: web.Application) -> Any:
         app[CORE] = core() if callable(core) else core
@@ -841,9 +941,14 @@ def build(env: dict[str, str], log: Callable[[str], None]) -> tuple[web.Applicat
     except ValueError as err:
         log(f"ERROR: WEBUI_ALLOW is not valid ({err}); only the private networks are allowed")
         allow = parse_allow(None)
+    try:
+        hosts = parse_hosts(env.get("WEBUI_HOSTS"))
+    except ValueError as err:
+        log(f"ERROR: WEBUI_HOSTS is not valid ({err}); only the names of the LAN are allowed")
+        hosts = ()
     context: ssl.SSLContext | None = None
     tls_error = ""
-    if env_flag(env, "ENABLE_TLS"):
+    if env_flag(env, "ENABLE_TLS", True):
         try:
             context = ssl_context(
                 web_dir, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), env.get("OPENSSL_BIN", "openssl")
@@ -859,6 +964,7 @@ def build(env: dict[str, str], log: Callable[[str], None]) -> tuple[web.Applicat
         log,
         force_https=force_https,
         allow=allow,
+        hosts=hosts,
     )
     scheme = "HTTPS and HTTP" if context else "HTTP"
     moved = ", HTTP moved to HTTPS" if force_https else ""

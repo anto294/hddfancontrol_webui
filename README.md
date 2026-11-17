@@ -57,7 +57,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 
 1. Create a dataset for the settings, for example `apps/hddfancontrol`.
 2. Go to **Apps → Discover Apps → ⋮ → Install via YAML**, name the app `hddfancontrol`, and paste [docker-compose.yml](docker-compose.yml) with the `./config` volume changed to your dataset (`/mnt/tank/apps/hddfancontrol:/config`).
-3. Open `http://<truenas>:8080`: the first visit asks for the **setup code** written in the logs of the app (**Apps → hddfancontrol → Logs**, a line with `FIRST SETUP`), then for a username and a password.
+3. Open `http://<truenas>:28462`: the first visit asks for the **setup code** written in the logs of the app (**Apps → hddfancontrol → Logs**, a line with `FIRST SETUP`), then for a username and a password.
 
 Keep `stop_grace_period: 60s` of the example: when the app stops, the web UI gives the fans back to the chip first, then stops the daemons and its web server, which can take more than Docker's default 10 seconds. An app installed from an older YAML lacks it: **Apps → hddfancontrol → Edit**, add the line under `init: false`, and save.
 
@@ -89,6 +89,14 @@ The container runs privileged: it writes the PWM files of `/sys` and sends ATA c
 ### Bare metal
 
 Download `hddfancontrol-webui-<version>-linux-<arch>.tar.gz` from the [latest release](https://github.com/anto294/hddfancontrol_webui/releases/latest) (`amd64` or `arm64`), then:
+
+To check that the tarball was built by this repository's release workflow from the tagged source (with the [GitHub CLI](https://cli.github.com/)):
+
+```bash
+gh attestation verify hddfancontrol-webui-*-linux-amd64.tar.gz --repo anto294/hddfancontrol_webui
+```
+
+Then:
 
 ```bash
 tar xzf hddfancontrol-webui-*-linux-amd64.tar.gz
@@ -193,19 +201,21 @@ The container runs privileged, because the fans and the drives need it, so the w
 - **Two processes.** The core, which drives the fans and the drives, runs as root and listens on no port: only on a Unix socket that the gateway's user alone can open, and it checks that user on every connection. The **gateway**, which holds the port, HTTPS, the login and the pages, runs as the unprivileged user `hddfancontrol-webui` (`WEBUI_USER`), and passes on to the core only the requests of a logged-in user. A flaw reached before the login stays in a process that cannot touch the fans, the drives or the rest of `/config`. The gateway gets only the environment variables it needs (not `NOTIFY_URL`, for example).
 - **No open first start.** Without credentials nothing answers but the setup page, and creating them needs the one-time code that the gateway writes in the container's log (a new one at every start): someone who only reaches the port cannot claim a new installation. Credentials can be changed, never removed. `WEBUI_USERNAME` and `WEBUI_PASSWORD` win over the stored ones and cannot be changed from the web UI.
 - **Private networks only, by default.** The port answers loopback, private, link-local and carrier-grade NAT addresses (LAN, VPNs such as Tailscale) and refuses the rest with a bare 403; `WEBUI_ALLOW` sets other networks (`WEBUI_ALLOW=192.168.1.0/24`, or `all`). A LAN with IPv6 also gives its hosts global addresses, which are Internet addresses and so not allowed by default: if the page answers *Forbidden* from your LAN, the log names the network to add (`WEBUI_ALLOW=private 2a02:…::/64`: `private` keeps the private networks), or open the web UI by its IPv4 address. Behind a reverse proxy, every client has the address of the proxy.
+- **Names of the LAN only, by default.** The web UI answers only when the browser uses an IP address, `localhost`, a name without dots (`truenas`) or a name of the LAN, of a router or of a VPN (`.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.fritz.box`, `.home`, `.ts.net`): an Internet name pointed at your NAS by someone else (DNS rebinding) gets a bare 403, so a web page of theirs cannot use your browser to reach the web UI. **Behind a reverse proxy with a public domain, set `WEBUI_HOSTS`** to that name (`WEBUI_HOSTS=nas.example.com`, `*.example.com` for its subdomains, `any` to turn the check off), or the page answers *Forbidden*; the log names the value to set. `/healthz` answers any name.
 - **Login.** Credentials are a scrypt hash in `/config/web/auth.json`, readable by the gateway's user only. A login gives an HttpOnly, SameSite=Strict session cookie (Secure over HTTPS), which ends after 12 hours without use, 7 days after the login, or when the container restarts; changing the password ends every other session. Scripts can use HTTP Basic authentication. A wrong password or setup code waits one second; a client that sends 10 in 15 minutes (an IPv4 address, or a whole IPv6 /64) is refused for a while, and after 100 from all clients together the password checks of the clients that sent a wrong one are slowed down, one at a time, by 2 seconds and up to 30; nobody is refused for it, a client without a wrong password is not slowed down, and open sessions go on.
 - **Every change** needs a header that other sites cannot send and a matching origin, and is written to the audit log (`[audit]`, with user and address); logins, wrong passwords and refused addresses go to the log as `[gateway]`. Every value is checked before it reaches a command line or a file: only the names of whole drives (`/dev/disk/by-id/…`, `/dev/disk/by-path/…`, `/dev/sdX`, `/dev/nvmeNnN`), only `pwmN` files of `/sys/class/hwmon` that exist on the host for the fans, manual control and the PWM test.
 - **Headers:** a strict Content Security Policy (no inline script or style), no framing, no sniffing, no referrer, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` same-origin, a `Permissions-Policy` that turns off camera, microphone and the like, and no server version.
 - **Container:** the compose file runs it with a read-only root, `no-new-privileges`, a process limit, a small `/tmp` without exec, and a memory limit. Everything the core writes in `/config` is mode 0600.
 - To reach the web UI from outside your network, use a VPN, or a reverse proxy with HTTPS in your LAN.
+- **Known issue of the image:** it uses Alpine's aiohttp (3.13.5 in Alpine 3.24), which several published advisories affect, fixed only in aiohttp 3.14.4; the image will move to it as soon as Alpine ships it. Until then, keep the port to your LAN (the default) and do not publish it to the Internet. The bare metal package already needs 3.14.4.
 
 ### HTTPS
 
-Set `ENABLE_TLS=true` and the web UI speaks HTTPS on its own port. Without `TLS_CERT` and `TLS_KEY` it makes a self-signed certificate at the first start, in `/config/web/tls` (valid 10 years, for the host name, `localhost` and `127.0.0.1`): the browser warns once, and you accept it for that address. To avoid the warning, give your own certificate and key (PEM files, mounted in the container) with `TLS_CERT` and `TLS_KEY`.
+The web UI speaks HTTPS on its own port (`ENABLE_TLS=false` turns it off). Without `TLS_CERT` and `TLS_KEY` it makes a self-signed certificate at the first start, in `/config/web/tls` (valid 10 years, for the host name, `localhost` and `127.0.0.1`): the browser warns once, and you accept it for that address. To avoid the warning, give your own certificate and key (PEM files, mounted in the container) with `TLS_CERT` and `TLS_KEY`.
 
 The same port still answers plain HTTP, so an old bookmark keeps working; with `FORCE_HTTPS=true` a page asked over HTTP sends the browser to the same address over HTTPS, and the API and `/metrics` refuse plain HTTP (403). `/healthz` stays on HTTP for the container health check. Behind a reverse proxy that terminates HTTPS, `FORCE_HTTPS` alone does the same for the requests the proxy marks as HTTP (`X-Forwarded-Proto`). The move to HTTPS is made by the browser from its own address bar, never from the `Host` header, which a client can forge. The web UI sends no `Strict-Transport-Security`: with a self-signed certificate the browser would then refuse the page instead of warning.
 
-If the certificate cannot be read or made, the web UI starts over plain HTTP (no redirect) and says why in the log: the fans are controlled either way.
+If the certificate cannot be read or made, the web UI starts over plain HTTP (no redirect) and says why in the log: the fans are controlled either way. Opened over plain HTTP from another host, the login page warns that the password would cross the network in clear text, with a link to the same address over HTTPS.
 
 ## Environment variables
 
@@ -215,11 +225,12 @@ Everything but the first group can be set in the web UI, which then stores it in
 |---|---|---|
 | `WEBUI_USERNAME` | `admin` | Username, when `WEBUI_PASSWORD` is set |
 | `WEBUI_PASSWORD` | — | Password of the web UI; without it, the first visit creates the credentials with the setup code of the log |
-| `WEBUI_PORT` | `8080` | Port of the web UI |
+| `WEBUI_PORT` | `28462` | Port of the web UI (8080 before 0.9.0) |
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
 | `WEBUI_ALLOW` | private networks | Networks allowed to connect, as CIDRs separated by commas or spaces; `private` stands for the default networks, `all` for every address; loopback is always allowed. See [Security](#security) |
+| `WEBUI_HOSTS` | names of the LAN | Host names the browser may use besides IP addresses and names of the LAN, by commas or spaces; `*.example.com` for subdomains, `any` for every name. Needed behind a reverse proxy with a public domain. See [Security](#security) |
 | `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; when it does not exist, or is root or in root's group, the web UI does not start (an error in the log) and the fans are still controlled |
-| `ENABLE_TLS` | `false` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; see [HTTPS](#https) |
+| `ENABLE_TLS` | `true` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; `false` serves plain HTTP only; see [HTTPS](#https) |
 | `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
 | `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied to `/config/web-tls` at start, so the gateway can read them |
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |

@@ -2,21 +2,27 @@
 
 # Versions of what the image is built from. The upstream versions are
 # checked weekly by .github/workflows/upstream.yml, the base images by
-# Dependabot.
-ARG ALPINE_VERSION=3.24
+# Dependabot. The base images are pinned by the digest of their multi-arch
+# index: a tag moved upstream cannot change the build. Written out in each
+# FROM (no ARG), so that Dependabot can update them.
+# Each tag with the commit it must point to: a tag moved upstream fails the build.
 ARG HDDFANCONTROL_VERSION=2.1.2
+ARG HDDFANCONTROL_COMMIT=4a6de520a71d9f6e2f7434287fe5d0b28e734ff4
 ARG HDIDLE_VERSION=v1.21
+ARG HDIDLE_COMMIT=8f720ada2f202327495ff07948b18232259eb0a3
 ARG SDPARM_VERSION=1.12
 ARG SDPARM_SHA256=c4c9efafdbeb662e2f9712707ec490932bd4d010bb1129ae7a99526546eeadbe
 
 # --- hddfancontrol, static, so the same file also ships in the bare metal tarball
-FROM alpine:${ALPINE_VERSION} AS hddfancontrol
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS hddfancontrol
 ARG HDDFANCONTROL_VERSION
+ARG HDDFANCONTROL_COMMIT
 # A failing command inside a pipe must fail the build.
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 RUN apk add --no-cache cargo git musl-dev
 WORKDIR /src
-RUN git clone --depth 1 --branch "${HDDFANCONTROL_VERSION}" https://github.com/desbma/hddfancontrol.git .
+RUN git clone --depth 1 --branch "${HDDFANCONTROL_VERSION}" https://github.com/desbma/hddfancontrol.git . \
+ && test "$(git rev-parse HEAD)" = "${HDDFANCONTROL_COMMIT}"
 # With an explicit --target, RUSTFLAGS reaches only the program: the proc
 # macros and build scripts are built for the host and cannot be static.
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
@@ -26,20 +32,22 @@ RUN target="$(rustc -vV | sed -n 's/^host: //p')" \
  && install -D "target/${target}/release/hddfancontrol" /out/hddfancontrol
 
 # --- hd-idle, cross-compiled: Go needs no emulation for other architectures
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine${ALPINE_VERSION} AS hdidle
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine3.24@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS hdidle
 ARG HDIDLE_VERSION
+ARG HDIDLE_COMMIT
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
 RUN apk add --no-cache git
 WORKDIR /src
 RUN git clone --depth 1 --branch "${HDIDLE_VERSION}" https://github.com/adelolmo/hd-idle.git . \
+ && test "$(git rev-parse HEAD)" = "${HDIDLE_COMMIT}" \
  && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" GOARM="${TARGETVARIANT#v}" \
     go build -trimpath -ldflags="-s -w" -o /out/hd-idle .
 
 # --- sdparm: hddfancontrol uses it for the state of SAS drives. Alpine has it
 # only in edge/testing, so it is built from the Debian copy of the release.
-FROM alpine:${ALPINE_VERSION} AS sdparm
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS sdparm
 ARG SDPARM_VERSION
 ARG SDPARM_SHA256
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
@@ -59,7 +67,7 @@ COPY --from=hdidle /out/hd-idle /
 COPY --from=sdparm /out/sdparm /
 
 # --- the image
-FROM alpine:${ALPINE_VERSION}
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 ARG APP_VERSION=dev
 # python3 and aiohttp come built from Alpine for every architecture: no
 # compiler, no pip, nothing downloaded at start.
@@ -93,9 +101,9 @@ ENV APP_VERSION=${APP_VERSION} \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 VOLUME /config
-EXPOSE 8080
+EXPOSE 28462
 HEALTHCHECK --interval=60s --timeout=5s --start-period=60s \
-  CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${WEBUI_PORT:-8080}/healthz\" || exit 1"]
+  CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${WEBUI_PORT:-28462}/healthz\" || exit 1"]
 # tini reaps the processes that hddfancontrol starts (hdparm, smartctl) and
 # passes SIGTERM on, so the fans are given back when the container stops.
 ENTRYPOINT ["/sbin/tini", "--"]

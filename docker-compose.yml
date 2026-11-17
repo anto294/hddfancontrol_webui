@@ -20,7 +20,7 @@ services:
     # them halfway: give them a minute.
     stop_grace_period: 60s
     ports:
-      - "8080:8080"
+      - "28462:28462"
     volumes:
       - ./config:/config # settings, labels, history, credentials
       - /lib/modules:/lib/modules:ro # to load the sensor chip module
@@ -35,6 +35,9 @@ services:
       # - WEBUI_PASSWORD=a-long-password-of-yours
       # The networks allowed to connect: private ones by default.
       # - WEBUI_ALLOW=192.168.1.0/24  # or "private 2a02:…::/64" to add a network to the default ones
+      # The host names the browser may use besides IP addresses and names of the
+      # LAN (.local, .lan, …): the domain of a reverse proxy, for example.
+      # - WEBUI_HOSTS=nas.example.com
       # Everything else can be set in the web UI, or here, for example:
       # - DRIVES=/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW
       # - MONITOR_DRIVES=/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW
@@ -43,9 +46,10 @@ services:
       # - SPIN_DOWN_TIME_S=600
       # - NOTIFY_URL=https://ntfy.sh/a-topic-of-yours
       # - TZ=Europe/Rome
-      # HTTPS on the same port (a self-signed certificate is made in /config/web/tls):
-      # - ENABLE_TLS=true
+      # HTTPS is on, on the same port as HTTP (a self-signed certificate is
+      # made in /config/web/tls). Send every browser to it, or turn it off:
       # - FORCE_HTTPS=true
+      # - ENABLE_TLS=false
     # Two Python processes (core and gateway, about 45 MB each), a login's
     # 16 MB scrypt, the daemons and smartctl: room to spare, so the kernel
     # never has to kill the core that drives the fans.

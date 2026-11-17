@@ -426,6 +426,8 @@
   "error.cron_range": "«{value}» è fuori intervallo: da {min} a {max}.",
   "error.cron_never": "Non succede mai.",
   "error.https_required": "Funziona solo in HTTPS: apri l'indirizzo con https://.",
+  "login.plain_http": "Questa pagina non è cifrata: la password e la sessione viaggiano in chiaro sulla rete.",
+  "login.use_https": "Aprila in HTTPS",
   "setup.title": "Primo avvio",
   "setup.text": "Non ci sono ancora nome utente e password. Per provare che il NAS è tuo, inserisci il codice di configurazione scritto nel log del container (docker logs, o i log dell'app in TrueNAS), poi scegli nome utente e password.",
   "setup.code": "Codice di configurazione",

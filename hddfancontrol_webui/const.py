@@ -50,7 +50,7 @@ PWM_STATE_FILE = "pwm-state.json"
 TEMP_LOG_DIR = "templog"
 TEMP_LOG_FILE = "temps.jsonl"
 
-DEFAULT_PORT = 8080
+DEFAULT_PORT = 28462
 
 HDDFANCONTROL_BIN = "hddfancontrol"
 HDIDLE_BIN = "hd-idle"

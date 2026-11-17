@@ -93,6 +93,6 @@ if [ "${1:-}" = "--no-start" ]; then
 else
     systemctl restart hddfancontrol-webui.service
     port=$(sed -n 's/^WEBUI_PORT=//p' "$ETC/env" | tail -n 1)
-    say "Installed and started: http://$(hostname):${port:-8080}"
+    say "Installed and started: http://$(hostname):${port:-28462}"
 fi
 say "Settings: $ETC/env   Data: $DATA   Logs: journalctl -u hddfancontrol-webui"

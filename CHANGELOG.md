@@ -7,6 +7,31 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- **The web UI moves to port 28462** (it was 8080, a port many other
+  apps want). After the update, an app installed from the old example
+  publishes `8080:8080`, where nothing listens any more: change the
+  line to `"28462:28462"` (on TrueNAS: **Apps → hddfancontrol → Edit**)
+  and open `http://<nas>:28462`, or keep the old port with
+  `WEBUI_PORT=8080`. Bare metal installs keep the port of their
+  `/etc/hddfancontrol-webui/env`.
+- The web UI answers only host names of the LAN: IP addresses,
+  `localhost`, names without dots and names ending in `.local`, `.lan`,
+  `.home.arpa`, `.internal`, `.localdomain`, `.fritz.box`, `.home` or
+  `.ts.net`; any other name gets 403, against DNS rebinding. **Behind a
+  reverse proxy with a public domain, set the new `WEBUI_HOSTS`** (for
+  example `WEBUI_HOSTS=nas.example.com`, `*.example.com`, or `any`); the
+  log names the value to set. `/healthz` answers any name.
+- HTTPS is on by default (`ENABLE_TLS` defaults to `true`), with a
+  self-signed certificate made at the first start unless `TLS_CERT` and
+  `TLS_KEY` are set. The same port still answers plain HTTP, so
+  bookmarks and the health check keep working; `FORCE_HTTPS` stays off.
+  `ENABLE_TLS=false` turns HTTPS off. Without `openssl` (bare metal) the
+  web UI stays on HTTP and says why in the log. The login page, opened
+  over plain HTTP, warns that the password crosses the network in clear
+  text and links to the HTTPS address.
+
 ### Security
 
 - A fan's PWM path must be `/sys/class/hwmon/hwmonN/pwmN`, a sensor's
@@ -64,6 +89,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Saving settings with a fan that is no PWM output of the host answers
   400 `unknown_pwm`. Such a fan in a saved file is not controlled, like
   one whose chip is gone, and manual control never writes it either.
+- The bare metal package needs aiohttp 3.14.4 or later, the first
+  release without known security advisories.
+- The bare metal tarballs come with a signed provenance attestation:
+  `gh attestation verify <tarball> --repo anto294/hddfancontrol_webui`
+  checks that the release workflow built them from the tagged source.
+- Known issue: the Docker image still uses Alpine's aiohttp (3.13.5 in
+  Alpine 3.24), affected by advisories fixed in aiohttp 3.14.4; it moves
+  to it when Alpine ships it. Keep the port to the LAN meanwhile.
 - The limit on wrong passwords counts an IPv6 /64 as one client, and
   after 100 wrong passwords from all clients together it slows down the
   clients that sent one (2 s per check, doubling up to 30 s, one at a
