@@ -196,15 +196,10 @@ class DualListener:
     async def _peek(conn: socket.socket) -> bytes:
         """The first byte of the connection, left in it; empty when it closed."""
         loop = asyncio.get_running_loop()
-        ready = loop.create_future()
-
-        def wake() -> None:
-            if not ready.done():
-                ready.set_result(None)
-
-        loop.add_reader(conn.fileno(), wake)
+        readable = asyncio.Event()
+        loop.add_reader(conn.fileno(), readable.set)
         try:
-            await ready
+            await readable.wait()
         finally:
             with suppress(ValueError, OSError):  # a socket closed meanwhile
                 loop.remove_reader(conn.fileno())
