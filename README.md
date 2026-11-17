@@ -10,7 +10,7 @@
 Control the case fans of a NAS from the temperature of its hard drives, and spin the drives down when they are idle, from a web page. Built around [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma and [hd-idle](https://github.com/adelolmo/hd-idle) by adelolmo, for **TrueNAS SCALE** first, and for any Linux system with Docker or systemd.
 
 > [!NOTE]
-> This project started from the idea of [fightforlife/docker_hddfancontrol](https://github.com/fightforlife/docker_hddfancontrol), a Docker image of the same two programs. It is written from scratch, and its environment variables still work, so moving over is a change of image. See [Moving from fightforlife/docker_hddfancontrol](#moving-from-fightforlifedocker_hddfancontrol).
+> The fan control itself is [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma: it measures the drives without waking them and drives the fans. This project runs it and hd-idle, keeps them running, and adds around them the web UI, the auto mode, manual control, the history, SMART data and alerts. It is not an official desbma project.
 
 ## Contents
 
@@ -24,7 +24,6 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - [Alerts](#alerts)
 - [Security](#security)
 - [Environment variables](#environment-variables)
-- [Moving from fightforlife/docker_hddfancontrol](#moving-from-fightforlifedocker_hddfancontrol)
 - [Resource use](#resource-use)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -115,7 +114,7 @@ On the first start, with no drive and no fan chosen, the web UI opens the **guid
 
 | Mode | What drives the fans | You set |
 |---|---|---|
-| **Curve** | hddfancontrol, as in the upstream image: minimum speed up to the minimum temperature, full speed from the maximum, in proportion in between | Minimum and maximum temperature, minimum speed |
+| **Curve** | hddfancontrol itself: minimum speed up to the minimum temperature, full speed from the maximum, in proportion in between | Minimum and maximum temperature, minimum speed |
 | **Auto** | The web UI keeps the hottest drive near a target with as little speed as it needs, and adapts to load, season and case by itself | Target and maximum temperature, minimum speed |
 | **Manual** | You, with a slider per PWM output, until you go back or the container restarts | — |
 
@@ -191,14 +190,6 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `NOTIFY_FORMAT` | `ntfy` | `ntfy`, `gotify` or `json` |
 | `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en` or `it` |
 
-## Moving from fightforlife/docker_hddfancontrol
-
-Change the image to `ghcr.io/anto294/hddfancontrol_webui:latest`, add a `/config` volume and port 8080, and keep your environment variables. Three things behave differently:
-
-- **hd-idle spins down only the drives in `DRIVES`.** The upstream script set the idle time for every drive of the system.
-- **`RESTORE_FAN_SETTINGS` is on unless you set it to `false`.** When hddfancontrol stops, the fans get their previous settings back; upstream left them at full speed unless the variable was set, and then turned the option on whatever its value. Set `RESTORE_FAN_SETTINGS=false` to keep the fans at full speed.
-- **A daemon that stops is started again**, with a growing delay, instead of the whole container stopping. Without `PWM`, the web UI waits for you to set the fans up, instead of waiting for a shell.
-
 ## Resource use
 
 The web UI is a single Python process with aiohttp, and uses about 45 MB of memory; hddfancontrol and hd-idle add a few MB. The browser asks for data only while its tab is visible, the temperature log is read from its end only, and the history is written every 30 seconds in one transaction. The image is based on Alpine, with Python and aiohttp from Alpine's own packages.
@@ -232,6 +223,5 @@ To try the web UI without touching the fans, point `HDDFANCONTROL_BIN` and `HDID
 - [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma (GPL-3.0) measures the drives and drives the fans.
 - [hd-idle](https://github.com/adelolmo/hd-idle) by adelolmo (GPL-3.0) spins the drives down.
 - [sdparm](https://sg.danny.cz/sg/sdparm.html) by Douglas Gilbert (BSD) reads the state of SAS drives.
-- [fightforlife/docker_hddfancontrol](https://github.com/fightforlife/docker_hddfancontrol) gave the idea and the names of the environment variables.
 
 This project is released under the [GNU General Public License v3.0](LICENSE). The image and the release tarballs include the programs above, under their own licenses.

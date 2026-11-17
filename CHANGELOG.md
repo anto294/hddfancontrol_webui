@@ -278,7 +278,7 @@ First release.
 - A multi-architecture Docker image (amd64, arm64, armv7) and, for every
   release, bare metal tarballs with static hddfancontrol, hd-idle and sdparm,
   a systemd unit and `install.sh`.
-- The environment variables of fightforlife/docker_hddfancontrol.
+- Settings from environment variables (`DRIVES`, `PWM`, `DRIVE_TEMP_RANGE`...).
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 

@@ -1,7 +1,7 @@
 """Settings of hddfancontrol and hd-idle.
 
-The settings come from the environment variables of the container, with the
-names of fightforlife/docker_hddfancontrol, until the web UI saves them to
+The settings come from the environment variables of the container until the
+web UI saves them to
 ``settings.json`` in the config directory. From then on the file wins, and
 deleting it (Reset in the web UI) goes back to the environment.
 
@@ -90,6 +90,9 @@ class Pwm:
     # The /sys/devices path of the chip, to find the output again when the
     # hwmon number changes at a reboot (Hardware.locate).
     chip: str | None = None
+    # The drives this fan follows (a group of fans per set of drives); empty
+    # means every drive.
+    drives: tuple[str, ...] = ()
 
 
 # ---------------------------
@@ -138,11 +141,22 @@ class Settings:
     notify_url: str = ""
     notify_format: str = "ntfy"
     notify_language: str = "en"
+    # Limits of single drives over the common ones: {drive: {"min", "target", "max"}}, each optional.
+    drive_limits: dict[str, dict[str, float]] = field(default_factory=dict)
 
     @property
     def complete(self) -> bool:
         """Whether the fans can be controlled: it needs drives and fans."""
         return bool(self.drives) and bool(self.pwms)
+
+    def limits_of(self, drive: str) -> tuple[float, float, float]:
+        """Minimum, target and maximum temperature of a drive: its own, or the common ones."""
+        own = self.drive_limits.get(drive, {})
+        return (
+            own.get("min", self.drive_temp_min),
+            own.get("target", self.target_temp),
+            own.get("max", self.drive_temp_max),
+        )
 
     def spin_down_of(self, drive: str) -> int:
         """Spin down time of a drive: its own, or the common one."""
@@ -313,8 +327,14 @@ def from_dict(data: Any) -> Settings:
         if chip is not None and (not isinstance(chip, str) or not is_sys_path(chip)):
             check.add(prefix + "chip", "invalid_sys_path")
             chip = None
+        followed: list[str] = []
+        for number, drive in enumerate(check.items(item, "drives")):
+            if not isinstance(drive, str) or drive not in drives or not drive.startswith("/"):
+                check.add(f"{prefix}drives.{number}", "unknown_drive")
+            elif drive not in followed:
+                followed.append(drive)
         if start >= 0 and stop >= 0:
-            pwms.append(Pwm(path, start, stop, chip))
+            pwms.append(Pwm(path, start, stop, chip, tuple(followed)))
 
     temp_min = check.number(data, "drive_temp_min", defaults.drive_temp_min)
     temp_max = check.number(data, "drive_temp_max", defaults.drive_temp_max)
@@ -357,6 +377,8 @@ def from_dict(data: Any) -> Settings:
     if temps_ok and not check.has("target_temp") and target is not None and temp_max is not None and target >= temp_max:
         check.add("target_temp", "target_order")
 
+    drive_limits = _drive_limits(check, data.get("drive_limits", {}), drives, temp_min, target, temp_max)
+
     settings = Settings(
         drives=tuple(drives),
         monitor_drives=tuple(monitor_drives),
@@ -379,10 +401,48 @@ def from_dict(data: Any) -> Settings:
         notify_url=_notify_url(check, data.get("notify_url", defaults.notify_url)),
         notify_format=check.choice(data, "notify_format", defaults.notify_format, NOTIFY_FORMATS),
         notify_language=check.choice(data, "notify_language", defaults.notify_language, NOTIFY_LANGUAGES),
+        drive_limits=drive_limits,
     )
     if check.problems:
         raise SettingsError(check.problems)
     return settings
+
+
+# ---------------------------
+#   _drive_limits
+# ---------------------------
+def _drive_limits(
+    check: _Collector, value: Any, drives: list[str], low: float | None, target: float | None, high: float | None
+) -> dict[str, dict[str, float]]:
+    """Read the limits of single drives; each falls back to the common one, and they must stay in order."""
+    if not isinstance(value, Mapping):
+        check.add("drive_limits", "invalid_document")
+        return {}
+    limits: dict[str, dict[str, float]] = {}
+    for drive, item in value.items():
+        name = f"drive_limits.{drive}"
+        if drive not in drives or not str(drive).startswith("/"):
+            check.add(name, "unknown_drive")
+            continue
+        if not isinstance(item, Mapping):
+            check.add(name, "invalid_document")
+            continue
+        own: dict[str, float] = {}
+        for key in ("min", "target", "max"):
+            number = check.number(item, key, None, name + ".")
+            if number is not None:
+                own[key] = number
+        if not own:
+            continue
+        mine_low = own.get("min", low)
+        mine_target = own.get("target", target)
+        mine_high = own.get("max", high)
+        if mine_low is not None and mine_high is not None and mine_low >= mine_high:
+            check.add(name + ".max", "range_order")
+        elif mine_target is not None and mine_high is not None and mine_target >= mine_high:
+            check.add(name + ".target", "target_order")
+        limits[drive] = own
+    return limits
 
 
 # ---------------------------

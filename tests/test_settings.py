@@ -25,7 +25,7 @@ DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
 DRIVE2 = "/dev/disk/by-id/ata-WDC_WD40EFRX-68N32N0_WD-WCC7K1"
 PWM = "/sys/class/hwmon/hwmon3/pwm1"
 
-# The docker-compose.yml example of fightforlife/docker_hddfancontrol.
+# A docker-compose.yml environment that sets every variable.
 UPSTREAM_ENV = {
     "DRIVES": f"{DRIVE} {DRIVE2}",
     "PWM": f"{PWM}:200:75 /sys/class/hwmon/hwmon3/pwm4:200:75",
@@ -308,3 +308,40 @@ def test_notifications() -> None:
         assert err.value.problems[0]["code"] == "invalid_url"
     doc = env_document({"NOTIFY_URL": "http://gotify.lan/message?token=a", "NOTIFY_FORMAT": "Gotify", "NOTIFY_LANGUAGE": "IT"})
     assert doc == {"notify_url": "http://gotify.lan/message?token=a", "notify_format": "gotify", "notify_language": "it"}
+
+
+def test_fan_groups_and_drive_limits() -> None:
+    """A fan follows some drives; a drive has its own limits, which fall back to the common ones and stay in order."""
+    a, b = "/dev/disk/by-id/ata-A", "/dev/disk/by-id/ata-B"
+    doc = {
+        "drives": [a, b, "ata"],
+        "pwms": [{"path": PWM, "start": 200, "stop": 75, "drives": [b, b]}],
+        "drive_limits": {b: {"max": 45, "target": 38}, a: {}},
+        "drive_temp_min": 30,
+        "drive_temp_max": 50,
+        "target_temp": 40,
+    }
+    settings = from_dict(doc)
+    assert settings.pwms[0].drives == (b,)
+    assert settings.drive_limits == {b: {"max": 45.0, "target": 38.0}}
+    assert settings.limits_of(b) == (30.0, 38.0, 45.0)
+    assert settings.limits_of(a) == (30.0, 40.0, 50.0)
+    assert from_dict(settings.to_dict()) == settings
+    bad = {
+        **doc,
+        "pwms": [{"path": PWM, "start": 200, "stop": 75, "drives": ["ata", "/dev/other", 3]}],
+        "drive_limits": {b: {"max": 29}, a: {"target": 55}, "/dev/x": {"max": 40}, "ata": {}},
+    }
+    with pytest.raises(SettingsError) as err:
+        from_dict(bad)
+    fields = {(p["field"], p["code"]) for p in err.value.problems}
+    assert ("pwms.0.drives.0", "unknown_drive") in fields
+    assert ("pwms.0.drives.1", "unknown_drive") in fields
+    assert ("pwms.0.drives.2", "unknown_drive") in fields
+    assert (f"drive_limits.{b}.max", "range_order") in fields
+    assert (f"drive_limits.{a}.target", "target_order") in fields
+    assert ("drive_limits./dev/x", "unknown_drive") in fields
+    assert ("drive_limits.ata", "unknown_drive") in fields
+    for broken in ({"drive_limits": []}, {"drives": [a], "drive_limits": {a: 5}}):
+        with pytest.raises(SettingsError):
+            from_dict(broken)
