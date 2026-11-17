@@ -48,6 +48,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A temperature sample timed more than a minute in the future (a clock
   that jumped back) counts as old: the fans go to full speed instead of
   trusting it for as long as the clock is off.
+- The history CSV writes a name or label that starts like a formula
+  (`=`, `+`, `-`, `@`) with a quote in front, so a spreadsheet opens it
+  as text instead of running it.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

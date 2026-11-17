@@ -214,6 +214,36 @@ async def get_history(request: web.Request) -> web.Response:
 
 
 # ---------------------------
+#   _csv_cell
+# ---------------------------
+def _csv_cell(value: Any) -> Any:
+    """A cell of the CSV: text that a spreadsheet would read as a formula gets a quote in front.
+
+    Names and labels come from the host and the users: "=HYPERLINK(...)"
+    must open as text, not run. Numbers are left as they are.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+# ---------------------------
+#   _history_csv
+# ---------------------------
+def _history_csv(data: dict[str, Any], labels: dict[str, str]) -> str:
+    """The rows of the history as CSV text: time (UTC), kind, name, label, value. Blocking (CPU)."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["time_utc", "kind", "name", "label", "value"])
+    for series in data["series"]:
+        label = labels.get(series["name"], "")
+        for ts, value in series["points"]:
+            when = datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            writer.writerow([_csv_cell(cell) for cell in (when, series["kind"], series["name"], label, value)])
+    return buffer.getvalue()
+
+
+# ---------------------------
 #   get_history_csv
 # ---------------------------
 # A CSV never holds more than this many points per series (a year of 30 s samples is a million).
@@ -231,18 +261,11 @@ async def get_history_csv(request: web.Request) -> web.Response:
     if not 0 < hours <= HISTORY_MAX_HOURS:
         return _json_error(400, "out_of_range")
     data = await asyncio.to_thread(request.app[HISTORY].query, hours, None, CSV_MAX_POINTS)
-    labels = request.app[LABELS].all()
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(["time_utc", "kind", "name", "label", "value"])
-    for series in data["series"]:
-        label = labels.get(series["name"], "")
-        for ts, value in series["points"]:
-            when = datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-            writer.writerow([when, series["kind"], series["name"], label, value])
+    # Up to CSV_MAX_POINTS rows per series: built in a thread, never on the event loop.
+    text = await asyncio.to_thread(_history_csv, data, request.app[LABELS].all())
     name = f"hddfancontrol-history-{hours:g}h.csv"
     return web.Response(
-        text=buffer.getvalue(),
+        text=text,
         content_type="text/csv",
         charset="utf-8",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},

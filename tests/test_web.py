@@ -333,6 +333,27 @@ async def test_history_csv(make_client: ClientMaker) -> None:
     assert any(f"temp,{DRIVE},,41.5" in line for line in lines)
     assert (await client.get("/api/history.csv?hours=x")).status == 400
     assert (await client.get("/api/history.csv?hours=0")).status == 400
+    # A name that a spreadsheet would run as a formula is written as text.
+    await client.put("/api/labels", json={"key": PWM1, "label": "=HYPERLINK(1)"}, headers=FETCH)
+    lines = (await (await client.get("/api/history.csv?hours=1")).text()).splitlines()
+    assert any(line.endswith(f"pwm,{PWM1},'=HYPERLINK(1),50.0") for line in lines)
+
+
+def test_csv_cells_that_start_a_formula() -> None:
+    """=, +, -, @, tab and carriage return at the start of a text cell get a quote; numbers stay numbers."""
+    from hddfancontrol_webui.web import _csv_cell
+
+    assert [_csv_cell(v) for v in ("=1+1", "+1", "-1", "@SUM(A1)", "\tx", "\rx", "Back 1", "")] == [
+        "'=1+1",
+        "'+1",
+        "'-1",
+        "'@SUM(A1)",
+        "'\tx",
+        "'\rx",
+        "Back 1",
+        "",
+    ]
+    assert _csv_cell(-5.0) == -5.0
 
 
 async def test_bays_api(make_client: ClientMaker) -> None:
