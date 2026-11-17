@@ -21,6 +21,7 @@ import io
 import json
 import logging
 import mimetypes
+import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -204,6 +205,10 @@ async def security_headers(request: web.Request, handler: Handler) -> web.Stream
     return response
 
 
+# A host name (letters, digits, dots, hyphens) or a bracketed IPv6 address, with an optional port.
+_REDIRECT_HOST = re.compile(r"(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})|\[[0-9A-Fa-f:.]{2,45}\])(?::[0-9]{1,5})?")
+
+
 # ---------------------------
 #   https_only
 # ---------------------------
@@ -216,7 +221,12 @@ async def https_only(request: web.Request, handler: Handler) -> web.StreamRespon
     turn the warning a browser lets you pass into an error it does not.
     """
     if request.app[FORCE_HTTPS] and not _is_https(request) and request.path != "/healthz":
-        raise web.HTTPPermanentRedirect(f"https://{request.host}{request.path_qs}")
+        # The Host header names where to go: only a plain host name or address, and a port, is taken,
+        # so a forged one cannot send the browser somewhere else (user@host, a path, a scheme).
+        host = _REDIRECT_HOST.fullmatch(request.host)
+        if host is None:
+            raise web.HTTPBadRequest(text="Bad Host header")
+        raise web.HTTPPermanentRedirect(f"https://{host.group(0)}{request.rel_url.path_qs}")
     return await handler(request)
 
 

@@ -556,5 +556,11 @@ async def test_force_https(make_client: ClientMaker) -> None:
     assert response.headers["Location"] == f"https://{client.server.host}:{client.server.port}/api/status?x=1"
     assert "Content-Security-Policy" in response.headers
     assert (await client.get("/healthz", allow_redirects=False)).status == 200
+    for host in ("evil.example@good", "a/b", "[::1]:8080", "nas.lan"):
+        response = await client.get("/x", headers={"Host": host}, allow_redirects=False)
+        expected = 308 if host in ("[::1]:8080", "nas.lan") else 400
+        assert response.status == expected, host
+        if expected == 308:
+            assert response.headers["Location"] == f"https://{host}/x"
     proxied = await client.get("/api/status", headers={"X-Forwarded-Proto": "https"}, allow_redirects=False)
     assert proxied.status == 200 and "Strict-Transport-Security" not in proxied.headers
