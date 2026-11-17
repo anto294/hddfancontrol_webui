@@ -15,6 +15,8 @@ const state = {
   dragging: new Set(),
   showAcked: false,
   pending: new Map(),
+  // Kernel name of a drive (sda) -> change of its temperature over TREND_SECONDS.
+  trend: new Map(),
 };
 
 const POLL_STATUS_MS = 3000;
@@ -22,6 +24,10 @@ const POLL_HARDWARE_FAST_MS = 2000;
 const POLL_HARDWARE_SLOW_MS = 15000;
 const POLL_LOGS_MS = 2000;
 const POLL_HISTORY_MS = 60000;
+// The arrow next to a drive compares its temperature with this long ago, and
+// shows from this many degrees of change.
+const TREND_SECONDS = 600;
+const TREND_MIN_DELTA = 1;
 const LOG_MAX_LINES = 2000;
 
 // ---------------------------------------------------------------------------
@@ -132,6 +138,22 @@ function driveLabelById(id) {
   const drive = state.hardware.drives.find((d) => d.ids.includes(id));
   const named = drive && drive.ids.find((i) => state.labels[i]);
   return named ? state.labels[named] : "";
+}
+
+// "WD40EFRX-68N32N0" for "WDC WD40EFRX-68N32N0": the prefix only repeats the brand.
+function shortModel(model) {
+  return (model || "").replace(/^(WDC|TOSHIBA|HGST|Hitachi|SAMSUNG|ATA)[ _]+/i, "").trim();
+}
+
+// What a drive of the temperature log is called on the overview: the name
+// given to it, or its model; then the kernel name and the size, smaller.
+function driveTitle(logName) {
+  const [kernel, ...rest] = logName.split(" ");
+  const drive = state.hardware.drives.find((d) => d.name === kernel);
+  const label = drive ? driveLabelById(drive.ids[0]) : "";
+  const model = shortModel(drive ? drive.model : rest.join(" "));
+  const sub = [label ? model : "", kernel, drive && drive.size_bytes ? fmtBytes(drive.size_bytes) : ""].filter(Boolean).join(" · ");
+  return { name: label || model || kernel, sub };
 }
 
 // hddfancontrol names drives "sda ST4000VN006": show the label, then the kernel name.
@@ -365,18 +387,16 @@ function renderOverview() {
     const from = low - 10;
     const to = high + 5;
     for (const [name, value] of Object.entries(status.latest.temps)) {
+      const title = driveTitle(name);
+      const label = el("span", { class: "meter-name" }, el("span", { class: "meter-title", text: title.name, title: title.name }), el("small", { class: "muted", text: title.sub }));
       if (value === null) {
         asleep += 1;
-        temps.append(
-          el("div", { class: "meter asleep" }, icon("moon"), el("span", { class: "meter-name", text: driveLabelByLogName(name) }), bar(0, "cool"), el("span", { class: "meter-value muted", text: t("state.asleep") })),
-        );
+        temps.append(el("div", { class: "meter drive asleep" }, icon("moon"), label, bar(0, "cool"), el("span"), el("span", { class: "meter-value muted", text: t("state.asleep") })));
         continue;
       }
       values.push(value);
       const level = tempLevel(value);
-      temps.append(
-        el("div", { class: `meter ${level}` }, icon("drive"), el("span", { class: "meter-name", text: driveLabelByLogName(name) }), bar((value - from) / (to - from), level), el("span", { class: "meter-value", text: fmtTemp(value) })),
-      );
+      temps.append(el("div", { class: `meter drive ${level}` }, icon("drive"), label, bar((value - from) / (to - from), level), trendMark(name.split(" ")[0]), el("span", { class: "meter-value", text: fmtTemp(value) })));
     }
   } else {
     $("latest-time").textContent = t("overview.no_temps");
@@ -435,6 +455,35 @@ function renderOverview() {
   for (const [name, daemon] of Object.entries(status.daemons)) {
     const text = t(`daemon.${daemon.state}`) + (daemon.restarts ? ` · ${t("overview.restarts", { count: daemon.restarts })}` : "");
     control.append(row(name, text));
+  }
+}
+
+// An arrow when a drive got warmer or cooler by TREND_MIN_DELTA in TREND_SECONDS.
+function trendMark(kernel) {
+  const delta = state.trend.get(kernel);
+  if (delta === undefined || Math.abs(delta) < TREND_MIN_DELTA) return el("span", { class: "trend" });
+  const up = delta > 0;
+  const text = t(up ? "overview.trend_up" : "overview.trend_down", { delta: Math.abs(delta).toFixed(1), minutes: TREND_SECONDS / 60 });
+  return el("span", { class: `trend ${up ? "up" : "down"}`, title: text, "aria-label": text }, icon(up ? "trend_up" : "trend_down"));
+}
+
+// How much each drive changed in TREND_SECONDS, from the history of the server.
+async function loadTrend() {
+  try {
+    const data = await api("GET", `/api/history?hours=${(2 * TREND_SECONDS) / 3600}`);
+    const trend = new Map();
+    for (const series of data.series.filter((s) => s.kind === "temp" && s.points.length > 1)) {
+      const drive = state.hardware.drives.find((d) => d.ids.includes(series.name));
+      const kernel = drive ? drive.name : series.name.split(" ")[0];
+      const [lastTs, lastValue] = series.points[series.points.length - 1];
+      // The newest point at least TREND_SECONDS older, or the oldest one there is.
+      const before = [...series.points].reverse().find(([ts]) => ts <= lastTs - TREND_SECONDS) || series.points[0];
+      trend.set(kernel, lastValue - before[1]);
+    }
+    state.trend = trend;
+    renderOverview();
+  } catch {
+    // Only the arrows are missing; the next round tries again.
   }
 }
 
@@ -573,4 +622,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   every(() => (state.tab === "fans" || state.tab === "overview" ? POLL_HARDWARE_FAST_MS : POLL_HARDWARE_SLOW_MS), pollHardware);
   every(POLL_LOGS_MS, pollLogs);
   every(POLL_HISTORY_MS, () => state.tab === "history" && loadHistory());
+  every(POLL_HISTORY_MS, () => state.tab === "overview" && loadTrend());
+  loadTrend();
 });

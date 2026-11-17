@@ -66,6 +66,8 @@
   "overview.fan_average": "Average fan speed",
   "overview.drives_awake": "Drives spinning",
   "overview.asleep_count": "{count} asleep",
+  "overview.trend_up": "{delta} °C warmer than {minutes} minutes ago",
+  "overview.trend_down": "{delta} °C cooler than {minutes} minutes ago",
 
   "fans.title": "Fans",
   "fans.intro": "Every PWM output of the host. In manual control, move any slider and watch the speed to find out which fan it drives; each output you move gets its previous setting back when you leave manual control. The curve and auto modes drive only the fans chosen in Settings. Manual control is never saved: a restart goes back to automatic control, and so does closing this page (or putting the computer to sleep) for 2 minutes. A page left open in another tab keeps it.",

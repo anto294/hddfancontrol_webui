@@ -66,6 +66,8 @@
   "overview.fan_average": "Velocità media ventole",
   "overview.drives_awake": "Dischi in rotazione",
   "overview.asleep_count": "{count} in standby",
+  "overview.trend_up": "{delta} °C in più rispetto a {minutes} minuti fa",
+  "overview.trend_down": "{delta} °C in meno rispetto a {minutes} minuti fa",
 
   "fans.title": "Ventole",
   "fans.intro": "Tutte le uscite PWM dell'host. In controllo manuale muovi un cursore qualsiasi e guarda la velocità per capire quale ventola comanda; ogni uscita che muovi torna come prima quando esci dal controllo manuale. Le modalità curva e auto comandano solo le ventole scelte nelle impostazioni. Il controllo manuale non viene mai salvato: dopo un riavvio si torna al controllo automatico, e così anche chiudendo questa pagina (o mettendo il computer in sospensione) per 2 minuti. Una pagina lasciata aperta in un'altra scheda lo mantiene.",

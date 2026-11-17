@@ -7,6 +7,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- Overview: each drive takes one line, with the name given to it (or its
+  model without the brand prefix) and its kernel name and size under it;
+  an arrow shows a drive that got 1 °C warmer or cooler in the last 10
+  minutes. On wide screens the drives are in two columns, in a card of
+  their own above the fans.
+
 ## [0.6.0] - 2026-11-16
 
 ### Added

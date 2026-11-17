@@ -34,6 +34,11 @@ const ICONS = {
   upload: ["M12 15V4", "M7 9l5-5 5 5", "M5 20h14"],
   arrow_left: ["M19 12H5", "M11 6l-6 6 6 6"],
   arrow_right: ["M5 12h14", "M13 6l6 6-6 6"],
+  trend_up: ["M4 17l6-6 4 4 6-7", "M15 8h5v5"],
+  trend_down: ["M4 7l6 6 4-4 6 7", "M15 16h5v-5"],
+  chevron: ["M9 6l6 6-6 6"],
+  sun: ["M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M12 2v2", "M12 20v2", "M4.9 4.9l1.4 1.4", "M17.7 17.7l1.4 1.4", "M2 12h2", "M20 12h2", "M4.9 19.1l1.4-1.4", "M17.7 6.3l1.4-1.4"],
+  contrast: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 3v18", "M12 3a9 9 0 0 1 0 18z"],
 };
 
 // The tab of the fans uses the fan.

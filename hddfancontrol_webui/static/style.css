@@ -924,6 +924,67 @@ button.link {
   overflow-wrap: anywhere;
 }
 
+/* A drive: its name on one line, kernel name and size under it, an arrow for the trend. */
+.meter.drive {
+  grid-template-columns: 1.3rem minmax(0, 1.6fr) minmax(60px, 1fr) 1.1rem 5.5rem;
+}
+
+.meter.drive .meter-value {
+  white-space: nowrap;
+}
+
+.meter.drive .meter-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.meter-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.meter.drive .meter-name small {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend {
+  display: flex;
+  justify-content: center;
+}
+
+.trend .icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.trend.up {
+  color: var(--warn);
+}
+
+.trend.down {
+  color: var(--ok);
+}
+
+/* Many drives: two columns where there is room. */
+@media (min-width: 900px) {
+  .meters.columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 2rem;
+  }
+
+  .meters.columns .meter:nth-last-child(2):nth-child(odd) {
+    border-bottom: none;
+  }
+}
+
 .meter-value {
   text-align: right;
   font-variant-numeric: tabular-nums;
