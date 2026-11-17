@@ -95,3 +95,17 @@ def test_history_cleans_itself(tmp_path: Path) -> None:
     history.delete_notes(["k", "other"])
     assert history.notes() == {}
     history.close()
+
+
+def test_a_corrupt_database_is_set_aside(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A history.db that is not a database is renamed history.db.corrupt-<time>, and a new one is made."""
+    path = tmp_path / "history.db"
+    path.write_bytes(b"this is not a database, " * 200)
+    (tmp_path / "history.db-wal").write_bytes(b"junk")
+    history = History(path)
+    history.record(1000, [("temp", "a", 40.0)])
+    assert history.query(1, now=1000)
+    history.close()
+    aside = sorted(p.name for p in tmp_path.iterdir() if ".corrupt-" in p.name)
+    assert aside and aside[0].startswith("history.db.corrupt-")  # SQLite may already have dropped the -wal junk
+    assert any("corrupt" in record.message for record in caplog.records)

@@ -17,6 +17,7 @@ Every method blocks, and the web server calls them from worker threads.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -24,6 +25,8 @@ from pathlib import Path
 from typing import Any
 
 from .const import HISTORY_MAX_POINTS
+
+_LOGGER = logging.getLogger(__name__)
 
 KINDS = ("temp", "pwm", "rpm")
 
@@ -65,18 +68,45 @@ class History:
     """Store and read the samples."""
 
     def __init__(self, path: Path) -> None:
-        """Open, or create, the database."""
+        """Open, or create, the database; a corrupt one is set aside and a new one made.
+
+        The history is not worth a core that does not start: a file that
+        SQLite cannot open (a power cut on a bad disk, a stray copy) is
+        renamed history.db.corrupt-<time>, with its -wal and -shm files,
+        and the error is logged.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._lock = threading.Lock()
         self._series: dict[tuple[str, str], int] = {}
-        with self._lock:
-            # WAL lets a read run while the recorder writes; NORMAL is safe with WAL.
-            self._db.execute("PRAGMA journal_mode=WAL")
-            self._db.execute("PRAGMA synchronous=NORMAL")
-            self._db.executescript(_SCHEMA)
-            for series_id, kind, name in self._db.execute("SELECT id, kind, name FROM series"):
-                self._series[(kind, name)] = series_id
+        try:
+            self._db = self._open(path)
+        except sqlite3.DatabaseError as err:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            for suffix in ("", "-wal", "-shm"):
+                part = path.with_name(path.name + suffix)
+                if part.exists():
+                    part.rename(path.with_name(f"{path.name}.corrupt-{stamp}{suffix}"))
+            _LOGGER.error(
+                "%s is corrupt (%s): set aside as %s.corrupt-%s, starting a new history", path, err, path.name, stamp
+            )
+            self._series.clear()
+            self._db = self._open(path)
+
+    def _open(self, path: Path) -> sqlite3.Connection:
+        """Connect to the database, set it up and read the series. Raises sqlite3.DatabaseError."""
+        db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+        try:
+            with self._lock:
+                # WAL lets a read run while the recorder writes; NORMAL is safe with WAL.
+                db.execute("PRAGMA journal_mode=WAL")
+                db.execute("PRAGMA synchronous=NORMAL")
+                db.executescript(_SCHEMA)
+                for series_id, kind, name in db.execute("SELECT id, kind, name FROM series"):
+                    self._series[(kind, name)] = series_id
+        except sqlite3.DatabaseError:
+            db.close()
+            raise
+        return db
 
     def close(self) -> None:
         """Close the database."""
