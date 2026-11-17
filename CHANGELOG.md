@@ -7,6 +7,38 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+
+- Privilege separation: the web server no longer runs as root. The core,
+  which drives the fans and the drives, runs as root and listens only on
+  a Unix socket; a new gateway process, run as the unprivileged user
+  `hddfancontrol-webui` (`WEBUI_USER`), holds the port, HTTPS, the login,
+  the CSRF check and the pages, and passes on only the requests of a
+  logged-in user, with who sent them. The core checks the user of every
+  connection, and the gateway gets only the environment it needs.
+- No open first start: without credentials only the setup page answers,
+  and creating them needs a one-time code written in the container's log
+  (a new one at every start). Credentials can be changed but no longer
+  removed.
+- The port answers only private networks by default (LAN, loopback,
+  link-local, carrier-grade NAT and unique local IPv6, so VPNs such as
+  Tailscale work); `WEBUI_ALLOW` sets others, or `all`.
+- Sessions end after 12 hours without use (and 7 days after the login).
+- Audit log: every change is logged with the user and the client address;
+  logins, wrong passwords and setup codes, and refused addresses too.
+- More security headers (`Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy`, `Permissions-Policy`), and no server
+  version in `Server`.
+- The compose example runs the container with `no-new-privileges`, a
+  process limit and a small `/tmp` without exec; the systemd unit gets
+  more sandboxing. Everything the core writes in `/config` is mode 0600.
+
+### Changed
+
+- The credentials and the TLS files move from `/config` to `/config/web`
+  (done by itself at the first start). `WEBUI_PASSWORD` is no longer in
+  the compose example: the first visit creates the credentials.
+
 ## [0.7.1] - 2026-11-17
 
 ### Security

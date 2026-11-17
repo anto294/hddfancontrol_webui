@@ -3,11 +3,15 @@
 The credentials come from WEBUI_USERNAME and WEBUI_PASSWORD when the password
 variable is set; the web UI cannot change those. Otherwise they can be set in
 the web UI, and are kept in /config/auth.json as a scrypt hash, never as the
-password itself. Without either, the web UI is open.
+password itself. Without either, the gateway asks for the setup code of its
+log before anything else (gateway.py), and the credentials, once made, can
+be changed but not removed.
 
-A login gives a random session token in an HttpOnly, SameSite=Strict
-cookie. Sessions live in memory: a restart of the container asks everyone to
-log in again. Scripts can send HTTP Basic credentials instead.
+The gateway keeps this store, as an unprivileged user, in /config/web. A
+login gives a random session token in an HttpOnly, SameSite=Strict cookie.
+Sessions live in memory: a restart of the container asks everyone to log in
+again. A session ends after SESSION_IDLE without a request, or SESSION_LIFETIME
+after the login. Scripts can send HTTP Basic credentials instead.
 """
 
 from __future__ import annotations
@@ -29,6 +33,9 @@ from .storage import write_atomic
 AUTH_FILE = "auth.json"
 SESSION_COOKIE = "hfc_session"
 SESSION_LIFETIME = 7 * 86400
+# An open page asks for the status every few seconds, so only a closed one goes idle.
+SESSION_IDLE = 12 * 3600
+MAX_SESSIONS = 1000
 MIN_PASSWORD_LENGTH = 8
 MAX_FIELD_LENGTH = 256
 
@@ -72,7 +79,8 @@ class AuthStore:
         self.path = config_dir / AUTH_FILE
         self._env_user = env.get("WEBUI_USERNAME", "admin") or "admin"
         self._env_password = env.get("WEBUI_PASSWORD", "")
-        self._sessions: dict[str, float] = {}
+        # token -> (end of its lifetime, last request).
+        self._sessions: dict[str, tuple[float, float]] = {}
         self._file: dict[str, str] | None = self._load()
 
     def _load(self) -> dict[str, str] | None:
@@ -137,19 +145,27 @@ class AuthStore:
         return self.check(username, password)
 
     def new_session(self) -> str:
-        """Open a session and return its token."""
+        """Open a session and return its token; past MAX_SESSIONS the oldest ones end."""
         now = time.time()
-        self._sessions = {t: exp for t, exp in self._sessions.items() if exp > now}
+        live = {t: s for t, s in self._sessions.items() if s[0] > now and now - s[1] < SESSION_IDLE}
+        while len(live) >= MAX_SESSIONS:
+            del live[min(live, key=lambda t: live[t][1])]
         token = secrets.token_urlsafe(32)
-        self._sessions[token] = now + SESSION_LIFETIME
+        live[token] = (now + SESSION_LIFETIME, now)
+        self._sessions = live
         return token
 
     def session_valid(self, token: str | None) -> bool:
-        """Whether a session token is known and not expired."""
+        """Whether a session token is known and neither expired nor idle; a valid one counts as used now."""
         if not token:
             return False
-        expires = self._sessions.get(token)
-        return expires is not None and expires > time.time()
+        session = self._sessions.get(token)
+        now = time.time()
+        if session is None or session[0] <= now or now - session[1] >= SESSION_IDLE:
+            self._sessions.pop(token, None)
+            return False
+        self._sessions[token] = (session[0], now)
+        return True
 
     def end_session(self, token: str | None) -> None:
         """Close a session."""
@@ -169,21 +185,9 @@ class AuthStore:
             raise AuthError("password_too_short")
         salt = secrets.token_bytes(16)
         data = {"username": username, "salt": salt.hex(), "hash": _hash(password, salt).hex()}
-        # Readable only by root: the hash is not the password, but still.
+        # Readable only by the gateway's user: the hash is not the password, but still.
         write_atomic(self.path, json.dumps(data))
         self._file = data
-        self._sessions.clear()
-
-    def clear_credentials(self, current: str) -> None:
-        """Remove the stored credentials, which opens the web UI to everyone."""
-        if self.source == SOURCE_ENV:
-            raise AuthError("auth_from_env")
-        if not self.enabled:
-            return
-        if not self.check(self.username, current):
-            raise AuthError("wrong_password")
-        self.path.unlink(missing_ok=True)
-        self._file = None
         self._sessions.clear()
 
     def status(self) -> dict[str, Any]:

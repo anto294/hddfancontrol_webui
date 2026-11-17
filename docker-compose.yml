@@ -6,9 +6,14 @@ services:
     container_name: hddfancontrol
     restart: unless-stopped
     # The fans and the drives are on the host. Privileged is needed to write
-    # the PWM files of /sys and to send ATA commands to the drives.
+    # the PWM files of /sys and to send ATA commands to the drives. Only the
+    # core runs as root; the web server runs as an unprivileged user and
+    # reaches the core through a Unix socket after the login.
     privileged: true
     read_only: true
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
     init: false # the image has its own init (tini)
     ports:
       - "8080:8080"
@@ -17,12 +22,15 @@ services:
       - /lib/modules:/lib/modules:ro # to load the sensor chip module
       - /dev:/dev:ro # to see the drives by their stable names
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
     environment:
-      # Protect the web UI. You can also set the credentials in the web UI
-      # (Security); these variables win over it.
-      - WEBUI_USERNAME=admin
-      - WEBUI_PASSWORD=change-me-please
+      # Without credentials, the first visit asks for the setup code written
+      # in the log of the container (docker logs hddfancontrol), then for a
+      # username and a password. These variables, when set, win over them.
+      # - WEBUI_USERNAME=admin
+      # - WEBUI_PASSWORD=a-long-password-of-yours
+      # The networks allowed to connect: private ones by default.
+      # - WEBUI_ALLOW=192.168.1.0/24
       # Everything else can be set in the web UI, or here, for example:
       # - DRIVES=/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW
       # - MONITOR_DRIVES=/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW
@@ -31,7 +39,7 @@ services:
       # - SPIN_DOWN_TIME_S=600
       # - NOTIFY_URL=https://ntfy.sh/a-topic-of-yours
       # - TZ=Europe/Rome
-      # HTTPS on the same port (a self-signed certificate is made in /config/tls):
+      # HTTPS on the same port (a self-signed certificate is made in /config/web/tls):
       # - ENABLE_TLS=true
       # - FORCE_HTTPS=true
     # The web UI and the daemons fit easily in this.

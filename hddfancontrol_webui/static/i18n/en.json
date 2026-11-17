@@ -19,7 +19,6 @@
   "action.leave_manual": "Back to automatic control",
   "action.refresh_smart": "Read SMART now",
   "action.save_credentials": "Save",
-  "action.remove_credentials": "Remove protection",
   "action.login": "Log in",
   "action.logout": "Log out",
   "mode.running": "Running",
@@ -221,7 +220,6 @@
   "security.password": "Password",
   "security.confirm": "Repeat the password",
   "security.saved": "Saved. Other sessions have been logged out.",
-  "security.removed": "Protection removed: the web UI is open.",
   "labels.label": "Name",
   "labels.placeholder": "Name (optional)",
   "error.invalid_label_key": "Only drives and fans can be named.",
@@ -428,5 +426,16 @@
   "error.cron_value": "“{value}” is not valid here.",
   "error.cron_range": "“{value}” is out of range: {min} to {max}.",
   "error.cron_never": "This never happens.",
-  "error.https_required": "This works over HTTPS only: open the address with https://."
+  "error.https_required": "This works over HTTPS only: open the address with https://.",
+  "setup.title": "First setup",
+  "setup.text": "No username and password are set yet. To prove the NAS is yours, enter the setup code written in the log of the container (docker logs, or the logs of the app in TrueNAS), then choose a username and a password.",
+  "setup.code": "Setup code",
+  "setup.code_help": "A line such as \"FIRST SETUP … setup code: 1a2b-3c4d-5e6f-7a8b\". A new code at every start.",
+  "setup.confirm": "Repeat the password",
+  "setup.create": "Create and log in",
+  "error.setup_required": "Finish the first setup: open the web UI and enter the code from the log.",
+  "error.wrong_setup_code": "Wrong setup code. Copy it again from the log of the container: it changes at every start.",
+  "error.already_set_up": "The username and password are already set: log in.",
+  "error.core_unavailable": "The fan control service did not answer. Try again in a moment; if it persists, look at the logs of the container.",
+  "error.forbidden": "Not allowed."
 }

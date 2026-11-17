@@ -34,13 +34,11 @@ def test_environment_credentials(tmp_path: Path) -> None:
     assert not auth.check_basic("Basic !!!") and not auth.check_basic("Bearer x")
     with pytest.raises(AuthError, match="auth_from_env"):
         auth.set_credentials("a", "longenough", "s3cret-pass")
-    with pytest.raises(AuthError, match="auth_from_env"):
-        auth.clear_credentials("s3cret-pass")
     assert AuthStore(tmp_path, {"WEBUI_PASSWORD": "x"}).username == "admin"
 
 
 def test_stored_credentials(tmp_path: Path) -> None:
-    """Set, change and remove the stored credentials; the file holds no password."""
+    """Set and change the stored credentials; the file holds no password."""
     auth = AuthStore(tmp_path, {})
     with pytest.raises(AuthError, match="password_too_short"):
         auth.set_credentials("admin", "short", "")
@@ -59,15 +57,11 @@ def test_stored_credentials(tmp_path: Path) -> None:
     token = reloaded.new_session()
     reloaded.set_credentials("anto", "second-password", "first-password")
     assert not reloaded.session_valid(token)
-    with pytest.raises(AuthError, match="wrong_password"):
-        reloaded.clear_credentials("first-password")
-    reloaded.clear_credentials("second-password")
-    assert not reloaded.enabled and not (tmp_path / "auth.json").exists()
-    reloaded.clear_credentials("")
+    assert not hasattr(reloaded, "clear_credentials")  # credentials can be changed, never removed
 
 
 def test_broken_file(tmp_path: Path) -> None:
-    """A broken auth.json leaves the web UI open, and a bad hash never matches."""
+    """A broken auth.json counts as none (the setup code is asked again), and a bad hash never matches."""
     (tmp_path / "auth.json").write_text("{nope")
     assert not AuthStore(tmp_path, {}).enabled
     (tmp_path / "auth.json").write_text(json.dumps({"username": "a", "salt": "zz", "hash": "zz"}))
@@ -88,3 +82,27 @@ def test_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert not auth.session_valid(token)
     auth.new_session()
     assert token not in auth._sessions
+
+
+def test_sessions_end_when_idle_or_old(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A session ends after SESSION_IDLE without use, or SESSION_LIFETIME after the login; the table is bounded."""
+    from hddfancontrol_webui import auth as auth_module
+
+    clock = {"now": 1_000_000.0}
+    monkeypatch.setattr(auth_module.time, "time", lambda: clock["now"])
+    auth = AuthStore(tmp_path, {"WEBUI_PASSWORD": "s3cret-pass"})
+    token = auth.new_session()
+    for _ in range(20):  # used every 10 hours: never idle, until its lifetime ends
+        clock["now"] += 10 * 3600
+        if not auth.session_valid(token):
+            break
+    assert clock["now"] - 1_000_000.0 > auth_module.SESSION_LIFETIME - 10 * 3600
+    idle = auth.new_session()
+    clock["now"] += auth_module.SESSION_IDLE
+    assert not auth.session_valid(idle) and not auth.session_valid(None)
+    monkeypatch.setattr(auth_module, "MAX_SESSIONS", 3)
+    tokens = []
+    for _ in range(4):
+        clock["now"] += 1
+        tokens.append(auth.new_session())
+    assert not auth.session_valid(tokens[0]) and all(auth.session_valid(t) for t in tokens[1:])

@@ -1,12 +1,9 @@
-"""The HTTP API: login, CSRF protection, settings, fans, history, SMART."""
+"""The core API: settings, fans, history, SMART; the peer check and the audit log."""
 
 from __future__ import annotations
 
-import asyncio
-import base64
 import json
 import re
-import threading
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -18,7 +15,6 @@ from aiohttp.test_utils import TestClient
 from conftest import ScriptMaker
 
 from hddfancontrol_webui.alerts import Alerts
-from hddfancontrol_webui.auth import AuthStore
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
@@ -29,7 +25,7 @@ from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import AUTH, MONITOR, SUPERVISOR, create_app
+from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -43,7 +39,7 @@ ClientMaker = Callable[..., Awaitable[Client]]
 def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker) -> ClientMaker:
     """Build a client on an app with fake hardware and programs."""
 
-    async def make(env: dict[str, str] | None = None, force_https: bool = False) -> Client:
+    async def make(peers: frozenset[int] | None = None) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
         log_path = config / "templog" / "temps.jsonl"
@@ -72,17 +68,7 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         async def scan() -> SensorReport:
             return SensorReport(state="done")
 
-        app = create_app(
-            supervisor,
-            hardware,
-            temp_log,
-            history,
-            monitor,
-            AuthStore(config, env or {}),
-            Labels(config),
-            scan,
-            force_https=force_https,
-        )
+        app = create_app(supervisor, hardware, temp_log, history, monitor, Labels(config), scan, peers=peers)
 
         async def stop(app: web.Application) -> None:
             await supervisor.stop()
@@ -95,103 +81,16 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
     return make
 
 
-async def test_open_ui_and_headers(make_client: ClientMaker) -> None:
-    """Without a password the UI answers, with the security headers."""
+async def test_status_and_health(make_client: ClientMaker) -> None:
+    """The core answers the API and its health check; without the gateway's header the login state is open."""
     client = await make_client()
-    response = await client.get("/")
-    assert response.status == 200
-    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
-    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert (await client.get("/")).status == 404  # pages are the gateway's
     response = await client.get("/healthz")
     assert response.status == 200
-    login = await client.get("/login", allow_redirects=False)
-    assert login.status == 302 and login.headers["Location"] == "/"
     status = await (await client.get("/api/status")).json()
     assert status["auth"]["enabled"] is False
     assert status["latest"]["temps"] == {"sda": 41.0}
     assert status["mode"] == "waiting"
-    response = await client.get("/api/status")
-    assert response.headers["Cache-Control"] == "no-store"
-    missing = await client.get("/nope")
-    assert missing.status == 404 and "Content-Security-Policy" in missing.headers
-
-
-async def test_csrf(make_client: ClientMaker) -> None:
-    """A change without the header, or from another origin, is refused."""
-    client = await make_client()
-    response = await client.post("/api/restart")
-    assert response.status == 403
-    response = await client.post("/api/restart", headers={**FETCH, "Origin": "http://evil.example"})
-    assert response.status == 403
-    response = await client.post("/api/restart", headers=FETCH)
-    assert response.status == 200
-
-
-async def test_login_flow(make_client: ClientMaker) -> None:
-    """With credentials, pages redirect to the login and the API answers 401 until logged in."""
-    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
-    page = await client.get("/", allow_redirects=False)
-    assert page.status == 302 and page.headers["Location"] == "/login"
-    response = await client.get("/login")
-    assert response.status == 200
-    style = await client.get("/static/style.css")
-    assert style.status == 200
-    assert style.headers["Cache-Control"] == "no-cache"
-    response = await client.get("/static/i18n/it.json")
-    assert response.status == 200
-    response = await client.get("/static/app.js", allow_redirects=False)
-    assert response.status == 302
-    unauthorized = await client.get("/api/status")
-    assert unauthorized.status == 401
-    assert unauthorized.headers["Cache-Control"] == "no-store"
-    response = await client.get("/healthz")
-    assert response.status == 200
-
-    wrong = await client.post("/api/login", json={"username": "anto", "password": "nope"}, headers=FETCH)
-    assert wrong.status == 401
-    response = await client.post("/api/login", json=[], headers=FETCH)
-    assert response.status == 400
-    ok = await client.post("/api/login", json={"username": "anto", "password": "a-long-password"}, headers=FETCH)
-    assert ok.status == 200
-    cookie = ok.headers["Set-Cookie"]
-    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
-    response = await client.get("/api/status")
-    assert response.status == 200
-
-    await client.post("/api/logout", headers=FETCH)
-    response = await client.get("/api/status")
-    assert response.status == 401
-
-
-async def test_basic_auth(make_client: ClientMaker) -> None:
-    """Scripts can send Basic credentials."""
-    client = await make_client({"WEBUI_PASSWORD": "a-long-password"})
-    good = "Basic " + base64.b64encode(b"admin:a-long-password").decode()
-    bad = "Basic " + base64.b64encode(b"admin:x").decode()
-    response = await client.get("/api/status", headers={"Authorization": good})
-    assert response.status == 200
-    response = await client.get("/api/status", headers={"Authorization": bad})
-    assert response.status == 401
-
-
-async def test_credentials_from_the_ui(make_client: ClientMaker) -> None:
-    """Credentials set in the web UI protect it, and need the current password to change."""
-    client = await make_client()
-    bad = await client.put("/api/auth", json={"username": "anto", "password": "short"}, headers=FETCH)
-    assert (await bad.json())["error"] == "password_too_short"
-    response = await client.put("/api/auth", json={"username": 1}, headers=FETCH)
-    assert response.status == 400
-    ok = await client.put("/api/auth", json={"username": "anto", "password": "a-long-password"}, headers=FETCH)
-    assert ok.status == 200 and (await ok.json())["source"] == "file"
-    # The caller stays logged in with the new session.
-    response = await client.get("/api/auth")
-    assert response.status == 200
-    wrong = await client.delete("/api/auth", json={"current": "nope"}, headers=FETCH)
-    assert (await wrong.json())["error"] == "wrong_password"
-    response = await client.delete("/api/auth", json={"current": 5}, headers=FETCH)
-    assert response.status == 400
-    removed = await client.delete("/api/auth", json={"current": "a-long-password"}, headers=FETCH)
-    assert (await removed.json())["enabled"] is False
 
 
 async def test_settings_api(make_client: ClientMaker) -> None:
@@ -336,28 +235,6 @@ async def test_read_only_api(make_client: ClientMaker) -> None:
     assert test.status == 409 and (await test.json())["error"] == "read_only"
 
 
-async def test_password_checks_run_one_at_a_time(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A burst of logins never runs two scrypt checks at once."""
-    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
-    lock = threading.Lock()
-    running = {"now": 0, "most": 0}
-
-    def slow_check(username: str, password: str) -> bool:
-        with lock:
-            running["now"] += 1
-            running["most"] = max(running["most"], running["now"])
-        time.sleep(0.02)
-        with lock:
-            running["now"] -= 1
-        return True
-
-    monkeypatch.setattr(client.server.app[AUTH], "check", slow_check)
-    body = {"username": "anto", "password": "a-long-password"}
-    answers = await asyncio.gather(*(client.post("/api/login", json=body, headers=FETCH) for _ in range(5)))
-    assert all(answer.status == 200 for answer in answers)
-    assert running["most"] == 1
-
-
 async def test_notify_test_api(make_client: ClientMaker) -> None:
     """The test message needs a saved address, and says when it cannot be sent."""
     client = await make_client()
@@ -406,62 +283,6 @@ async def test_alert_notes_api(make_client: ClientMaker, tmp_path: Path) -> None
     assert status["acknowledged"] == []
 
 
-async def test_too_many_wrong_passwords(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An address that sends too many wrong passwords is refused without a check; a right one resets the count."""
-    from hddfancontrol_webui import web as web_module
-
-    monkeypatch.setattr(web_module, "AUTH_FAILURE_DELAY", 0)
-    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
-    limiter = client.app[web_module.LOGINS]
-    monkeypatch.setattr(limiter, "_max", 2)
-    good = {"username": "anto", "password": "a-long-password"}
-    bad = {"username": "anto", "password": "nope"}
-    assert (await client.post("/api/login", json=bad, headers=FETCH)).status == 401
-    assert (await client.post("/api/login", json=good, headers=FETCH)).status == 200
-    for _ in range(2):
-        assert (await client.post("/api/login", json=bad, headers=FETCH)).status == 401
-    blocked = await client.post("/api/login", json=good, headers=FETCH)
-    assert blocked.status == 429 and (await blocked.json())["error"] == "too_many_attempts"
-    client.session.cookie_jar.clear()  # no session: only the Basic credentials count
-    basic = "Basic " + base64.b64encode(b"anto:a-long-password").decode()
-    response = await client.get("/api/status", headers={"Authorization": basic})
-    assert response.status == 429
-    limiter.succeeded("127.0.0.1")
-    response = await client.get("/api/status", headers={"Authorization": basic})
-    assert response.status == 200
-
-
-def test_login_limiter_window_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Failures expire after the window; the table of addresses stays bounded."""
-    from hddfancontrol_webui import web as web_module
-
-    clock = {"now": 1000.0}
-    monkeypatch.setattr(web_module.time, "monotonic", lambda: clock["now"])
-    monkeypatch.setattr(web_module, "LOGIN_MAX_ADDRESSES", 2)
-    limiter = web_module.LoginLimiter(max_failures=1, window=10)
-    limiter.failed("a")
-    assert limiter.blocked("a")
-    clock["now"] += 11
-    assert not limiter.blocked("a")
-    limiter.failed("b")
-    limiter.failed("c")
-    limiter.failed("d")  # the table is full of recent failures: not counted
-    assert limiter.blocked("b") and limiter.blocked("c") and not limiter.blocked("d")
-    clock["now"] += 11
-    limiter.failed("d")  # expired entries make room
-    assert limiter.blocked("d")
-
-
-async def test_session_cookie_is_secure_behind_an_https_proxy(make_client: ClientMaker) -> None:
-    """The session cookie is marked Secure when a reverse proxy says the browser used HTTPS."""
-    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
-    good = {"username": "anto", "password": "a-long-password"}
-    plain = await client.post("/api/login", json=good, headers=FETCH)
-    assert "Secure" not in plain.headers["Set-Cookie"]
-    proxied = await client.post("/api/login", json=good, headers={**FETCH, "X-Forwarded-Proto": "https, http"})
-    assert "Secure" in proxied.headers["Set-Cookie"]
-
-
 async def test_metrics(make_client: ClientMaker) -> None:
     """The Prometheus text has the drives, the fans, SMART and the alerts; it needs the login like the API."""
     client = await make_client()
@@ -476,14 +297,6 @@ async def test_metrics(make_client: ClientMaker) -> None:
     assert 'label="Back \\"1\\""' in text  # quotes escaped
     assert f'hddfancontrol_smart_warnings{{device="{DRIVE}"}} 1' in text
     assert "# TYPE hddfancontrol_fan_rpm gauge" in text
-
-
-async def test_metrics_need_the_login(make_client: ClientMaker) -> None:
-    """With credentials set, /metrics needs them (HTTP Basic works for Prometheus)."""
-    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
-    assert (await client.get("/metrics")).status == 401
-    basic = "Basic " + base64.b64encode(b"anto:a-long-password").decode()
-    assert (await client.get("/metrics", headers={"Authorization": basic})).status == 200
 
 
 async def test_history_csv(make_client: ClientMaker) -> None:
@@ -501,17 +314,6 @@ async def test_history_csv(make_client: ClientMaker) -> None:
     assert any(f"temp,{DRIVE},,41.5" in line for line in lines)
     assert (await client.get("/api/history.csv?hours=x")).status == 400
     assert (await client.get("/api/history.csv?hours=0")).status == 400
-
-
-async def test_web_app_manifest(make_client: ClientMaker) -> None:
-    """The manifest and its icons are public (the browser fetches them without the session) and typed."""
-    client = await make_client({"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"})
-    response = await client.get("/static/manifest.webmanifest")
-    assert response.status == 200 and response.content_type == "application/manifest+json"
-    manifest = json.loads(await response.text())
-    assert manifest["display"] == "standalone" and manifest["start_url"] == "/"
-    for item in manifest["icons"]:
-        assert (await client.get(item["src"], allow_redirects=False)).status == 200
 
 
 async def test_bays_api(make_client: ClientMaker) -> None:
@@ -548,17 +350,51 @@ async def test_cron_preview_far_runs(make_client: ClientMaker, monkeypatch: pyte
     assert len(data["runs"]) <= 1
 
 
-async def test_force_https(make_client: ClientMaker) -> None:
-    """With force_https, plain HTTP gets the page that moves the browser to HTTPS, or 403 for the API; not /healthz."""
-    client = await make_client(force_https=True)
-    page = await client.get("/settings?x=1", headers={"Host": "evil.example@good"}, allow_redirects=False)
-    assert page.status == 200 and "/static/https.js" in await page.text()
-    assert "Location" not in page.headers and "Content-Security-Policy" in page.headers
-    api = await client.get("/api/status")
-    assert api.status == 403 and (await api.json())["error"] == "https_required"
-    assert (await client.post("/api/login", json={})).status == 403
-    assert (await client.get("/metrics")).status == 403
-    for path in ("/healthz", "/static/https.js", "/static/style.css"):
-        assert (await client.get(path)).status == 200, path
-    proxied = await client.get("/api/status", headers={"X-Forwarded-Proto": "https"}, allow_redirects=False)
-    assert proxied.status == 200 and "Strict-Transport-Security" not in proxied.headers
+async def test_core_takes_the_login_state_from_the_gateway(make_client: ClientMaker) -> None:
+    """The status shows the login state the gateway sent; a bad header counts as none."""
+    client = await make_client()
+    state = {"enabled": True, "source": "file", "username": "anto"}
+    status = await (await client.get("/api/status", headers={"X-Webui-Auth": json.dumps(state)})).json()
+    assert status["auth"] == state
+    for bad in ("not json", "[1]"):
+        status = await (await client.get("/api/status", headers={"X-Webui-Auth": bad})).json()
+        assert status["auth"]["enabled"] is False
+
+
+async def test_audit_log(make_client: ClientMaker) -> None:
+    """Every change is logged with the user and address the gateway sent; reads are not."""
+    client = await make_client()
+    headers = {**FETCH, "X-Webui-User": "anto", "X-Webui-Client": "192.168.1.5"}
+    await client.post("/api/restart", headers=headers)
+    await client.put("/api/labels", json=[], headers=headers)
+    await client.get("/api/settings", headers=headers)
+    await client.put("/api/history.csv", headers=headers)
+    lines = [line["text"] for line in client.app[SUPERVISOR].logs.since(0) if line["source"] == "audit"]
+    assert lines[0] == "POST /api/restart by anto from 192.168.1.5: 200"
+    assert lines[1].startswith("PUT /api/labels by anto from 192.168.1.5: 400")
+    assert lines[2] == "PUT /api/history.csv by anto from 192.168.1.5: 405"
+    assert len(lines) == 3
+
+
+async def test_only_the_gateway_may_connect(make_client: ClientMaker, tmp_path: Path) -> None:
+    """With peers, a connection from another user (or not over a Unix socket) is refused."""
+    import os
+
+    import aiohttp
+
+    tcp = await make_client(peers=frozenset({os.getuid()}))
+    refused = await tcp.get("/api/status")
+    assert refused.status == 403 and (await refused.json())["error"] == "forbidden"
+    app = tcp.app
+    for peers, status in ((frozenset({os.getuid()}), 200), (frozenset({os.getuid() + 12345}), 403)):
+        app = create_app(
+            app[SUPERVISOR], app[HARDWARE], app[TEMP_LOG], app[MONITOR].history, app[MONITOR], app[LABELS], peers=peers
+        )
+        runner = web.AppRunner(app)
+        await runner.setup()
+        path = tmp_path / f"core-{status}.sock"
+        await web.UnixSite(runner, str(path)).start()
+        async with aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(path))) as session:
+            async with session.get("http://core/healthz") as response:
+                assert response.status == status
+        await runner.cleanup()

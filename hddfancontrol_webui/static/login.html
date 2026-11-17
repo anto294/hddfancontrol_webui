@@ -22,12 +22,21 @@
         <img src="/static/logo.png" alt="" width="96" height="96">
         <h1>hddfancontrol</h1>
       </div>
+      <div id="setup-intro" hidden>
+        <h2 data-i18n="setup.title"></h2>
+        <p class="muted small" data-i18n="setup.text"></p>
+      </div>
+      <label class="field" id="setup-code-field" hidden><span data-i18n="setup.code"></span>
+        <input type="text" name="code" autocomplete="one-time-code" spellcheck="false" autocapitalize="off">
+        <small class="muted" data-i18n="setup.code_help"></small></label>
       <label class="field"><span data-i18n="security.username"></span>
         <input type="text" name="username" autocomplete="username" spellcheck="false" required autofocus></label>
       <label class="field"><span data-i18n="security.password"></span>
         <input type="password" name="password" autocomplete="current-password" required></label>
+      <label class="field" id="setup-confirm-field" hidden><span data-i18n="setup.confirm"></span>
+        <input type="password" name="confirm" autocomplete="new-password"></label>
       <p class="error" id="login-error" role="alert"></p>
-      <button type="submit" data-i18n="action.login"></button>
+      <button type="submit" id="login-button" data-i18n="action.login"></button>
       <div class="page-prefs">
         <div class="lang"></div>
       </div>

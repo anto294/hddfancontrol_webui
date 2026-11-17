@@ -1,16 +1,15 @@
-"""The web UI: static files and a small JSON API.
+"""The core API of the web UI: JSON over a Unix socket, for the gateway only.
 
-Security, in a container that runs privileged and drives the fans:
+This process runs as root (it writes the PWM files and talks to the
+drives), often in a privileged container, so the network never reaches it:
+gateway.py, run without privileges, holds the port, TLS, the login, the
+CSRF check and the static files, and passes on only the requests it let
+through, over a Unix socket that only its user can open. core_guard checks
+that user again on every connection (SO_PEERCRED), and logs every change in
+the audit log with the user and client address the gateway sends.
 
-- With a username and password set (auth.py), every page and API call but
-  the login page, its files and /healthz needs a session or HTTP Basic
-  credentials. Without them the web UI is open, and says so.
-- A request that changes something needs the X-Requested-With header and,
-  when the browser sends one, an Origin that matches the host. A page of
-  another site cannot send that header without a CORS preflight, which this
-  server never accepts, so it cannot change anything.
-- Every value is checked in settings.py; a PWM test or a manual fan value
-  only goes to PWM files that the host really has.
+Every value is checked in settings.py; a PWM test or a manual fan value only
+goes to PWM files that the host really has.
 """
 
 from __future__ import annotations
@@ -20,22 +19,22 @@ import csv
 import io
 import json
 import logging
-import mimetypes
+import socket
+import struct
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from aiohttp import web
 
-from .auth import SESSION_COOKIE, SESSION_LIFETIME, AuthError, AuthStore
 from .bays import BayError, Bays
-from .const import HISTORY_MAX_HOURS, SOURCE_SENSORS, VERSION
+from .const import HEADER_AUTH, HEADER_CLIENT, HEADER_USER, HISTORY_MAX_HOURS, SOURCE_AUDIT, SOURCE_SENSORS, VERSION
 from .cron import CronError, parse, windows
 from .hardware import Hardware
 from .history import History
+from .httputil import json_error as _json_error
+from .httputil import read_json as _read_json
 from .labels import LabelError, Labels
 from .monitor import Monitor
 from .notify import NotifyError
@@ -46,379 +45,93 @@ from .templog import TempLog
 
 _LOGGER = logging.getLogger(__name__)
 
-# The web app manifest (install on a phone's home screen); Python does not know its type.
-mimetypes.add_type("application/manifest+json", ".webmanifest")
-
-STATIC_DIR = Path(__file__).parent / "static"
-CSRF_HEADER = "X-Requested-With"
-AUTH_FAILURE_DELAY = 1.0
-# Reachable without logging in: the login page needs them.
-PUBLIC_PATHS = (
-    "/healthz",
-    "/login",
-    "/api/login",
-    "/static/style.css",
-    "/static/https.js",
-    "/static/login.js",
-    "/static/i18n.js",
-    "/static/favicon.png",
-    "/static/logo.png",
-    "/static/apple-touch-icon.png",
-    "/static/manifest.webmanifest",
-    "/static/icon-512.png",
-)
-PUBLIC_PREFIXES = ("/static/i18n/",)
-# After this many wrong passwords from one address within LOGIN_WINDOW
-# seconds, that address is refused without checking until the window ends.
-LOGIN_MAX_FAILURES = 10
-LOGIN_WINDOW = 900.0
-LOGIN_MAX_ADDRESSES = 10000
-
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 SensorScan = Callable[[], Awaitable[SensorReport]]
 
-FORCE_HTTPS: web.AppKey[bool] = web.AppKey("force_https", bool)
 SUPERVISOR: web.AppKey[Supervisor] = web.AppKey("supervisor", Supervisor)
 HARDWARE: web.AppKey[Hardware] = web.AppKey("hardware", Hardware)
 TEMP_LOG: web.AppKey[TempLog] = web.AppKey("temp_log", TempLog)
 HISTORY: web.AppKey[History] = web.AppKey("history", History)
 MONITOR: web.AppKey[Monitor] = web.AppKey("monitor", Monitor)
-AUTH: web.AppKey[AuthStore] = web.AppKey("auth", AuthStore)
 LABELS: web.AppKey[Labels] = web.AppKey("labels", Labels)
 BAYS: web.AppKey[Bays] = web.AppKey("bays", Bays)
 SENSOR_SCAN: web.AppKey[SensorScan] = web.AppKey("sensor_scan")
 STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
-PASSWORD_CHECKS: web.AppKey[asyncio.Semaphore] = web.AppKey("password_checks", asyncio.Semaphore)
+PEERS: web.AppKey[frozenset[int] | None] = web.AppKey("peers")
 
 
 # ---------------------------
-#   LoginLimiter
+#   _peer_uid
 # ---------------------------
-class LoginLimiter:
-    """Count the wrong passwords of each client address, and refuse one that sends too many.
-
-    The scrypt checks already run one at a time; this stops one address
-    from guessing for hours, and from keeping the checks busy for everyone
-    else. Behind a reverse proxy every client has the address of the proxy.
-    """
-
-    def __init__(self, max_failures: int = LOGIN_MAX_FAILURES, window: float = LOGIN_WINDOW) -> None:
-        """Allow max_failures wrong passwords per address within window seconds."""
-        self._max = max_failures
-        self._window = window
-        self._failures: dict[str, list[float]] = {}
-
-    def _recent(self, address: str, now: float) -> list[float]:
-        """The failures of address within the window."""
-        recent = [t for t in self._failures.get(address, []) if now - t < self._window]
-        if recent:
-            self._failures[address] = recent
-        else:
-            self._failures.pop(address, None)
-        return recent
-
-    def blocked(self, address: str) -> bool:
-        """Whether address sent too many wrong passwords lately."""
-        return len(self._recent(address, time.monotonic())) >= self._max
-
-    def failed(self, address: str) -> None:
-        """Count a wrong password of address."""
-        now = time.monotonic()
-        if address not in self._failures and len(self._failures) >= LOGIN_MAX_ADDRESSES:
-            for other in list(self._failures):
-                self._recent(other, now)
-            if len(self._failures) >= LOGIN_MAX_ADDRESSES:
-                return
-        self._failures.setdefault(address, []).append(now)
-
-    def succeeded(self, address: str) -> None:
-        """Forget the failures of address after a right password."""
-        self._failures.pop(address, None)
-
-
-LOGINS: web.AppKey[LoginLimiter] = web.AppKey("logins", LoginLimiter)
+def _peer_uid(request: web.Request) -> int | None:
+    """The user id of the process at the other end of a Unix socket, or None (not a Unix socket)."""
+    transport = request.transport
+    sock = transport.get_extra_info("socket") if transport is not None else None
+    if sock is None or sock.family != socket.AF_UNIX:
+        return None
+    creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+    _pid, uid, _gid = struct.unpack("3i", creds)
+    return int(uid)
 
 
 # ---------------------------
-#   _password_work
-# ---------------------------
-async def _password_work(request: web.Request, func: Callable[..., Any], *args: Any) -> Any:
-    """Run a password check or change in a thread, one at a time.
-
-    Each scrypt hash takes 16 MiB. Without a limit, a burst of wrong logins
-    (no session needed) runs one per worker thread and can push the
-    container past its memory limit, and an OOM kill leaves the fans
-    without control. One at a time also slows down guessing.
-    """
-    async with request.app[PASSWORD_CHECKS]:
-        return await asyncio.to_thread(func, *args)
-
-
-# ---------------------------
-#   _is_https
-# ---------------------------
-def _is_https(request: web.Request) -> bool:
-    """Whether the browser reached the web UI over HTTPS, directly or through a reverse proxy.
-
-    The proxy says so in X-Forwarded-Proto. Trusting it only decides
-    whether the session cookie is marked Secure: a client that fakes it
-    gets a cookie its own browser does not send back over HTTP.
-    """
-    forwarded = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
-    return request.secure or forwarded == "https"
-
-
-# ---------------------------
-#   _json_error
-# ---------------------------
-def _json_error(status: int, code: str, problems: list[dict[str, Any]] | None = None) -> web.Response:
-    """Build an error answer that the web UI translates by its code."""
-    return web.json_response({"error": code, "problems": problems or []}, status=status)
-
-
-# ---------------------------
-#   security_headers
+#   core_guard
 # ---------------------------
 @web.middleware
-async def security_headers(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Forbid framing, inline scripts and content sniffing on every answer."""
+async def core_guard(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """Answer only the users of PEERS (the gateway, and root), and log every change in the audit log.
+
+    The socket's mode already keeps other users out; this checks the peer
+    of each connection again, in case the file mode is ever loosened.
+    """
+    peers = request.app[PEERS]
+    if peers is not None and _peer_uid(request) not in peers:
+        return _json_error(403, "forbidden")
+    if request.method in ("GET", "HEAD"):
+        return await handler(request)
     try:
         response = await handler(request)
     except web.HTTPException as exc:
-        response = exc
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
-        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-    )
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    if request.path.startswith("/api/"):
-        response.headers.setdefault("Cache-Control", "no-store")
-    else:
-        # Keep the pages and static files, but ask every time (a cheap 304):
-        # after an update the browser must not run the old app.js.
-        response.headers.setdefault("Cache-Control", "no-cache")
-    if isinstance(response, web.HTTPException):
-        raise response
+        _audit(request, exc.status)
+        raise
+    _audit(request, response.status)
     return response
 
 
-# What plain HTTP still serves with FORCE_HTTPS: the health check, and the page that moves the browser to HTTPS.
-HTTP_PATHS = ("/healthz", "/static/https.js", "/static/style.css")
-
-
 # ---------------------------
-#   https_only
+#   _audit
 # ---------------------------
-@web.middleware
-async def https_only(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """With FORCE_HTTPS, keep everything but HTTP_PATHS off plain HTTP.
-
-    A page gets https.html, whose script sends the browser to the same
-    address over HTTPS, built from the browser's own location: the server
-    never builds a redirect from the Host header, which the client sets.
-    The API and /metrics answer 403 https_required. No
-    Strict-Transport-Security: with a self-signed certificate it would
-    turn the warning a browser lets you pass into an error it does not.
-    """
-    if not request.app[FORCE_HTTPS] or _is_https(request) or request.path in HTTP_PATHS:
-        return await handler(request)
-    if request.path.startswith("/api/") or request.path == "/metrics" or request.method != "GET":
-        return _json_error(403, "https_required")
-    return web.FileResponse(STATIC_DIR / "https.html", headers={"Cache-Control": "no-store"})
-
-
-# ---------------------------
-#   authentication
-# ---------------------------
-@web.middleware
-async def authentication(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Let a request through with a session or Basic credentials, when a login is needed."""
-    auth = request.app[AUTH]
-    path = request.path
-    if not auth.enabled or path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
-        return await handler(request)
-    if auth.session_valid(request.cookies.get(SESSION_COOKIE)):
-        return await handler(request)
-    header = request.headers.get("Authorization", "")
-    if header:
-        logins = request.app[LOGINS]
-        address = request.remote or ""
-        if logins.blocked(address):
-            return _json_error(429, "too_many_attempts")
-        if await _password_work(request, auth.check_basic, header):
-            logins.succeeded(address)
-            return await handler(request)
-        logins.failed(address)
-        await asyncio.sleep(AUTH_FAILURE_DELAY)
-    # Programs (the API, a Prometheus scraper) get 401; a browser goes to the login page.
-    if path.startswith("/api/") or path == "/metrics":
-        return _json_error(401, "unauthorized")
-    raise web.HTTPFound("/login")
-
-
-# ---------------------------
-#   csrf
-# ---------------------------
-@web.middleware
-async def csrf(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Refuse a change that a page of another site could have sent."""
-    if request.method in ("GET", "HEAD", "OPTIONS"):
-        return await handler(request)
-    if request.headers.get(CSRF_HEADER) != "fetch":
-        return _json_error(403, "csrf")
-    origin = request.headers.get("Origin")
-    if origin is not None and urlsplit(origin).netloc != request.host:
-        return _json_error(403, "csrf")
-    return await handler(request)
-
-
-# ---------------------------
-#   _read_json
-# ---------------------------
-async def _read_json(request: web.Request) -> Any:
-    """Read the JSON body, or raise a 400 answer."""
-    try:
-        return await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError) as err:
-        raise web.HTTPBadRequest(
-            text=json.dumps({"error": "invalid_json", "problems": []}), content_type="application/json"
-        ) from err
-
-
-# ---------------------------
-#   index
-# ---------------------------
-async def index(request: web.Request) -> web.FileResponse:
-    """Serve the page."""
-    return web.FileResponse(STATIC_DIR / "index.html")
-
-
-# ---------------------------
-#   login_page
-# ---------------------------
-async def login_page(request: web.Request) -> web.StreamResponse:
-    """Serve the login page, or the main page when no login is needed."""
-    if not request.app[AUTH].enabled:
-        raise web.HTTPFound("/")
-    return web.FileResponse(STATIC_DIR / "login.html")
+def _audit(request: web.Request, status: int) -> None:
+    """One line of the audit log: what changed, by whom, from where, and how it ended."""
+    user = request.headers.get(HEADER_USER) or "?"
+    client = request.headers.get(HEADER_CLIENT) or "?"
+    request.app[SUPERVISOR].logs.add(SOURCE_AUDIT, f"{request.method} {request.path} by {user} from {client}: {status}")
 
 
 # ---------------------------
 #   healthz
 # ---------------------------
 async def healthz(request: web.Request) -> web.Response:
-    """Answer the health check of Docker. No login."""
+    """Answer the gateway's health check: the event loop of the core is alive."""
     return web.Response(text="ok")
 
 
 # ---------------------------
-#   post_login
+#   _auth_state
 # ---------------------------
-async def post_login(request: web.Request) -> web.Response:
-    """Check the credentials and open a session."""
-    auth = request.app[AUTH]
-    data = await _read_json(request)
-    username = data.get("username") if isinstance(data, dict) else None
-    password = data.get("password") if isinstance(data, dict) else None
-    if not isinstance(username, str) or not isinstance(password, str):
-        return _json_error(400, "invalid_document")
-    logins = request.app[LOGINS]
-    address = request.remote or ""
-    if logins.blocked(address):
-        return _json_error(429, "too_many_attempts")
-    if not await _password_work(request, auth.check, username, password):
-        logins.failed(address)
-        await asyncio.sleep(AUTH_FAILURE_DELAY)
-        return _json_error(401, "wrong_credentials")
-    logins.succeeded(address)
-    response = web.json_response({"ok": True})
-    response.set_cookie(
-        SESSION_COOKIE,
-        auth.new_session(),
-        max_age=SESSION_LIFETIME,
-        httponly=True,
-        samesite="Strict",
-        secure=_is_https(request),
-        path="/",
-    )
-    return response
-
-
-# ---------------------------
-#   post_logout
-# ---------------------------
-async def post_logout(request: web.Request) -> web.Response:
-    """Close the session."""
-    request.app[AUTH].end_session(request.cookies.get(SESSION_COOKIE))
-    response = web.json_response({"ok": True})
-    response.del_cookie(SESSION_COOKIE, path="/")
-    return response
-
-
-# ---------------------------
-#   get_auth
-# ---------------------------
-async def get_auth(request: web.Request) -> web.Response:
-    """Whether a login is needed, where the credentials come from, and the username."""
-    return web.json_response(request.app[AUTH].status())
-
-
-# ---------------------------
-#   put_auth
-# ---------------------------
-async def put_auth(request: web.Request) -> web.Response:
-    """Set or change the username and password. The caller logs in again."""
-    auth = request.app[AUTH]
-    data = await _read_json(request)
-    if not isinstance(data, dict) or not all(isinstance(data.get(k, ""), str) for k in ("username", "password", "current")):
-        return _json_error(400, "invalid_document")
+def _auth_state(request: web.Request) -> dict[str, Any]:
+    """The login state the gateway sent, for the page; a request without it (a test) gets the open state."""
     try:
-        await _password_work(
-            request, auth.set_credentials, data.get("username", ""), data.get("password", ""), data.get("current", "")
-        )
-    except AuthError as err:
-        if err.code == "wrong_password":
-            await asyncio.sleep(AUTH_FAILURE_DELAY)
-        return _json_error(400, err.code)
-    except OSError as err:
-        _LOGGER.error("Cannot save the credentials: %s", err)
-        return _json_error(500, "save_failed")
-    response = web.json_response(auth.status())
-    response.set_cookie(
-        SESSION_COOKIE,
-        auth.new_session(),
-        max_age=SESSION_LIFETIME,
-        httponly=True,
-        samesite="Strict",
-        secure=_is_https(request),
-        path="/",
-    )
-    return response
-
-
-# ---------------------------
-#   delete_auth
-# ---------------------------
-async def delete_auth(request: web.Request) -> web.Response:
-    """Remove the stored username and password."""
-    auth = request.app[AUTH]
-    data = await _read_json(request)
-    current = data.get("current", "") if isinstance(data, dict) else ""
-    if not isinstance(current, str):
-        return _json_error(400, "invalid_document")
-    try:
-        await _password_work(request, auth.clear_credentials, current)
-    except AuthError as err:
-        if err.code == "wrong_password":
-            await asyncio.sleep(AUTH_FAILURE_DELAY)
-        return _json_error(400, err.code)
-    except OSError as err:
-        _LOGGER.error("Cannot delete the credentials: %s", err)
-        return _json_error(500, "save_failed")
-    return web.json_response(auth.status())
+        state = json.loads(request.headers.get(HEADER_AUTH) or "{}")
+    except ValueError:
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    return {
+        "enabled": bool(state.get("enabled", False)),
+        "source": str(state.get("source", "none")),
+        "username": str(state.get("username", "")),
+    }
 
 
 # ---------------------------
@@ -434,7 +147,7 @@ async def get_status(request: web.Request) -> web.Response:
     report: SensorReport = app[STATE]["sensors"]
     data.update(
         version=VERSION,
-        auth=app[AUTH].status(),
+        auth=_auth_state(request),
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
         alerts=alerts.status() if alerts is not None else [],
@@ -916,44 +629,34 @@ def create_app(
     temp_log: TempLog,
     history: History,
     monitor: Monitor,
-    auth: AuthStore,
     labels: Labels,
     sensor_scan: SensorScan | None = None,
     bays: Bays | None = None,
-    force_https: bool = False,
+    peers: frozenset[int] | None = None,
 ) -> web.Application:
-    """Build the application around parts that the caller starts and stops.
+    """Build the core API around parts that the caller starts and stops.
 
-    With force_https, a request over plain HTTP is redirected to HTTPS.
+    peers are the user ids that may connect (None: anyone, as in the tests
+    over TCP); the gateway's and root's in production.
     """
 
     async def default_scan() -> SensorReport:
         return await scan_sensor_modules(lambda text: supervisor.logs.add(SOURCE_SENSORS, text))
 
-    app = web.Application(middlewares=[security_headers, https_only, authentication, csrf], client_max_size=64 * 1024)
+    app = web.Application(middlewares=[core_guard], client_max_size=64 * 1024)
     app[SUPERVISOR] = supervisor
-    app[FORCE_HTTPS] = force_https
+    app[PEERS] = peers
     app[HARDWARE] = hardware
     app[TEMP_LOG] = temp_log
     app[HISTORY] = history
     app[MONITOR] = monitor
-    app[AUTH] = auth
     app[LABELS] = labels
     # Without a store (tests), the map lives next to the labels.
     app[BAYS] = bays or Bays(labels.path.parent)
     app[SENSOR_SCAN] = sensor_scan or default_scan
     app[STATE] = {"sensors": SensorReport()}
-    app[PASSWORD_CHECKS] = asyncio.Semaphore(1)
-    app[LOGINS] = LoginLimiter()
     router = app.router
-    router.add_get("/", index)
-    router.add_get("/login", login_page)
     router.add_get("/healthz", healthz)
-    router.add_post("/api/login", post_login)
-    router.add_post("/api/logout", post_logout)
-    router.add_get("/api/auth", get_auth)
-    router.add_put("/api/auth", put_auth)
-    router.add_delete("/api/auth", delete_auth)
     router.add_get("/api/status", get_status)
     router.add_get("/api/hardware", get_hardware)
     router.add_get("/api/history", get_history)
@@ -978,5 +681,4 @@ def create_app(
     router.add_post("/api/sensors/scan", post_sensor_scan)
     router.add_get("/api/logs", get_logs)
     router.add_get("/metrics", get_metrics)
-    router.add_static("/static/", STATIC_DIR, show_index=False, follow_symlinks=False)
     return app

@@ -34,7 +34,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - **Keep the drives cool and the NAS quiet:** the fans follow the hottest drive, either along a curve between two temperatures, or in the auto mode, which keeps the drives at a target with as little fan speed as it needs.
 - **Fan groups and limits per drive:** each fan can follow only some drives (the case fans the hot enterprise drives, another fan the rest), and each drive can have its own minimum, target and maximum.
 - **Find out which fan is which:** in manual control, move the slider of any PWM output and watch the speed change; each output gets its previous setting back when you leave. The curve and auto modes drive only the fans you choose.
-- **Set it up without knowing how:** on the first start a guided setup asks one question at a time: which drives to keep cool, which fans cool them (an Identify button runs a fan at full speed for 10 seconds so you can hear which one it is), how cool to keep the drives, whether idle drives may sleep, and a password.
+- **Set it up without knowing how:** on the first start a guided setup asks one question at a time: which drives to keep cool, which fans cool them (an Identify button runs a fan at full speed for 10 seconds so you can hear which one it is), how cool to keep the drives, and whether idle drives may sleep.
 - **Set up the fans without a shell:** the PWM test finds the value at which each fan starts and stops, and copies them into the settings.
 - **Let the drives sleep:** hd-idle spins them down after an idle time, which you can set per drive. Nothing in the web UI wakes a sleeping drive.
 - **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
@@ -56,8 +56,8 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 ### TrueNAS SCALE
 
 1. Create a dataset for the settings, for example `apps/hddfancontrol`.
-2. Go to **Apps → Discover Apps → ⋮ → Install via YAML**, name the app `hddfancontrol`, and paste [docker-compose.yml](docker-compose.yml) with the `./config` volume changed to your dataset (`/mnt/tank/apps/hddfancontrol:/config`) and a password of your own.
-3. Open `http://<truenas>:8080`.
+2. Go to **Apps → Discover Apps → ⋮ → Install via YAML**, name the app `hddfancontrol`, and paste [docker-compose.yml](docker-compose.yml) with the `./config` volume changed to your dataset (`/mnt/tank/apps/hddfancontrol:/config`).
+3. Open `http://<truenas>:8080`: the first visit asks for the **setup code** written in the logs of the app (**Apps → hddfancontrol → Logs**, a line with `FIRST SETUP`), then for a username and a password.
 
 If the web UI says it cannot load a kernel module (for example `nct6775`), TrueNAS has the module but the container cannot load it. Load it on the host once:
 
@@ -70,8 +70,8 @@ If the web UI says it cannot load a kernel module (for example `nct6775`), TrueN
 ```bash
 mkdir hddfancontrol && cd hddfancontrol
 curl -fsSLO https://raw.githubusercontent.com/anto294/hddfancontrol_webui/main/docker-compose.yml
-# change WEBUI_PASSWORD, then:
 docker compose up -d
+docker compose logs | grep 'FIRST SETUP'   # the setup code the first visit asks for
 ```
 
 The image is `ghcr.io/anto294/hddfancontrol_webui`, with these tags:
@@ -106,7 +106,7 @@ On bare metal, `sensors-detect --auto` does not run at start, because on a real 
 
 On the first start, with no drive and no fan chosen, the web UI opens the **guided setup**: follow it and you are done. You can open it again from the header at any time. To set things up by hand instead:
 
-1. **Security:** set a username and a password, in the compose file or in the **Security** tab.
+1. **Security:** the first visit asks for the setup code of the container's log and creates the username and password (or set `WEBUI_USERNAME` and `WEBUI_PASSWORD`). Change them later in the **Security** tab.
 2. **Fans:** check that the **Fans** tab lists your fan chip and its PWM outputs. If it does not, see [Troubleshooting](#troubleshooting).
 3. **PWM test:** in **PWM test**, tick the outputs with a fan and start the test. Each fan stops and starts several times, for a few minutes per fan, then **Use these values in the settings** copies what it found.
 4. **Settings:** tick the drives and the fans, choose a mode and its temperatures, and **Save and apply**.
@@ -148,7 +148,7 @@ The web UI fits a phone screen, and can go on its home screen as an app: in Safa
 
 ## Prometheus and Grafana
 
-`/metrics` gives the state in the Prometheus text format: drive temperatures (and whether each drive sleeps), PWM and RPM of every fan, the speed fan control asks of each chosen fan, SMART state and warnings, alerts in force by kind, and whether the fans run at full speed for safety. With a username and password set it needs them, as HTTP Basic credentials:
+`/metrics` gives the state in the Prometheus text format: drive temperatures (and whether each drive sleeps), PWM and RPM of every fan, the speed fan control asks of each chosen fan, SMART state and warnings, alerts in force by kind, and whether the fans run at full speed for safety. It needs the username and password, as HTTP Basic credentials:
 
 ```yaml
 scrape_configs:
@@ -186,15 +186,20 @@ Every schedule (SMART reads, self-tests, summary, quiet hours) is a cron express
 
 ## Security
 
-- Set a password. Without one, anyone who reaches the port can stop the fans; the web UI says so at the top of every page.
-- Credentials set in the web UI are stored as a scrypt hash in `/config/auth.json`. `WEBUI_USERNAME` and `WEBUI_PASSWORD` win over them, and cannot be changed from the web UI.
-- A login gives an HttpOnly, SameSite=Strict session cookie, valid for 7 days or until the container restarts. Scripts can use HTTP Basic authentication. A failed login waits one second.
-- Every change needs a header that other sites cannot send, and every value is checked before it reaches a command line or a file: only `/dev` paths for drives, only PWM files that exist on the host for manual control and the PWM test.
-- The session cookie is marked Secure over HTTPS. To reach the web UI from outside your network, use a VPN, or a reverse proxy with HTTPS.
+The container runs privileged, because the fans and the drives need it, so the web UI is built to keep the network away from root:
+
+- **Two processes.** The core, which drives the fans and the drives, runs as root and listens on no port: only on a Unix socket that the gateway's user alone can open, and it checks that user on every connection. The **gateway**, which holds the port, HTTPS, the login and the pages, runs as the unprivileged user `hddfancontrol-webui` (`WEBUI_USER`), and passes on to the core only the requests of a logged-in user. A flaw reached before the login stays in a process that cannot touch the fans, the drives or the rest of `/config`. The gateway gets only the environment variables it needs (not `NOTIFY_URL`, for example).
+- **No open first start.** Without credentials nothing answers but the setup page, and creating them needs the one-time code that the gateway writes in the container's log (a new one at every start): someone who only reaches the port cannot claim a new installation. Credentials can be changed, never removed. `WEBUI_USERNAME` and `WEBUI_PASSWORD` win over the stored ones and cannot be changed from the web UI.
+- **Private networks only, by default.** The port answers loopback, private, link-local and carrier-grade NAT addresses (LAN, VPNs such as Tailscale) and refuses the rest with a bare 403; `WEBUI_ALLOW` sets other networks (`WEBUI_ALLOW=192.168.1.0/24`, or `all`). Behind a reverse proxy, every client has the address of the proxy.
+- **Login.** Credentials are a scrypt hash in `/config/web/auth.json`, readable by the gateway's user only. A login gives an HttpOnly, SameSite=Strict session cookie (Secure over HTTPS), which ends after 12 hours without use, 7 days after the login, or when the container restarts; changing the password ends every other session. Scripts can use HTTP Basic authentication. A wrong password or setup code waits one second, and an address that sends 10 in 15 minutes is refused for a while.
+- **Every change** needs a header that other sites cannot send and a matching origin, and is written to the audit log (`[audit]`, with user and address); logins, wrong passwords and refused addresses go to the log as `[gateway]`. Every value is checked before it reaches a command line or a file: only `/dev` paths for drives, only PWM files that exist on the host for manual control and the PWM test.
+- **Headers:** a strict Content Security Policy (no inline script or style), no framing, no sniffing, no referrer, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` same-origin, a `Permissions-Policy` that turns off camera, microphone and the like, and no server version.
+- **Container:** the compose file runs it with a read-only root, `no-new-privileges`, a process limit, a small `/tmp` without exec, and a memory limit. Everything the core writes in `/config` is mode 0600.
+- To reach the web UI from outside your network, use a VPN, or a reverse proxy with HTTPS in your LAN.
 
 ### HTTPS
 
-Set `ENABLE_TLS=true` and the web UI speaks HTTPS on its own port. Without `TLS_CERT` and `TLS_KEY` it makes a self-signed certificate at the first start, in `/config/tls` (valid 10 years, for the host name, `localhost` and `127.0.0.1`): the browser warns once, and you accept it for that address. To avoid the warning, give your own certificate and key (PEM files, mounted in the container) with `TLS_CERT` and `TLS_KEY`.
+Set `ENABLE_TLS=true` and the web UI speaks HTTPS on its own port. Without `TLS_CERT` and `TLS_KEY` it makes a self-signed certificate at the first start, in `/config/web/tls` (valid 10 years, for the host name, `localhost` and `127.0.0.1`): the browser warns once, and you accept it for that address. To avoid the warning, give your own certificate and key (PEM files, mounted in the container) with `TLS_CERT` and `TLS_KEY`.
 
 The same port still answers plain HTTP, so an old bookmark keeps working; with `FORCE_HTTPS=true` a page asked over HTTP sends the browser to the same address over HTTPS, and the API and `/metrics` refuse plain HTTP (403). `/healthz` stays on HTTP for the container health check. Behind a reverse proxy that terminates HTTPS, `FORCE_HTTPS` alone does the same for the requests the proxy marks as HTTP (`X-Forwarded-Proto`). The move to HTTPS is made by the browser from its own address bar, never from the `Host` header, which a client can forge. The web UI sends no `Strict-Transport-Security`: with a self-signed certificate the browser would then refuse the page instead of warning.
 
@@ -207,12 +212,14 @@ Everything but the first group can be set in the web UI, which then stores it in
 | Variable | Default | Meaning |
 |---|---|---|
 | `WEBUI_USERNAME` | `admin` | Username, when `WEBUI_PASSWORD` is set |
-| `WEBUI_PASSWORD` | — | Password of the web UI |
+| `WEBUI_PASSWORD` | — | Password of the web UI; without it, the first visit creates the credentials with the setup code of the log |
 | `WEBUI_PORT` | `8080` | Port of the web UI |
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
+| `WEBUI_ALLOW` | private networks | Networks allowed to connect, as CIDRs separated by commas or spaces, or `all`; loopback is always allowed. See [Security](#security) |
+| `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; `nobody` when it does not exist |
 | `ENABLE_TLS` | `false` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; see [HTTPS](#https) |
 | `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
-| `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/tls` |
+| `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied there at start, so the gateway can read them |
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
 | `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request (the page polls every few seconds) |
 | `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |

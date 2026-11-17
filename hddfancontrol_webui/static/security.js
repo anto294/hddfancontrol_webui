@@ -14,7 +14,6 @@ async function loadAuth() {
     $("security-state").textContent = t(`security.state_${auth.source}`, { username: auth.username });
     form.hidden = auth.source === "environment";
     $("current-field").hidden = !auth.enabled;
-    $("auth-remove").hidden = !auth.enabled;
     form.username.value = auth.username || "admin";
   } catch (error) {
     alertBanner(errorText(error));
@@ -37,22 +36,6 @@ async function saveCredentials(event) {
     result.className = "small ok";
   } catch (error) {
     result.textContent = errorText(error);
-  }
-  loadAuth();
-  pollStatus();
-}
-
-async function removeCredentials() {
-  const form = $("auth-form");
-  const result = $("auth-result");
-  try {
-    await api("DELETE", "/api/auth", { current: form.current.value });
-    form.reset();
-    result.textContent = t("security.removed");
-    result.className = "small ok";
-  } catch (error) {
-    result.textContent = errorText(error);
-    result.className = "small error";
   }
   loadAuth();
   pollStatus();

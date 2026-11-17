@@ -595,7 +595,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("pwmtest-cancel").addEventListener("click", cancelPwmTest);
   $("pwmtest-use").addEventListener("click", usePwmResults);
   $("auth-form").addEventListener("submit", saveCredentials);
-  $("auth-remove").addEventListener("click", removeCredentials);
   $("logout").addEventListener("click", logout);
   for (const button of document.querySelectorAll(".open-wizard")) button.addEventListener("click", openWizard);
   $("log-source").addEventListener("change", renderLogs);

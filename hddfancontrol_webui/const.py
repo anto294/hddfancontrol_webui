@@ -80,3 +80,19 @@ MANUAL_WATCH_PERIOD = 10.0
 # whatever the window: older points are averaged together.
 HISTORY_MAX_POINTS = 600
 HISTORY_MAX_HOURS = 24 * 365
+
+# Privilege separation (gateway.py): the gateway, run as WEBUI_USER, holds the
+# port, TLS, the login and the static files, and passes the requests it let
+# through to the core over a Unix socket, with these headers. The core trusts
+# them because only the gateway can connect to that socket; the gateway drops
+# any that a client sent.
+SOURCE_GATEWAY = "gateway"
+SOURCE_AUDIT = "audit"
+DEFAULT_WEB_USER = "hddfancontrol-webui"
+WEB_DIR = "web"
+CORE_SOCKET_ENV = "HFC_CORE_SOCKET"
+WEB_DIR_ENV = "HFC_WEB_DIR"
+HEADER_USER = "X-Webui-User"
+HEADER_CLIENT = "X-Webui-Client"
+HEADER_AUTH = "X-Webui-Auth"
+INTERNAL_HEADERS = (HEADER_USER, HEADER_CLIENT, HEADER_AUTH)

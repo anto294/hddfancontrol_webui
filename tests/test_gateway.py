@@ -1,0 +1,427 @@
+"""The gateway: network filter, first setup, login, CSRF, headers, HTTPS and the way to the core."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import threading
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
+from typing import Any
+
+import aiohttp
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestClient
+
+from hddfancontrol_webui import gateway as gateway_module
+from hddfancontrol_webui.auth import AuthStore
+from hddfancontrol_webui.const import HEADER_AUTH, HEADER_CLIENT, HEADER_USER
+from hddfancontrol_webui.gateway import AUTH, LOGINS, SETUP, LoginLimiter, allowed, create_gateway, parse_allow
+
+FETCH = {"X-Requested-With": "fetch"}
+CREDENTIALS = {"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"}
+GOOD = {"username": "anto", "password": "a-long-password"}
+
+Client = TestClient[Any, Any]
+
+
+class Gateway:
+    """A gateway in front of a fake core on a Unix socket, with what the core received and the log."""
+
+    def __init__(self, client: Client, seen: list[dict[str, Any]], lines: list[str]) -> None:
+        """Keep the client and the records."""
+        self.client = client
+        self.seen = seen
+        self.lines = lines
+
+
+GatewayMaker = Callable[..., Awaitable[Gateway]]
+
+
+@pytest.fixture
+async def make_gateway(aiohttp_client: Any, tmp_path: Path) -> AsyncIterator[GatewayMaker]:
+    """Build a gateway; the fake core answers every path with what it received."""
+    runners: list[web.AppRunner] = []
+    seen: list[dict[str, Any]] = []
+
+    async def echo(request: web.Request) -> web.Response:
+        body = await request.read()
+        record = {
+            "method": request.method,
+            "path": request.path_qs,
+            "headers": dict(request.headers),
+            "body": body.decode(),
+        }
+        seen.append(record)
+        if request.path == "/api/history.csv":
+            return web.Response(
+                text="a,b\n", content_type="text/csv", headers={"Content-Disposition": 'attachment; filename="h.csv"'}
+            )
+        return web.json_response({"core": True, "path": request.path_qs}, status=418 if request.path == "/api/teapot" else 200)
+
+    async def make(
+        env: dict[str, str] | None = None, force_https: bool = False, allow: str | None = None, core: bool = True
+    ) -> Gateway:
+        socket_path = tmp_path / f"core{len(runners)}.sock"
+        if core:
+            core_app = web.Application()
+            core_app.router.add_route("*", "/{tail:.*}", echo)
+            runner = web.AppRunner(core_app)
+            await runner.setup()
+            await web.UnixSite(runner, str(socket_path)).start()
+            runners.append(runner)
+        lines: list[str] = []
+        web_dir = tmp_path / f"web{len(runners)}"
+        web_dir.mkdir(exist_ok=True)
+        app = create_gateway(
+            lambda: aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(socket_path))),
+            AuthStore(web_dir, env or {}),
+            lines.append,
+            force_https=force_https,
+            allow=parse_allow(allow),
+        )
+        client: Client = await aiohttp_client(app)
+        return Gateway(client, seen, lines)
+
+    yield make
+    for runner in runners:
+        await runner.cleanup()
+
+
+@pytest.fixture(autouse=True)
+def _no_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No pause after a wrong password in the tests."""
+    monkeypatch.setattr(gateway_module, "AUTH_FAILURE_DELAY", 0)
+
+
+async def logged_in(make_gateway: GatewayMaker, **kwargs: Any) -> Gateway:
+    """A gateway with credentials, and a client with a session."""
+    gw = await make_gateway(CREDENTIALS, **kwargs)
+    assert (await gw.client.post("/api/login", json=GOOD, headers=FETCH)).status == 200
+    return gw
+
+
+def test_parse_allow_and_allowed() -> None:
+    """Private networks by default, "all" for every address, mapped IPv4 counted as IPv4; a typo raises."""
+    default = parse_allow(None)
+    assert allowed("192.168.1.10", default) and allowed("100.101.1.1", default) and allowed("fd00::1", default)
+    assert allowed("::ffff:10.0.0.5", default) and allowed("fe80::1%eth0", default)
+    assert not allowed("8.8.8.8", default) and not allowed("2001:db8::1", default)
+    assert not allowed(None, default) and not allowed("not-an-address", default)
+    assert allowed("8.8.8.8", parse_allow("all")) and allowed("2001:db8::1", parse_allow("ALL"))
+    only = parse_allow("192.168.1.0/24, 10.1.2.3")
+    assert allowed("192.168.1.99", only) and allowed("10.1.2.3", only) and not allowed("10.1.2.4", only)
+    assert allowed("127.0.0.1", only) and allowed("::1", only)  # loopback always (the health check)
+    with pytest.raises(ValueError):
+        parse_allow("192.168.1.0/33")
+
+
+async def test_network_filter(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An address outside WEBUI_ALLOW gets a bare 403, logged once."""
+    gw = await make_gateway(CREDENTIALS, allow="10.0.0.0/8")
+    real = gateway_module.allowed
+    # The test client is on loopback, which is always allowed: count it as a stranger here.
+    monkeypatch.setattr(
+        gateway_module, "allowed", lambda address, networks: address != "127.0.0.1" and real(address, networks)
+    )
+    for _ in range(2):
+        response = await gw.client.get("/login")
+        assert response.status == 403 and await response.text() == "Forbidden"
+    assert sum("not in WEBUI_ALLOW" in line for line in gw.lines) == 1
+    monkeypatch.setattr(gateway_module, "allowed", real)
+    assert (await gw.client.get("/login")).status == 200
+
+
+async def test_first_setup(make_gateway: GatewayMaker) -> None:
+    """Without credentials only the setup answers; the code of the log creates them and logs in, once."""
+    gw = await make_gateway()
+    client = gw.client
+    code = client.app[SETUP].code
+    assert code is not None and len(code) == 19
+    assert (await (await client.get("/api/auth")).json())["enabled"] is False
+    page = await client.get("/", allow_redirects=False)
+    assert page.status == 302 and page.headers["Location"] == "/login"
+    api = await client.get("/api/status")
+    assert api.status == 401 and (await api.json())["error"] == "setup_required"
+    assert (await client.get("/login")).status == 200
+    assert gw.seen == []  # nothing reached the core
+    body = {"code": "0000-0000-0000-0000", "username": "anto", "password": "a-long-password"}
+    wrong = await client.post("/api/setup", json=body, headers=FETCH)
+    assert wrong.status == 401 and (await wrong.json())["error"] == "wrong_setup_code"
+    assert (await client.post("/api/setup", json={"code": code}, headers=FETCH)).status == 400
+    short = await client.post("/api/setup", json={**body, "code": code, "password": "short"}, headers=FETCH)
+    assert (await short.json())["error"] == "password_too_short"
+    # Dashes, spaces and case do not matter.
+    typed = code.upper().replace("-", " ")
+    ok = await client.post("/api/setup", json={**body, "code": typed}, headers=FETCH)
+    assert ok.status == 200 and (await ok.json())["source"] == "file"
+    assert (await client.get("/api/status")).status == 200  # logged in
+    again = await client.post("/api/setup", json={**body, "code": typed}, headers=FETCH)
+    assert again.status == 409
+    assert client.app[SETUP].code is None and not client.app[SETUP].check(typed)
+    assert any("First setup done" in line for line in gw.lines) and any("Wrong setup code" in line for line in gw.lines)
+
+
+async def test_setup_code_attempts_are_limited(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Too many wrong setup codes from one address are refused without a check."""
+    gw = await make_gateway()
+    monkeypatch.setattr(gw.client.app[LOGINS], "_max", 2)
+    body = {"code": "x", "username": "anto", "password": "a-long-password"}
+    for _ in range(2):
+        assert (await gw.client.post("/api/setup", json=body, headers=FETCH)).status == 401
+    body["code"] = gw.client.app[SETUP].code
+    assert (await gw.client.post("/api/setup", json=body, headers=FETCH)).status == 429
+
+
+async def test_login_flow_and_forwarding(make_gateway: GatewayMaker) -> None:
+    """Pages and the API need a login; then requests reach the core with who sent them, and nothing a client forged."""
+    gw = await make_gateway(CREDENTIALS)
+    client = gw.client
+    page = await client.get("/", allow_redirects=False)
+    assert page.status == 302 and page.headers["Location"] == "/login"
+    assert (await client.get("/login")).status == 200
+    style = await client.get("/static/style.css")
+    assert style.status == 200 and style.headers["Cache-Control"] == "no-cache"
+    assert (await client.get("/static/i18n/it.json")).status == 200
+    assert (await client.get("/static/app.js", allow_redirects=False)).status == 302
+    unauthorized = await client.get("/api/status")
+    assert unauthorized.status == 401 and unauthorized.headers["Cache-Control"] == "no-store"
+    assert (await (await client.get("/api/auth")).json())["username"] == ""  # nothing before the login
+    assert (await client.post("/api/login", json={"username": "anto", "password": "no"}, headers=FETCH)).status == 401
+    assert (await client.post("/api/login", json=[], headers=FETCH)).status == 400
+    ok = await client.post("/api/login", json=GOOD, headers=FETCH)
+    cookie = ok.headers["Set-Cookie"]
+    assert ok.status == 200 and "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    assert (await client.get("/login", allow_redirects=False)).status == 302
+    assert (await client.get("/")).status == 200
+    forged = {HEADER_USER: "root", HEADER_CLIENT: "1.2.3.4", HEADER_AUTH: "{}", "X-Other": "x"}
+    response = await client.post("/api/restart?a=1", json={"x": 1}, headers={**FETCH, **forged})
+    assert (await response.json()) == {"core": True, "path": "/api/restart?a=1"}
+    got = gw.seen[-1]
+    assert got["method"] == "POST" and json.loads(got["body"]) == {"x": 1}
+    assert got["headers"][HEADER_USER] == "anto" and got["headers"][HEADER_CLIENT] == "127.0.0.1"
+    assert json.loads(got["headers"][HEADER_AUTH]) == {"enabled": True, "source": "environment", "username": "anto"}
+    assert "X-Other" not in got["headers"] and "Cookie" not in got["headers"]
+    teapot = await client.get("/api/teapot")
+    assert teapot.status == 418
+    csv = await client.get("/api/history.csv")
+    assert csv.content_type == "text/csv" and "h.csv" in csv.headers["Content-Disposition"]
+    assert (await client.get("/elsewhere")).status == 404
+    assert any("Login of anto" in line for line in gw.lines) and any("Wrong login" in line for line in gw.lines)
+    await client.post("/api/logout", headers=FETCH)
+    assert (await client.get("/api/status")).status == 401
+
+
+async def test_headers(make_gateway: GatewayMaker) -> None:
+    """Every answer has the security headers and no server version."""
+    gw = await make_gateway(CREDENTIALS)
+    for path in ("/login", "/nope", "/api/status"):
+        response = await gw.client.get(path, allow_redirects=False)
+        headers = response.headers
+        assert "frame-ancestors 'none'" in headers["Content-Security-Policy"], path
+        assert headers["X-Content-Type-Options"] == "nosniff" and headers["Cross-Origin-Opener-Policy"] == "same-origin"
+        assert "camera=()" in headers["Permissions-Policy"] and headers["Server"] == "hddfancontrol-webui"
+
+
+async def test_csrf(make_gateway: GatewayMaker) -> None:
+    """A change without the header, or from another origin, is refused before the core."""
+    gw = await logged_in(make_gateway)
+    assert (await gw.client.post("/api/restart")).status == 403
+    assert (await gw.client.post("/api/restart", headers={**FETCH, "Origin": "http://evil.example"})).status == 403
+    assert gw.seen == []
+    assert (await gw.client.post("/api/restart", headers=FETCH)).status == 200
+
+
+async def test_basic_auth_and_metrics(make_gateway: GatewayMaker) -> None:
+    """Scripts and Prometheus send Basic credentials."""
+    gw = await make_gateway(CREDENTIALS)
+    good = "Basic " + base64.b64encode(b"anto:a-long-password").decode()
+    bad = "Basic " + base64.b64encode(b"anto:x").decode()
+    assert (await gw.client.get("/metrics")).status == 401
+    assert (await gw.client.get("/metrics", headers={"Authorization": good})).status == 200
+    assert (await gw.client.get("/api/status", headers={"Authorization": bad})).status == 401
+
+
+async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path) -> None:
+    """Credentials made at the setup can be changed with the current password, with a session only."""
+    gw = await make_gateway()
+    client = gw.client
+    code = client.app[SETUP].code
+    await client.post("/api/setup", json={"code": code, **GOOD}, headers=FETCH)
+    assert (await client.put("/api/auth", json={"username": 1}, headers=FETCH)).status == 400
+    wrong = await client.put(
+        "/api/auth", json={"username": "x", "password": "another-password", "current": "no"}, headers=FETCH
+    )
+    assert (await wrong.json())["error"] == "wrong_password"
+    body = {"username": "new", "password": "another-password", "current": "a-long-password"}
+    ok = await client.put("/api/auth", json=body, headers=FETCH)
+    assert ok.status == 200 and (await ok.json())["username"] == "new"
+    assert (await (await client.get("/api/auth")).json())["username"] == "new"  # still logged in
+    removed = await client.delete("/api/auth", json={"current": "another-password"}, headers=FETCH)
+    assert removed.status == 405 and gw.seen == []  # credentials cannot be removed, and the core never sees it
+    client.session.cookie_jar.clear()
+    assert (await client.put("/api/auth", json=body, headers=FETCH)).status == 401
+    assert any("Credentials changed" in line for line in gw.lines)
+
+
+async def test_credentials_from_the_environment_cannot_change(make_gateway: GatewayMaker) -> None:
+    """WEBUI_USERNAME and WEBUI_PASSWORD win, and are read only."""
+    gw = await logged_in(make_gateway)
+    body = {"username": "x", "password": "another-password", "current": "a-long-password"}
+    assert (await (await gw.client.put("/api/auth", json=body, headers=FETCH)).json())["error"] == "auth_from_env"
+
+
+async def test_password_checks_run_one_at_a_time(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A burst of logins never runs two scrypt checks at once."""
+    gw = await make_gateway(CREDENTIALS)
+    lock = threading.Lock()
+    running = {"now": 0, "most": 0}
+
+    def slow_check(username: str, password: str) -> bool:
+        with lock:
+            running["now"] += 1
+            running["most"] = max(running["most"], running["now"])
+        time.sleep(0.02)
+        with lock:
+            running["now"] -= 1
+        return True
+
+    monkeypatch.setattr(gw.client.app[AUTH], "check", slow_check)
+    answers = await asyncio.gather(*(gw.client.post("/api/login", json=GOOD, headers=FETCH) for _ in range(5)))
+    assert all(answer.status == 200 for answer in answers) and running["most"] == 1
+
+
+async def test_too_many_wrong_passwords(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An address that sends too many wrong passwords is refused without a check; a right one resets the count."""
+    gw = await make_gateway(CREDENTIALS)
+    client = gw.client
+    limiter = client.app[LOGINS]
+    monkeypatch.setattr(limiter, "_max", 2)
+    bad = {"username": "anto", "password": "nope"}
+    assert (await client.post("/api/login", json=bad, headers=FETCH)).status == 401
+    assert (await client.post("/api/login", json=GOOD, headers=FETCH)).status == 200
+    for _ in range(2):
+        assert (await client.post("/api/login", json=bad, headers=FETCH)).status == 401
+    blocked = await client.post("/api/login", json=GOOD, headers=FETCH)
+    assert blocked.status == 429 and (await blocked.json())["error"] == "too_many_attempts"
+    client.session.cookie_jar.clear()  # no session: only the Basic credentials count
+    basic = "Basic " + base64.b64encode(b"anto:a-long-password").decode()
+    assert (await client.get("/api/status", headers={"Authorization": basic})).status == 429
+    limiter.succeeded("127.0.0.1")
+    assert (await client.get("/api/status", headers={"Authorization": basic})).status == 200
+
+
+def test_login_limiter_window_and_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Failures expire after the window; the table of addresses stays bounded."""
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(gateway_module, "LOGIN_MAX_ADDRESSES", 2)
+    limiter = LoginLimiter(max_failures=1, window=10)
+    limiter.failed("a")
+    assert limiter.blocked("a")
+    clock["now"] += 11
+    assert not limiter.blocked("a")
+    limiter.failed("b")
+    limiter.failed("c")
+    limiter.failed("d")  # the table is full of recent failures: not counted
+    assert limiter.blocked("b") and limiter.blocked("c") and not limiter.blocked("d")
+    clock["now"] += 11
+    limiter.failed("d")  # expired entries make room
+    assert limiter.blocked("d")
+
+
+async def test_session_cookie_is_secure_behind_an_https_proxy(make_gateway: GatewayMaker) -> None:
+    """The session cookie is marked Secure when a reverse proxy says the browser used HTTPS."""
+    gw = await make_gateway(CREDENTIALS)
+    plain = await gw.client.post("/api/login", json=GOOD, headers=FETCH)
+    assert "Secure" not in plain.headers["Set-Cookie"]
+    proxied = await gw.client.post("/api/login", json=GOOD, headers={**FETCH, "X-Forwarded-Proto": "https, http"})
+    assert "Secure" in proxied.headers["Set-Cookie"]
+
+
+async def test_web_app_manifest(make_gateway: GatewayMaker) -> None:
+    """The manifest and its icons are public (the browser fetches them without the session) and typed."""
+    gw = await make_gateway(CREDENTIALS)
+    response = await gw.client.get("/static/manifest.webmanifest")
+    assert response.status == 200 and response.content_type == "application/manifest+json"
+    manifest = json.loads(await response.text())
+    assert manifest["display"] == "standalone" and manifest["start_url"] == "/"
+    for item in manifest["icons"]:
+        assert (await gw.client.get(item["src"], allow_redirects=False)).status == 200
+
+
+async def test_force_https(make_gateway: GatewayMaker) -> None:
+    """With force_https, plain HTTP gets the page that moves the browser to HTTPS, or 403 for the API; not /healthz."""
+    gw = await make_gateway(CREDENTIALS, force_https=True)
+    client = gw.client
+    page = await client.get("/settings?x=1", headers={"Host": "evil.example@good"}, allow_redirects=False)
+    assert page.status == 200 and "/static/https.js" in await page.text()
+    assert "Location" not in page.headers and "Content-Security-Policy" in page.headers
+    api = await client.get("/api/status")
+    assert api.status == 403 and (await api.json())["error"] == "https_required"
+    assert (await client.post("/api/login", json={})).status == 403
+    assert (await client.get("/metrics")).status == 403
+    for path in ("/healthz", "/static/https.js", "/static/style.css"):
+        assert (await client.get(path)).status == 200, path
+    proxied = await client.post("/api/login", json=GOOD, headers={**FETCH, "X-Forwarded-Proto": "https"})
+    assert proxied.status == 200 and "Strict-Transport-Security" not in proxied.headers
+
+
+async def test_healthz_and_core_down(make_gateway: GatewayMaker) -> None:
+    """/healthz says ok only when the core answers; a request the core cannot take is a 502."""
+    up = await make_gateway(CREDENTIALS)
+    assert (await up.client.get("/healthz")).status == 200
+    down = await make_gateway(CREDENTIALS, core=False)
+    assert (await down.client.get("/healthz")).status == 503
+    await down.client.post("/api/login", json=GOOD, headers=FETCH)
+    response = await down.client.get("/api/status")
+    assert response.status == 502 and (await response.json())["error"] == "core_unavailable"
+
+
+def test_build_from_the_environment(tmp_path: Path) -> None:
+    """build reads the core's socket, the folder, the port, the networks and TLS; problems fall back safely."""
+    lines: list[str] = []
+    env = {"HFC_CORE_SOCKET": str(tmp_path / "s"), "HFC_WEB_DIR": str(tmp_path), "WEBUI_PORT": "9999"}
+    app, host, port, context = gateway_module.build(env, lines.append)
+    assert (host, port, context) == ("0.0.0.0", 9999, None)
+    assert any("FIRST SETUP" in line and str(app[SETUP].code) in line for line in lines)
+    lines.clear()
+    bad = {**env, "WEBUI_ALLOW": "10.0.0.0/33", "ENABLE_TLS": "true", "FORCE_HTTPS": "true", "TLS_CERT": "/nope"}
+    bad.update(CREDENTIALS)
+    app, _, _, context = gateway_module.build(bad, lines.append)
+    assert context is None and app[gateway_module.FORCE_HTTPS] is False
+    assert app[gateway_module.ALLOW] == parse_allow(None)
+    assert any("WEBUI_ALLOW is not valid" in line for line in lines) and any("HTTPS is off" in line for line in lines)
+    assert not any("FIRST SETUP" in line for line in lines)
+
+
+async def test_serve_until_sigterm(tmp_path: Path, unused_tcp_port: int) -> None:
+    """_serve answers on its port, over HTTP and (with a context) HTTPS, until SIGTERM."""
+    import os
+    import signal
+    import ssl
+
+    from hddfancontrol_webui.tls import ssl_context
+
+    for context in (None, ssl_context(tmp_path)):
+        lines: list[str] = []
+        env = {"HFC_CORE_SOCKET": str(tmp_path / "s"), "HFC_WEB_DIR": str(tmp_path), "WEBUI_PASSWORD": "a-long-password"}
+        app, _, _, _ = gateway_module.build(env, lines.append)
+        task = asyncio.create_task(gateway_module._serve(app, "127.0.0.1", unused_tcp_port, context))
+        scheme = "https" if context else "http"
+        trusted = ssl.create_default_context(cafile=str(tmp_path / "tls" / "cert.pem")) if context else None
+        async with aiohttp.ClientSession() as session:
+            for _ in range(100):
+                try:
+                    async with session.get(f"{scheme}://127.0.0.1:{unused_tcp_port}/login", ssl=trusted) as response:
+                        assert response.status == 200
+                        break
+                except aiohttp.ClientConnectionError:
+                    await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("the gateway did not answer")
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.wait_for(task, 10)

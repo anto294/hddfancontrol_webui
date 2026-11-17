@@ -76,6 +76,9 @@ RUN apk add --no-cache \
 COPY --from=hddfancontrol /out/hddfancontrol /usr/local/bin/
 COPY --from=hdidle /out/hd-idle /usr/local/bin/
 COPY --from=sdparm /out/sdparm /usr/local/bin/
+# The gateway (the part the network reaches) runs as this user, not root.
+RUN addgroup -S -g 10001 hddfancontrol-webui \
+ && adduser -S -D -H -u 10001 -G hddfancontrol-webui -h /nonexistent -s /sbin/nologin hddfancontrol-webui
 COPY hddfancontrol_webui /app/hddfancontrol_webui
 # The root file system can be read only: compile the bytecode now.
 RUN python3 -m compileall -q /app/hddfancontrol_webui

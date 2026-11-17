@@ -14,7 +14,8 @@ Environment=LOAD_SENSOR_MODULES=false
 EnvironmentFile=-/etc/hddfancontrol-webui/env
 ExecStart=/opt/hddfancontrol-webui/venv/bin/hddfancontrol-webui
 StateDirectory=hddfancontrol-webui
-StateDirectoryMode=0700
+# 0711: the gateway's user may reach its own folder (web/), nothing else.
+StateDirectoryMode=0711
 # SIGTERM goes to the web UI, which stops the daemons and gives the fans back.
 KillMode=mixed
 TimeoutStopSec=30
@@ -22,7 +23,13 @@ Restart=on-failure
 RestartSec=5
 
 # Root is needed for /sys PWM files and drive commands; keep the rest closed.
+# The web server itself runs as the hddfancontrol-webui user (the gateway).
 NoNewPrivileges=true
+RestrictNamespaces=true
+RestrictRealtime=true
+ProtectHostname=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full

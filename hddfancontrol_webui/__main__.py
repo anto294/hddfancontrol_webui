@@ -1,24 +1,30 @@
-"""Start the web UI and the daemons: ``python -m hddfancontrol_webui``."""
+"""Start the web UI and the daemons: ``python -m hddfancontrol_webui``.
+
+This is the core, run as root: fan control, the daemons, the monitor and
+the API on a Unix socket. It starts the gateway (gateway.py) as WEBUI_USER,
+which holds the port and the login and passes the requests it lets through
+to that socket (privsep.py).
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import shutil
 import signal
-import ssl
+import sys
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 
 from .alerts import Alerts
-from .auth import AuthStore
 from .bays import Bays
 from .const import (
     DEFAULT_CONFIG_DIR,
-    DEFAULT_PORT,
     HDDFANCONTROL_BIN,
     HDIDLE_BIN,
     HISTORY_DB,
@@ -27,6 +33,7 @@ from .const import (
     SMARTCTL_BIN,
     SOURCE_ALERTS,
     SOURCE_FAN_CONTROL,
+    SOURCE_GATEWAY,
     SOURCE_SENSORS,
     SOURCE_TEMPS,
     SOURCE_WEBUI,
@@ -39,12 +46,12 @@ from .hardware import Hardware
 from .history import History
 from .labels import Labels
 from .monitor import Monitor
+from .privsep import WebUser, gateway_env, prepare_web_dir, secure_socket, socket_dir, web_user
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsStore
 from .smart import read_smart, start_selftest
-from .supervisor import LogBuffer, Supervisor
+from .supervisor import Daemon, LogBuffer, Supervisor
 from .templog import TempLog
-from .tls import DualListener, TlsError, ssl_context
 from .web import STATE, create_app
 
 
@@ -60,16 +67,24 @@ def _env_flag(name: str, default: bool) -> bool:
 
 
 # ---------------------------
+#   Core
+# ---------------------------
+@dataclass
+class Core:
+    """What main() runs: the core API, where it listens, and the gateway in front of it."""
+
+    app: web.Application
+    socket_path: Path
+    user: WebUser
+    gateway: Daemon
+
+
+# ---------------------------
 #   build
 # ---------------------------
-def build() -> tuple[web.Application, int, ssl.SSLContext | None]:
-    """Build the application from the environment, and return it with its port and its TLS context (or None).
-
-    A certificate that cannot be read or made leaves HTTPS off, with an
-    error in the log, instead of stopping: the fans come first.
-    """
+def build() -> Core:
+    """Build the core and its gateway from the environment."""
     config_dir = Path(os.environ.get("CONFIG_DIR", str(DEFAULT_CONFIG_DIR)))
-    port = int(os.environ.get("WEBUI_PORT", str(DEFAULT_PORT)))
     load_modules = _env_flag("LOAD_SENSOR_MODULES", True)
 
     logs = LogBuffer()
@@ -114,7 +129,6 @@ def build() -> tuple[web.Application, int, ssl.SSLContext | None]:
         labels=labels.all,
         selftest=selftest,
     )
-    auth = AuthStore(config_dir)
 
     async def scan() -> SensorReport:
         return await scan_sensor_modules(
@@ -123,34 +137,21 @@ def build() -> tuple[web.Application, int, ssl.SSLContext | None]:
             env.get("MODPROBE_BIN", MODPROBE_BIN),
         )
 
-    context: ssl.SSLContext | None = None
-    tls_error = ""
-    if _env_flag("ENABLE_TLS", False):
-        try:
-            context = ssl_context(
-                config_dir, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), env.get("OPENSSL_BIN", "openssl")
-            )
-        except TlsError as err:
-            tls_error = str(err)
-    # Redirecting to an HTTPS that failed would lock everyone out.
-    force_https = _env_flag("FORCE_HTTPS", False) and not tls_error
-    app = create_app(
-        supervisor, hardware, temp_log, history, monitor, auth, labels, scan, Bays(config_dir), force_https=force_https
+    user = web_user(env.get("WEBUI_USER"), logging.getLogger(__name__))
+    web_dir, cert, key = prepare_web_dir(config_dir, user, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip())
+    socket_path = socket_dir(user) / "core.sock"
+    gateway = Daemon(
+        SOURCE_GATEWAY,
+        sys.executable,
+        logs,
+        user=(user.uid, user.gid) if user.uid is not None and user.gid is not None else None,
+        env=gateway_env(dict(env), socket_path, web_dir, cert, key),
     )
+    app = create_app(supervisor, hardware, temp_log, history, monitor, labels, scan, Bays(config_dir), peers=user.peers)
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:
         """Scan the sensors, then start everything; stop it all when the server stops."""
-        scheme = "HTTPS and HTTP" if context else "HTTP"
-        redirect = ", HTTP redirected to HTTPS" if force_https else ""
-        logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}, listening on port {port} ({scheme}{redirect})")
-        if tls_error:
-            logs.add(SOURCE_WEBUI, f"ERROR: HTTPS is off: {tls_error}")
-        if not auth.enabled:
-            logs.add(
-                SOURCE_WEBUI,
-                "WARNING: no username and password are set, anyone who reaches the port can change the fans. "
-                "Set them in the web UI (Security) or with WEBUI_USERNAME and WEBUI_PASSWORD.",
-            )
+        logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}: core started, the gateway runs as {user.name}")
 
         async def startup() -> None:
             # A failed sensor scan must not keep the fans from being controlled.
@@ -179,40 +180,32 @@ def build() -> tuple[web.Application, int, ssl.SSLContext | None]:
         history.close()
 
     app.cleanup_ctx.append(lifecycle)
-    return app, port, context
+    return Core(app, socket_path, user, gateway)
 
 
 # ---------------------------
 #   serve
 # ---------------------------
-async def serve(
-    app: web.Application, host: str, port: int, context: ssl.SSLContext | None, access_log: logging.Logger | None
-) -> None:
-    """Serve until SIGTERM or SIGINT, then clean up (which gives the fans back).
+async def serve(core: Core, access_log: logging.Logger | None) -> None:
+    """Serve the core on its socket and run the gateway, until SIGTERM or SIGINT; then clean up (which gives the fans back).
 
-    With a TLS context, one port answers both HTTPS and HTTP (DualListener).
+    The gateway stops first, so no request comes in while the fans are given back.
     """
-    runner = web.AppRunner(app, access_log=access_log, handle_signals=False)
+    runner = web.AppRunner(core.app, access_log=access_log, handle_signals=False)
     await runner.setup()
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(signum, stop.set)
-    listener: DualListener | None = None
     try:
-        if context is None:
-            await web.TCPSite(runner, host, port).start()
-        else:
-            server = runner.server
-            if server is None:  # setup() made it
-                raise RuntimeError("the server was not made")
-            listener = DualListener(server, host, port, context)
-            await listener.start()
+        await web.UnixSite(runner, str(core.socket_path)).start()
+        secure_socket(core.socket_path, core.user)
+        core.gateway.start(["-m", "hddfancontrol_webui.gateway"])
         await stop.wait()
     finally:
-        if listener is not None:
-            await listener.close()
+        await core.gateway.stop()
         await runner.cleanup()
+        shutil.rmtree(core.socket_path.parent, ignore_errors=True)
 
 
 # ---------------------------
@@ -221,13 +214,13 @@ async def serve(
 def main() -> None:
     """Run until SIGTERM or SIGINT, which stop the daemons and give the fans back."""
     logging.basicConfig(level=logging.INFO, format="[webui] %(levelname)s %(name)s: %(message)s")
-    app, port, context = build()
-    # A container listens on every interface; Docker decides what is published.
-    host = os.environ.get("WEBUI_HOST", "0.0.0.0")  # noqa: S104  # nosec B104
+    # Everything the core writes in /config (history, settings, labels) is root's alone.
+    os.umask(0o077)
+    core = build()
     # The page polls the API every few seconds: one log line per request
     # would bury everything else. Errors are still logged.
     access_log = logging.getLogger("aiohttp.access") if _env_flag("WEBUI_ACCESS_LOG", False) else None
-    asyncio.run(serve(app, host, port, context, access_log))
+    asyncio.run(serve(core, access_log))
 
 
 if __name__ == "__main__":

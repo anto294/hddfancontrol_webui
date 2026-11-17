@@ -158,14 +158,19 @@ class Daemon:
         binary: str,
         logs: LogBuffer,
         on_exit: Callable[[], None] | None = None,
+        user: tuple[int, int] | None = None,
+        env: dict[str, str] | None = None,
     ) -> None:
         """Name the program for the logs and the API.
 
         on_exit() runs (in a thread) when the program ended by itself or could
-        not start.
+        not start. With user (uid, gid), root starts it as that user, with
+        no other group and umask 077; with env, in that environment only.
         """
         self.name = name
         self.binary = binary
+        self._user = user
+        self._env = env
         self._logs = logs
         self._on_exit = on_exit
         self._task: asyncio.Task[None] | None = None
@@ -204,8 +209,16 @@ class Daemon:
             began = time.monotonic()
             log(f"Starting: {self.binary} {' '.join(args)}")
             try:
+                extra: dict[str, Any] = {}
+                if self._user is not None:
+                    extra = {"user": self._user[0], "group": self._user[1], "extra_groups": [], "umask": 0o077}
                 proc = await asyncio.create_subprocess_exec(
-                    self.binary, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                    self.binary,
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    env=self._env,
+                    **extra,
                 )
             except OSError as err:
                 log(f"Cannot start {self.binary}: {err}")

@@ -26,7 +26,8 @@ uninstall() {
     rm -f "$UNIT"
     systemctl daemon-reload
     rm -rf "$PREFIX"
-    say "Removed $PREFIX and the service."
+    userdel hddfancontrol-webui 2>/dev/null || true
+    say "Removed $PREFIX, the service and its user."
 }
 
 case "${1:-}" in
@@ -68,6 +69,12 @@ running=false
 systemctl is-active --quiet hddfancontrol-webui.service && running=true
 $running && systemctl stop hddfancontrol-webui.service
 
+# The gateway (the part the network reaches) runs as this user, not root.
+if ! getent passwd hddfancontrol-webui >/dev/null; then
+    useradd --system --user-group --no-create-home --home-dir /nonexistent \
+        --shell /usr/sbin/nologin hddfancontrol-webui \
+        || say "warning: cannot create the user hddfancontrol-webui; the web server will run as nobody"
+fi
 install -d -m 0755 "$PREFIX/bin"
 install -m 0755 "$HERE"/bin/hddfancontrol "$HERE"/bin/hd-idle "$HERE"/bin/sdparm "$PREFIX/bin/"
 # A new venv each time, so an update never mixes old and new packages.

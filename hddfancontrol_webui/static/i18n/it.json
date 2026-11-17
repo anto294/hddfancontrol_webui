@@ -19,7 +19,6 @@
   "action.leave_manual": "Torna al controllo automatico",
   "action.refresh_smart": "Leggi SMART ora",
   "action.save_credentials": "Salva",
-  "action.remove_credentials": "Togli la protezione",
   "action.login": "Accedi",
   "action.logout": "Esci",
   "mode.running": "In funzione",
@@ -221,7 +220,6 @@
   "security.password": "Password",
   "security.confirm": "Ripeti la password",
   "security.saved": "Credenziali salvate. Le altre sessioni sono state chiuse.",
-  "security.removed": "Protezione tolta: l'interfaccia web è aperta.",
   "labels.label": "Nome",
   "labels.placeholder": "Nome (facoltativo)",
   "error.invalid_label_key": "Si possono nominare solo dischi e ventole.",
@@ -428,5 +426,16 @@
   "error.cron_value": "«{value}» qui non è valido.",
   "error.cron_range": "«{value}» è fuori intervallo: da {min} a {max}.",
   "error.cron_never": "Non succede mai.",
-  "error.https_required": "Funziona solo in HTTPS: apri l'indirizzo con https://."
+  "error.https_required": "Funziona solo in HTTPS: apri l'indirizzo con https://.",
+  "setup.title": "Primo avvio",
+  "setup.text": "Non ci sono ancora nome utente e password. Per provare che il NAS è tuo, inserisci il codice di configurazione scritto nel log del container (docker logs, o i log dell'app in TrueNAS), poi scegli nome utente e password.",
+  "setup.code": "Codice di configurazione",
+  "setup.code_help": "Una riga come \"FIRST SETUP … setup code: 1a2b-3c4d-5e6f-7a8b\". A ogni avvio il codice cambia.",
+  "setup.confirm": "Ripeti la password",
+  "setup.create": "Crea e accedi",
+  "error.setup_required": "Completa il primo avvio: apri l'interfaccia e inserisci il codice del log.",
+  "error.wrong_setup_code": "Codice di configurazione sbagliato. Copialo di nuovo dal log del container: cambia a ogni avvio.",
+  "error.already_set_up": "Nome utente e password sono già impostati: accedi.",
+  "error.core_unavailable": "Il servizio di controllo ventole non ha risposto. Riprova tra poco; se continua, guarda i log del container.",
+  "error.forbidden": "Non consentito."
 }
