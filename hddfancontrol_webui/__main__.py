@@ -65,9 +65,10 @@ class Core:
     """What main() runs: the core API, where it listens, and the gateway in front of it."""
 
     app: web.Application
-    socket_path: Path
-    user: WebUser
-    gateway: Daemon
+    # None when WEBUI_USER cannot be used: no gateway, the core only drives the fans.
+    socket_path: Path | None
+    user: WebUser | None
+    gateway: Daemon | None
     supervisor: Supervisor
 
 
@@ -136,21 +137,31 @@ def build() -> Core:
 
     log = logging.getLogger(__name__)
     user = web_user(env.get("WEBUI_USER"), log)
-    web_dir = prepare_web_dir(config_dir, user, log)
-    cert, key = given_tls(config_dir, user, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), log)
-    socket_path = socket_dir(user) / "core.sock"
-    gateway = Daemon(
-        SOURCE_GATEWAY,
-        sys.executable,
-        logs,
-        user=(user.uid, user.gid) if user.uid is not None and user.gid is not None else None,
-        env=gateway_env(dict(env), socket_path, web_dir, cert, key),
-    )
-    app = create_app(supervisor, hardware, temp_log, history, monitor, labels, scan, Bays(config_dir), peers=user.peers)
+    socket_path: Path | None = None
+    gateway: Daemon | None = None
+    if user is not None:
+        web_dir = prepare_web_dir(config_dir, user, log)
+        cert, key = given_tls(config_dir, user, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), log)
+        socket_path = socket_dir(user) / "core.sock"
+        gateway = Daemon(
+            SOURCE_GATEWAY,
+            sys.executable,
+            logs,
+            user=(user.uid, user.gid) if user.uid is not None and user.gid is not None else None,
+            env=gateway_env(dict(env), socket_path, web_dir, cert, key),
+        )
+    peers = user.peers if user is not None else frozenset({0})
+    app = create_app(supervisor, hardware, temp_log, history, monitor, labels, scan, Bays(config_dir), peers=peers)
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:
         """Scan the sensors, then start everything; stop it all when the server stops."""
-        logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}: core started, the gateway runs as {user.name}")
+        if user is None:
+            logs.add(
+                SOURCE_WEBUI,
+                f"ERROR: hddfancontrol-webui {VERSION}: no usable WEBUI_USER, so no web UI; the fans are controlled",
+            )
+        else:
+            logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}: core started, the gateway runs as {user.name}")
 
         async def startup() -> None:
             # A failed sensor scan must not keep the fans from being controlled.
@@ -202,17 +213,20 @@ async def serve(core: Core) -> None:
     for signum in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(signum, stop.set)
     try:
-        await web.UnixSite(runner, str(core.socket_path)).start()
-        secure_socket(core.socket_path, core.user)
-        core.gateway.start(["-m", "hddfancontrol_webui.gateway"])
+        if core.gateway is not None and core.socket_path is not None and core.user is not None:
+            await web.UnixSite(runner, str(core.socket_path)).start()
+            secure_socket(core.socket_path, core.user)
+            core.gateway.start(["-m", "hddfancontrol_webui.gateway"])
         await stop.wait()
     finally:
         try:
             await core.supervisor.release_fans()
         finally:
-            await core.gateway.stop()
+            if core.gateway is not None:
+                await core.gateway.stop()
             await runner.cleanup()
-        shutil.rmtree(core.socket_path.parent, ignore_errors=True)
+        if core.socket_path is not None:
+            shutil.rmtree(core.socket_path.parent, ignore_errors=True)
 
 
 # ---------------------------

@@ -35,9 +35,6 @@ from .tls import TLS_DIR
 
 _LOGGER = logging.getLogger(__name__)
 
-FALLBACK_USER = "nobody"
-# The ids of nobody on most systems, for one without that user.
-FALLBACK_ID = 65534
 SOCKET_FILE = "core.sock"
 TEMP_WEB_PREFIX = "hddfancontrol-webui-web-"
 GIVEN_TLS_DIR = "web-tls"
@@ -91,12 +88,14 @@ class WebUser:
 # ---------------------------
 #   web_user
 # ---------------------------
-def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser:
-    """The user of the gateway: WEBUI_USER (default DEFAULT_WEB_USER), or nobody when it does not exist.
+def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser | None:
+    """The user of the gateway: WEBUI_USER (default DEFAULT_WEB_USER); None when it cannot be used.
 
-    Not running as root, the gateway runs as the current user. Root, and a
-    user whose group is root's, are refused: the point is to have the
-    network in another user, without root's group files.
+    Not running as root, the gateway runs as the current user. As root, a
+    user that does not exist, root, and a user whose group is root's give
+    None: the gateway does not start, with an error in the log, and the
+    core goes on controlling the fans. It never falls back to nobody,
+    which other services of the host may run as.
     """
     log = log or _LOGGER
     if os.geteuid() != 0:
@@ -105,25 +104,13 @@ def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser:
     try:
         entry = pwd.getpwnam(wanted)
     except KeyError:
-        log.warning("User %s does not exist: the gateway runs as %s", wanted, FALLBACK_USER)
-        return _fallback_user()
+        log.error("WEBUI_USER %s does not exist: the web UI does not start (the fans are still controlled)", wanted)
+        return None
     if entry.pw_uid == 0 or entry.pw_gid == 0:
-        log.warning("WEBUI_USER %s is root or in root's group: the gateway runs as %s", wanted, FALLBACK_USER)
-        return _fallback_user()
-    return WebUser(entry.pw_name, entry.pw_uid, entry.pw_gid)
-
-
-# ---------------------------
-#   _fallback_user
-# ---------------------------
-def _fallback_user() -> WebUser:
-    """nobody, or its usual ids when the system has no such user: never root."""
-    try:
-        entry = pwd.getpwnam(FALLBACK_USER)
-    except KeyError:
-        return WebUser(FALLBACK_USER, FALLBACK_ID, FALLBACK_ID)
-    if entry.pw_uid == 0 or entry.pw_gid == 0:
-        return WebUser(FALLBACK_USER, FALLBACK_ID, FALLBACK_ID)
+        log.error(
+            "WEBUI_USER %s is root or in root's group: the web UI does not start (the fans are still controlled)", wanted
+        )
+        return None
     return WebUser(entry.pw_name, entry.pw_uid, entry.pw_gid)
 
 

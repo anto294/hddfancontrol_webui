@@ -33,7 +33,7 @@ def as_root(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
 
 
 def test_web_user_as_root(as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The named user; nobody when it is missing or is root; root and it may reach the core."""
+    """The named user, and root, may reach the core; a missing user, root or root's group give None, never nobody."""
     users = {
         "hddfancontrol-webui": pwd.struct_passwd(("hddfancontrol-webui", "x", 10001, 10001, "", "/", "/sbin/nologin")),
         "nobody": pwd.struct_passwd(("nobody", "x", 65534, 65534, "", "/", "/sbin/nologin")),
@@ -47,14 +47,9 @@ def test_web_user_as_root(as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(privsep.pwd, "getpwnam", getpwnam)
     user = web_user(None)
     assert user == WebUser("hddfancontrol-webui", 10001, 10001) and user.peers == frozenset({0, 10001})
-    assert web_user("missing").name == "nobody"
-    assert web_user("root").name == "nobody"
-    assert web_user("wheel").name == "nobody"  # root's group
-    # No nobody either: its usual ids, never root.
-    del users["nobody"]
-    assert web_user("missing") == WebUser("nobody", 65534, 65534)
-    users["nobody"] = users["root"]
-    assert web_user("root") == WebUser("nobody", 65534, 65534)
+    assert web_user("missing") is None
+    assert web_user("root") is None
+    assert web_user("wheel") is None  # root's group
 
 
 def test_prepare_web_dir(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:

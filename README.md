@@ -218,7 +218,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `WEBUI_PORT` | `8080` | Port of the web UI |
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
 | `WEBUI_ALLOW` | private networks | Networks allowed to connect, as CIDRs separated by commas or spaces; `private` stands for the default networks, `all` for every address; loopback is always allowed. See [Security](#security) |
-| `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; `nobody` when it does not exist |
+| `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; when it does not exist, or is root or in root's group, the web UI does not start (an error in the log) and the fans are still controlled |
 | `ENABLE_TLS` | `false` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; see [HTTPS](#https) |
 | `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
 | `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied to `/config/web-tls` at start, so the gateway can read them |

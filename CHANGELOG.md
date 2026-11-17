@@ -30,6 +30,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   data are not kept there. The files of `/config` are written through a
   new temporary file with a random name, never a fixed `.tmp` name that
   could be a planted link.
+- When `WEBUI_USER` does not exist (or is root, or in root's group), the
+  web server no longer runs as `nobody`, which other services may share:
+  it does not start, the log says why, and the fans are still controlled.
+  The installer stops when it cannot create its user.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is
