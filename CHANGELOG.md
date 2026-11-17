@@ -7,6 +7,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- A theme switch next to the language picker, on every page: automatic
+  (as the system), light or dark, kept in the browser.
+
 ### Changed
 
 - Overview: each drive takes one line, with the name given to it (or its
@@ -28,6 +33,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   temperature, the highest ever, the recommended maximum, the age and any
   error counter are shown as tiles, the rest under "Details". Drives with
   a problem come first, and their card has a colored border.
+- The page uses more of a wide screen (up to 1440 px instead of 1200 px).
 
 ### Fixed
 

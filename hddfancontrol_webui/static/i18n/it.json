@@ -250,6 +250,9 @@
   "error.network": "Il server non risponde.",
   "error.unknown": "Qualcosa è andato storto.",
   "lang.auto": "Automatica",
+  "theme.auto": "Tema: come il sistema (clicca per chiaro)",
+  "theme.light": "Tema: chiaro (clicca per scuro)",
+  "theme.dark": "Tema: scuro (clicca per seguire il sistema)",
   "lang.label": "Lingua",
 
   "wizard.open": "Configurazione guidata",

@@ -132,6 +132,70 @@ function setupLanguagePicker() {
   }
 }
 
+// Light, dark, or what the system says ("auto"), kept in this browser. Set
+// as soon as this script runs, so the page shows in it from the start.
+const THEMES = ["auto", "light", "dark"];
+const THEME_KEY = "theme";
+const THEME_ICONS = {
+  auto: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 3v18", "M12 7h4", "M12 11h6", "M12 15h5"],
+  light: ["M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M12 2v2", "M12 20v2", "M4.9 4.9l1.4 1.4", "M17.7 17.7l1.4 1.4", "M2 12h2", "M20 12h2", "M4.9 19.1l1.4-1.4", "M17.7 6.3l1.4-1.4"],
+  dark: ["M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"],
+};
+
+function savedTheme() {
+  try {
+    const theme = localStorage.getItem(THEME_KEY);
+    return THEMES.includes(theme) ? theme : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+function applyTheme(theme) {
+  if (theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+}
+
+applyTheme(savedTheme());
+
+// A button before every language picker that goes auto → light → dark.
+function setupThemeToggle() {
+  const NS = "http://www.w3.org/2000/svg";
+  for (const box of document.querySelectorAll("div.lang")) {
+    if (box.previousElementSibling && box.previousElementSibling.classList.contains("theme-button")) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "theme-button";
+    const show = (theme) => {
+      const node = document.createElementNS(NS, "svg");
+      node.setAttribute("viewBox", "0 0 24 24");
+      node.setAttribute("aria-hidden", "true");
+      for (const d of THEME_ICONS[theme]) {
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("d", d);
+        node.append(path);
+      }
+      button.replaceChildren(node);
+      const text = t(`theme.${theme}`);
+      button.title = text;
+      button.setAttribute("aria-label", text);
+    };
+    show(savedTheme());
+    button.addEventListener("click", () => {
+      const next = THEMES[(THEMES.indexOf(savedTheme()) + 1) % THEMES.length];
+      try {
+        localStorage.setItem(THEME_KEY, next);
+      } catch {
+        // Nothing to keep it in: it lasts for this page.
+      }
+      applyTheme(next);
+      for (const other of document.querySelectorAll(".theme-button")) other.dispatchEvent(new CustomEvent("theme", { detail: next }));
+    });
+    button.addEventListener("theme", (event) => show(event.detail));
+    box.before(button);
+  }
+}
+
 async function loadI18n() {
   const wanted = (savedLanguage() || navigator.language || "en").slice(0, 2).toLowerCase();
   const lang = LANGUAGES.includes(wanted) ? wanted : "en";
@@ -142,6 +206,7 @@ async function loadI18n() {
   document.documentElement.lang = lang;
   applyI18n(document);
   setupLanguagePicker();
+  setupThemeToggle();
 }
 
 function t(key, params = {}) {

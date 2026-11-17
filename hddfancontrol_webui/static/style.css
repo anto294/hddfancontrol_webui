@@ -28,8 +28,9 @@
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Dark colors: from the system, unless the page is set to light; or set to dark. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #020a1a;
     --surface: #0b1528;
     --surface-2: #101d36;
@@ -54,6 +55,37 @@
     --c7: #f06fae;
     --c8: #9aa7bc;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #020a1a;
+  --surface: #0b1528;
+  --surface-2: #101d36;
+  --text: #e6ecf5;
+  --muted: #8f9bb0;
+  --border: #1f2d47;
+  --accent: #2f8cff;
+  --accent-text: #ffffff;
+  --ok: #3ccf8e;
+  --warn: #f0b44c;
+  --warn-bg: #2b2210;
+  --danger: #ff6b5e;
+  --danger-bg: #2e1513;
+  --info-bg: #10223f;
+  --grid: #18253d;
+  --c1: #3d95ff;
+  --c2: #ff7a4f;
+  --c3: #2ddba6;
+  --c4: #a78bfa;
+  --c5: #f5c242;
+  --c6: #34c8e8;
+  --c7: #f06fae;
+  --c8: #9aa7bc;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
@@ -134,6 +166,27 @@ a {
 
 .brand .open-wizard {
   margin-left: auto;
+}
+
+/* Theme switch (i18n.js): automatic, light or dark. */
+.theme-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+  padding: 0.25rem 0.45rem;
+}
+
+.theme-button svg {
+  width: 1.1em;
+  height: 1.1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Language picker (i18n.js) */
@@ -268,7 +321,7 @@ a {
 }
 
 main {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 16px;
 }
