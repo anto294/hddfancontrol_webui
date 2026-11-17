@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime
 import functools
+import re
 import time
 from dataclasses import dataclass
 
@@ -33,6 +34,8 @@ MACROS = {
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 DAYS = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")
 # (low, high, names, names offset) of each field.
+# A number of a field: ASCII digits only (str.isdigit also takes "²", which int() refuses), and few of them.
+_NUMBER = re.compile(r"[0-9]{1,4}")
 FIELDS = (
     (0, 59, (), 0),
     (0, 23, (), 0),
@@ -70,7 +73,7 @@ def _value(text: str, index: int) -> int:
     lowered = text.lower()
     if lowered in names:
         return names.index(lowered) + offset
-    if not text.isdigit():
+    if not _NUMBER.fullmatch(text):
         raise CronError("cron_value", field=FIELD_NAMES[index], value=text)
     number = int(text)
     if not low <= number <= high:
@@ -89,7 +92,7 @@ def _field(text: str, index: int) -> frozenset[int]:
         base, slash, step_text = part.partition("/")
         step = 1
         if slash:
-            if not step_text.isdigit() or int(step_text) == 0:
+            if not _NUMBER.fullmatch(step_text) or int(step_text) == 0:
                 raise CronError("cron_value", field=FIELD_NAMES[index], value=part)
             step = int(step_text)
         if base == "*":

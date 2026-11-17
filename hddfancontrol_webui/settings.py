@@ -56,7 +56,7 @@ _PWM_PATH = re.compile(r"^/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+$")
 _TEMP_INPUT = re.compile(r"/temp[0-9]+_input$")
 # Where the chips of the fans live (Hardware.chip_of).
 _CHIP_PREFIX = "/sys/devices/"
-_INTERVAL = re.compile(r"^\s*(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
+_INTERVAL = re.compile(r"^\s*([0-9]{1,9})\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
 _INTERVAL_FACTORS = {"": 1, "s": 1, "sec": 1, "secs": 1, "m": 60, "min": 60, "mins": 60, "h": 3600, "hr": 3600, "hrs": 3600}
 _FALSE = ("0", "false", "no", "off", "")
 
@@ -237,7 +237,7 @@ class _Collector:
             return default
         try:
             number = float(value)
-        except ValueError:
+        except (ValueError, OverflowError):  # an int too large for a float
             self.add(name, "invalid_number")
             return default
         if not MIN_TEMP <= number <= MAX_TEMP:
@@ -518,7 +518,7 @@ def _smart_schedule(data: Mapping[str, Any]) -> Mapping[str, Any]:
     hours = data["smart_interval_h"]
     try:
         number = int(hours)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: an infinite float (1e400 in JSON)
         return {"smart_schedule": hours}
     if number <= 0:
         return {"smart_schedule": ""}

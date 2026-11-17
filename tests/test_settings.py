@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -417,3 +418,21 @@ def test_smart_interval_not_a_number() -> None:
     with pytest.raises(SettingsError) as err:
         from_dict({"smart_interval_h": "often"})
     assert err.value.problems[0]["field"] == "smart_schedule"
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        {"drive_temp_max": 10**400},
+        {"target_temp": 10**400},
+        {"smart_interval_h": float("inf")},
+        {"smart_interval_h": float("-inf")},
+        {"smart_schedule": "² * * * *"},
+        {"notify_quiet": "*/² * * * *"},
+        {"env": {"INTERVAL": "9" * 5000}},
+    ],
+)
+def test_odd_values_are_settings_errors(doc: dict[str, Any]) -> None:
+    """Values that Python cannot turn into numbers are reported as problems, never raised as something else."""
+    with pytest.raises(SettingsError):
+        from_dict(env_document(doc["env"]) if "env" in doc else doc)

@@ -348,6 +348,10 @@ async def test_cron_preview(make_client: ClientMaker) -> None:
     bad = await client.get("/api/cron", params={"expr": "0 24 * * *"})
     body = await bad.json()
     assert bad.status == 400 and body["error"] == "cron_range" and body["problems"][0]["params"]["max"] == 23
+    odd = await client.get("/api/cron", params={"expr": "² * * * *"})
+    assert odd.status == 400 and (await odd.json())["error"] == "cron_value"
+    odd_settings = await client.put("/api/settings", json={"drive_temp_max": 10**400}, headers=FETCH)
+    assert odd_settings.status == 400
 
 
 async def test_cron_preview_far_runs(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:

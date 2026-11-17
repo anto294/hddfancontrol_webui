@@ -31,6 +31,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Odd numbers in the settings or a schedule (a `²` in a cron field, a
+  temperature of `1e400`, an interval with thousands of digits) are
+  reported as invalid values instead of stopping the start or answering
+  500.
 - A JSON body nested too deep gets 400 `invalid_json` instead of an
   internal error with a traceback in the log.
 

@@ -145,3 +145,12 @@ def test_nothing_found(monkeypatch: pytest.MonkeyPatch) -> None:
     assert leap.next(at(17, 12)) is None
     assert leap.previous(at(17, 12)) is None
     assert windows(leap, at(17, 12), 3) == []
+
+
+@pytest.mark.parametrize(
+    "expr", ["² * * * *", "*/² * * * *", "1-² * * * *", "٣ * * * *", "9" * 5000 + " * * * *", "*/" + "9" * 5000 + " * * * *"]
+)
+def test_only_ascii_digits(expr: str) -> None:
+    """A number of a field is ASCII digits (a few): other digits that str.isdigit takes are a CronError, not a crash."""
+    with pytest.raises(CronError):
+        parse(expr)
