@@ -20,6 +20,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A wrong current password, when changing the credentials, counts
   against the login limit like a wrong login.
 
+### Fixed
+
+- A JSON body nested too deep gets 400 `invalid_json` instead of an
+  internal error with a traceback in the log.
+
 ## [0.8.0] - 2026-11-17
 
 ### Security

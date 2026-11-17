@@ -105,6 +105,8 @@ async def test_settings_api(make_client: ClientMaker) -> None:
     assert (await bad.json())["problems"][0] == {"field": "drives.0", "code": "invalid_drive", "params": {}}
     broken = await client.put("/api/settings", data="{", headers={**FETCH, "Content-Type": "application/json"})
     assert broken.status == 400 and (await broken.json())["error"] == "invalid_json"
+    deep = await client.put("/api/settings", data="[" * 60000, headers={**FETCH, "Content-Type": "application/json"})
+    assert deep.status == 400 and (await deep.json())["error"] == "invalid_json"  # not a 500 with a traceback
 
     doc = {"drives": [DRIVE], "pwms": [{"path": PWM1, "start": 200, "stop": 75}]}
     saved = await client.put("/api/settings", json=doc, headers=FETCH)
