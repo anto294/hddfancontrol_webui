@@ -163,6 +163,16 @@ def test_conditions_hot_drive(tmp_path: Path, fake_sys: Path, fake_dev: Path, mo
     own = {DRIVE: {"max": 39}}
     monitor._settings = lambda: from_dict({"drives": [DRIVE], "drive_temp_min": 30, "drive_temp_max": 50, "drive_limits": own})
     assert monitor.conditions({})["hot:sda"][1]["max"] == "39"
+    # The same for a drive given by its by-path name, as the fan controller reads it.
+    by_path = fake_dev / "disk" / "by-path"
+    by_path.mkdir()
+    (by_path / "pci-0000:00:17.0-ata-1").symlink_to("../../sda")
+    path = "/dev/disk/by-path/pci-0000:00:17.0-ata-1"
+    own = {path: {"max": 60}}
+    monitor._settings = lambda: from_dict(
+        {"drives": [path], "drive_temp_min": 30, "drive_temp_max": 40, "target_temp": 35, "drive_limits": own}
+    )
+    assert "hot:sda" not in monitor.conditions({})  # 40 under its own 60
     monkeypatch.setattr("hddfancontrol_webui.monitor.FRESH_SAMPLE_SECONDS", 1)
     assert "hot:sda" not in monitor.conditions({})  # an old sample says nothing
     monitor.history.close()

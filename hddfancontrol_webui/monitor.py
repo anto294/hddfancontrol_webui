@@ -430,14 +430,14 @@ class Monitor:
         fresh = latest is not None and time.time() - datetime.fromisoformat(latest["time"]).timestamp() < FRESH_SAMPLE_SECONDS
         if latest is not None and fresh and settings.drives:
             temps = list(latest["temps"].items())
+            # The drive's own maximum, found as the fan controller finds it (by-id, by-path or /dev/sdX).
+            names = self.hardware.kernel_names()
+            by_kernel = {names[d]: d for d in settings.drives if d in names}
             for name, temp in temps[: len(temps) - len(settings.hwmons)]:
                 kernel = name.split()[0]
                 key = f"hot:{kernel}"
                 drive = drives.get(kernel)
-                # The drive's own maximum, when it has one in the settings.
-                paths = set(drive.ids if drive else []) | {f"/dev/{kernel}"}
-                own = next((d for d in settings.drives if d in paths), "")
-                maximum = settings.limits_of(own)[2]
+                maximum = settings.limits_of(by_kernel.get(kernel, ""))[2]
                 limit = maximum - (HOT_HYSTERESIS if key in active else 0.0)
                 if temp is not None and temp >= limit:
                     label = self._drive_name(drive.ids if drive else [], name)
