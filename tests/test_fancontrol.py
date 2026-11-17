@@ -500,7 +500,7 @@ async def test_full_speed_does_not_wait_for_the_average(fake_sys: Path, fast: No
         current = {"temp": 35.0, "time": datetime.now(UTC)}
         settings = from_dict({**SETTINGS.to_dict(), "drives": [A], "control_mode": mode, "average": 10, "hwmons": []})
 
-        def latest() -> dict[str, Any]:
+        def latest(current: dict[str, Any] = current) -> dict[str, Any]:
             return {"time": current["time"].isoformat(), "temps": {"sda A": current["temp"]}}
 
         fans = FanController(PwmWriter(fake_sys), latest, lambda _: None, lambda: NAMES)
