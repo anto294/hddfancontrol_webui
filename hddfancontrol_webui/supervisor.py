@@ -337,6 +337,8 @@ class Supervisor:
         self.test = PwmTestState()
         self._test_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        # Set by release_fans at SIGTERM: nothing starts or changes any more.
+        self.closing = False
 
     @property
     def mode(self) -> str:
@@ -436,6 +438,8 @@ class Supervisor:
 
     async def _start_daemons(self) -> None:
         """Start what the settings and the mode ask for. Everything must be stopped."""
+        if self.closing:
+            return
         if self.read_only:
             self._log(
                 "WARNING: /sys is read only (the container is not privileged), so the fans cannot be controlled: "
@@ -483,6 +487,25 @@ class Supervisor:
         """Stop and start again. The lock is held."""
         await self._stop_daemons()
         await self._start_daemons()
+
+    async def release_fans(self) -> None:
+        """Give the fans back at once, before anything else stops: the first thing done at SIGTERM.
+
+        The daemons and the gateway may take up to STOP_TIMEOUT each to
+        stop, and Docker kills the container after its stop grace period:
+        the fans must not wait for them. hddfancontrol only measures
+        (--fan-cmd /bin/true), so nothing else writes them meanwhile. A PWM
+        test is cancelled first (its outputs given back), and manual control
+        ends; restore_fan_settings is respected as at any final stop. From
+        here on nothing starts again: changes answer Busy.
+        """
+        self.closing = True
+        await self.cancel_pwm_test()
+        if self._manual_watch is not None:
+            await cancel_and_wait(self._manual_watch)
+        async with self._lock:
+            await self.fans.stop(final=True)
+        self._log("Stopping: the fans are given back")
 
     async def stop(self) -> None:
         """Stop everything, the PWM test too. Used when the container stops."""
@@ -568,7 +591,9 @@ class Supervisor:
             raise Busy(str(err)) from err
 
     def _refuse_during_test(self) -> None:
-        """Raise Busy while a PWM test runs."""
+        """Raise Busy while a PWM test runs, or once the web UI is stopping."""
+        if self.closing:
+            raise Busy("The web UI is stopping")
         if self.test.running:
             raise Busy("A PWM test is running")
 

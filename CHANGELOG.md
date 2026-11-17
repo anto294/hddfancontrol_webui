@@ -43,6 +43,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - A corrupt `history.db` no longer stops the start: it is renamed
   `history.db.corrupt-<time>` and a new history begins, with an error in
   the log.
+- At stop the fans go back to the chip (or stay at full speed, with
+  `RESTORE_FAN_SETTINGS=false`) before anything else stops; a PWM test
+  running then is cancelled and nothing starts again. They used to wait
+  for the web server and the daemons, up to 30 s, and Docker kills a
+  container after 10 s: the fans could stay at a manual value. The
+  compose example sets `stop_grace_period: 60s` (add it to an existing
+  TrueNAS app), and the systemd unit `TimeoutStopSec=60`.
 - A JSON body nested too deep gets 400 `invalid_json` instead of an
   internal error with a traceback in the log.
 

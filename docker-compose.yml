@@ -15,6 +15,10 @@ services:
       - no-new-privileges:true
     pids_limit: 256
     init: false # the image has its own init (tini)
+    # At stop the fans go back to the chip first, then the daemons and the
+    # web server stop (up to 15 s each). Docker's default of 10 s would kill
+    # them halfway: give them a minute.
+    stop_grace_period: 60s
     ports:
       - "8080:8080"
     volumes:

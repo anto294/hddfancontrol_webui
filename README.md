@@ -59,6 +59,8 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 2. Go to **Apps → Discover Apps → ⋮ → Install via YAML**, name the app `hddfancontrol`, and paste [docker-compose.yml](docker-compose.yml) with the `./config` volume changed to your dataset (`/mnt/tank/apps/hddfancontrol:/config`).
 3. Open `http://<truenas>:8080`: the first visit asks for the **setup code** written in the logs of the app (**Apps → hddfancontrol → Logs**, a line with `FIRST SETUP`), then for a username and a password.
 
+Keep `stop_grace_period: 60s` of the example: when the app stops, the web UI gives the fans back to the chip first, then stops the daemons and its web server, which can take more than Docker's default 10 seconds. An app installed from an older YAML lacks it: **Apps → hddfancontrol → Edit**, add the line under `init: false`, and save.
+
 If the web UI says it cannot load a kernel module (for example `nct6775`), TrueNAS has the module but the container cannot load it. Load it on the host once:
 
 1. **System → Advanced Settings → Init/Shutdown Scripts → Add**

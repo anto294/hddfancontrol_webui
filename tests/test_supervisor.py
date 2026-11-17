@@ -492,3 +492,50 @@ async def test_fans_must_be_pwm_outputs_of_the_host(
         and not (fake_sys / "class/hwmon/hwmon9").exists()
     )
     await supervisor.stop()
+
+
+async def test_release_fans_gives_them_back_before_anything_else(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At SIGTERM the fans go back to the chip first, even while a daemon is slow to stop; nothing starts them again."""
+    monkeypatch.setenv("FAKE_LOG", str(tmp_path / "calls.log"))
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict(CONFIG))
+    logs = LogBuffer(echo=False)
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+    # hd-idle ignores SIGTERM: its stop takes the whole STOP_TIMEOUT.
+    stubborn = make_script("hd-idle", "import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)")
+    supervisor = Supervisor(
+        store, logs, None, fans, hddfancontrol=make_script("hddfancontrol", FAKE_HDDFANCONTROL), hdidle=stubborn
+    )
+    supervisor.settings = from_dict({**CONFIG, "spin_down_time_s": 600})
+    await supervisor.start()
+    await supervisor.set_manual(True)
+    supervisor.set_pwm(PWM1, 40)
+    assert read(fake_sys / "class/hwmon/hwmon2/pwm1_enable") == "1\n"
+    monkeypatch.setattr(supervisor_module, "STOP_TIMEOUT", 30.0)
+    await asyncio.wait_for(supervisor.release_fans(), 2)  # never waits for the daemons
+    assert read(fake_sys / "class/hwmon/hwmon2/pwm1_enable") == "5\n"  # the chip drives it again
+    with pytest.raises(Busy):
+        await supervisor.set_manual(False)
+    with pytest.raises(Busy):
+        await supervisor.apply(from_dict(CONFIG))
+    monkeypatch.setattr(supervisor_module, "STOP_TIMEOUT", 0.2)
+    await supervisor.stop()
+    assert read(fake_sys / "class/hwmon/hwmon2/pwm1_enable") == "5\n"
+
+
+async def test_release_fans_during_a_pwm_test_starts_nothing(
+    setup: tuple[Supervisor, Path], fake_sys: Path, make_script: ScriptMaker
+) -> None:
+    """A PWM test running at SIGTERM is cancelled, its outputs given back, and the control is not started again."""
+    supervisor, _calls = setup
+    supervisor.hddfancontrol.binary = make_script("hddfancontrol", "time.sleep(60)")
+    await supervisor.start()
+    await supervisor.start_pwm_test([PWM1])
+    await wait_for(lambda: supervisor.test.current == PWM1 and PWM1 in supervisor.fans.writer._saved)
+    await supervisor.release_fans()
+    assert not supervisor.test.running and supervisor.mode != "running"
+    assert not supervisor.hddfancontrol.active and not supervisor.fans.active
+    assert read(fake_sys / "class/hwmon/hwmon2/pwm1_enable") == "5\n"
+    await supervisor.stop()

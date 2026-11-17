@@ -16,9 +16,10 @@ ExecStart=/opt/hddfancontrol-webui/venv/bin/hddfancontrol-webui
 StateDirectory=hddfancontrol-webui
 # 0711: the gateway's user may reach its own folder (web/), nothing else.
 StateDirectoryMode=0711
-# SIGTERM goes to the web UI, which stops the daemons and gives the fans back.
+# SIGTERM goes to the web UI, which gives the fans back first, then stops
+# the gateway and the daemons (up to 15 s each).
 KillMode=mixed
-TimeoutStopSec=30
+TimeoutStopSec=60
 Restart=on-failure
 RestartSec=5
 

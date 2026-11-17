@@ -67,6 +67,7 @@ class Core:
     socket_path: Path
     user: WebUser
     gateway: Daemon
+    supervisor: Supervisor
 
 
 # ---------------------------
@@ -172,16 +173,20 @@ def build() -> Core:
         history.close()
 
     app.cleanup_ctx.append(lifecycle)
-    return Core(app, socket_path, user, gateway)
+    return Core(app, socket_path, user, gateway, supervisor)
 
 
 # ---------------------------
 #   serve
 # ---------------------------
 async def serve(core: Core) -> None:
-    """Serve the core on its socket and run the gateway, until SIGTERM or SIGINT; then clean up (which gives the fans back).
+    """Serve the core on its socket and run the gateway, until SIGTERM or SIGINT; then give the fans back and clean up.
 
-    The gateway stops first, so no request comes in while the fans are given back.
+    The fans go back first (Supervisor.release_fans), before the gateway
+    and the daemons, which may take STOP_TIMEOUT each to stop: Docker
+    kills the container when its stop grace period ends. From then on the
+    supervisor refuses every change, so a request still coming through the
+    gateway cannot take the fans again.
     """
     # Only the gateway connects here: the requests of browsers are logged there (WEBUI_ACCESS_LOG).
     runner = web.AppRunner(core.app, access_log=None, handle_signals=False)
@@ -196,8 +201,11 @@ async def serve(core: Core) -> None:
         core.gateway.start(["-m", "hddfancontrol_webui.gateway"])
         await stop.wait()
     finally:
-        await core.gateway.stop()
-        await runner.cleanup()
+        try:
+            await core.supervisor.release_fans()
+        finally:
+            await core.gateway.stop()
+            await runner.cleanup()
         shutil.rmtree(core.socket_path.parent, ignore_errors=True)
 
 
