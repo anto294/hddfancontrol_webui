@@ -28,6 +28,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Sessions end after 12 hours without use (and 7 days after the login).
 - Audit log: every change is logged with the user and the client address;
   logins, wrong passwords and setup codes, and refused addresses too.
+  The same change repeated within a minute (a fan slider) is logged once
+  with a count.
 - More security headers (`Cross-Origin-Opener-Policy`,
   `Cross-Origin-Resource-Policy`, `Permissions-Policy`), and no server
   version in `Server`.

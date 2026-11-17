@@ -378,6 +378,31 @@ async def test_audit_log(make_client: ClientMaker) -> None:
     assert lines[3] == "POST /api/restart%0Afake by 'anto' from 192.168.1.5: 404" and len(lines) == 4
 
 
+def test_audit_log_counts_repeats() -> None:
+    """The same line again within a minute is counted, and the count is logged with the next line or at the end."""
+    from hddfancontrol_webui.web import AuditLog
+
+    lines: list[str] = []
+    now = [0.0]
+    audit = AuditLog(lines.append, lambda: now[0])
+    for _ in range(50):
+        audit.write("PUT /api/manual/pwm by 'anto' from x: 200")
+        now[0] += 1
+    audit.write("PUT /api/manual by 'anto' from x: 200")
+    now[0] += 61
+    audit.write("PUT /api/manual by 'anto' from x: 200")  # a minute later: logged again
+    audit.write("PUT /api/manual by 'anto' from x: 200")
+    audit.flush()
+    audit.flush()
+    assert lines == [
+        "PUT /api/manual/pwm by 'anto' from x: 200",
+        "PUT /api/manual/pwm by 'anto' from x: 200 (and 49 more like it)",
+        "PUT /api/manual by 'anto' from x: 200",
+        "PUT /api/manual by 'anto' from x: 200",
+        "PUT /api/manual by 'anto' from x: 200 (and 1 more like it)",
+    ]
+
+
 async def test_only_the_gateway_may_connect(make_client: ClientMaker, tmp_path: Path) -> None:
     """With peers, a connection from another user (or not over a Unix socket) is refused."""
     import os

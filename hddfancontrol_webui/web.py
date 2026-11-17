@@ -58,6 +58,47 @@ BAYS: web.AppKey[Bays] = web.AppKey("bays", Bays)
 SENSOR_SCAN: web.AppKey[SensorScan] = web.AppKey("sensor_scan")
 STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
 PEERS: web.AppKey[frozenset[int] | None] = web.AppKey("peers")
+AUDIT: web.AppKey[AuditLog] = web.AppKey("audit")
+
+# The same change sent again within this many seconds (a slider, a script)
+# is counted instead of logged again.
+AUDIT_REPEAT_S = 60.0
+
+
+# ---------------------------
+#   AuditLog
+# ---------------------------
+class AuditLog:
+    """The audit lines, with a run of the same line written once: the first, then how many more came.
+
+    The log buffer is shared with the daemons and the alerts: a manual fan
+    slider sends a request at every stop, and must not push those out.
+    """
+
+    def __init__(self, add: Callable[[str], None], clock: Callable[[], float] = time.monotonic) -> None:
+        """Write the lines with add; clock gives the time in seconds."""
+        self._add = add
+        self._clock = clock
+        self._last = ""
+        self._time = 0.0
+        self._repeats = 0
+
+    def write(self, line: str) -> None:
+        """Log line, unless it is the last one again within AUDIT_REPEAT_S of its previous time."""
+        now = self._clock()
+        if line == self._last and now - self._time < AUDIT_REPEAT_S:
+            self._repeats += 1
+            self._time = now
+            return
+        self.flush()
+        self._add(line)
+        self._last, self._time = line, now
+
+    def flush(self) -> None:
+        """Log how many times the last line came again, if it did."""
+        if self._repeats:
+            self._add(f"{self._last} (and {self._repeats} more like it)")
+            self._repeats = 0
 
 
 # ---------------------------
@@ -107,7 +148,7 @@ def _audit(request: web.Request, status: int) -> None:
     client = request.headers.get(HEADER_CLIENT) or "?"
     # The raw path keeps %0A encoded: a client cannot add lines of its own to the log.
     path = request.rel_url.raw_path
-    request.app[SUPERVISOR].logs.add(SOURCE_AUDIT, f"{request.method} {path} by {user!r} from {client}: {status}")
+    request.app[AUDIT].write(f"{request.method} {path} by {user!r} from {client}: {status}")
 
 
 # ---------------------------
@@ -648,6 +689,12 @@ def create_app(
     app = web.Application(middlewares=[core_guard], client_max_size=64 * 1024)
     app[SUPERVISOR] = supervisor
     app[PEERS] = peers
+    app[AUDIT] = AuditLog(lambda text: supervisor.logs.add(SOURCE_AUDIT, text))
+
+    async def flush_audit(app: web.Application) -> None:
+        app[AUDIT].flush()
+
+    app.on_cleanup.append(flush_audit)
     app[HARDWARE] = hardware
     app[TEMP_LOG] = temp_log
     app[HISTORY] = history
