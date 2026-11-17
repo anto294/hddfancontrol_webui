@@ -40,6 +40,7 @@ from .const import (
     TEMP_LOG_DIR,
     TEMP_LOG_FILE,
     VERSION,
+    env_flag,
 )
 from .fancontrol import FanController, PwmWriter
 from .hardware import Hardware
@@ -53,17 +54,6 @@ from .smart import read_smart, start_selftest
 from .supervisor import Daemon, LogBuffer, Supervisor
 from .templog import TempLog
 from .web import STATE, create_app
-
-
-# ---------------------------
-#   _env_flag
-# ---------------------------
-def _env_flag(name: str, default: bool) -> bool:
-    """Read a true/false environment variable."""
-    value = os.environ.get(name, "").strip().lower()
-    if not value:
-        return default
-    return value in ("1", "true", "yes", "on")
 
 
 # ---------------------------
@@ -85,7 +75,7 @@ class Core:
 def build() -> Core:
     """Build the core and its gateway from the environment."""
     config_dir = Path(os.environ.get("CONFIG_DIR", str(DEFAULT_CONFIG_DIR)))
-    load_modules = _env_flag("LOAD_SENSOR_MODULES", True)
+    load_modules = env_flag(os.environ, "LOAD_SENSOR_MODULES", True)
 
     logs = LogBuffer()
     temp_log_path = config_dir / TEMP_LOG_DIR / TEMP_LOG_FILE
@@ -221,7 +211,7 @@ def main() -> None:
     core = build()
     # The page polls the API every few seconds: one log line per request
     # would bury everything else. Errors are still logged.
-    access_log = logging.getLogger("aiohttp.access") if _env_flag("WEBUI_ACCESS_LOG", False) else None
+    access_log = logging.getLogger("aiohttp.access") if env_flag(os.environ, "WEBUI_ACCESS_LOG") else None
     asyncio.run(serve(core, access_log))
 
 

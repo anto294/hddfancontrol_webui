@@ -4,8 +4,23 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from importlib import metadata
 from pathlib import Path
+
+# The words a true/false environment variable or setting takes for true.
+TRUE_WORDS = ("1", "true", "yes", "on")
+
+
+# ---------------------------
+#   env_flag
+# ---------------------------
+def env_flag(env: Mapping[str, str], name: str, default: bool = False) -> bool:
+    """Read a true/false environment variable of env (the core's or the gateway's): missing or empty is default."""
+    value = env.get(name, "").strip().lower()
+    if not value:
+        return default
+    return value in TRUE_WORDS
 
 
 # ---------------------------

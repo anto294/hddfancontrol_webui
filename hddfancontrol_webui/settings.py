@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .const import FAN_CMD_NOOP, SETTINGS_FILE
+from .const import FAN_CMD_NOOP, SETTINGS_FILE, TRUE_WORDS
 from .cron import CronError, parse
 from .storage import write_atomic
 
@@ -51,7 +51,7 @@ _SYS_PATH = re.compile(rf"^/sys(/{_COMPONENT})+$")
 _INTERFACE = re.compile(r"^[a-z0-9]+$")
 _INTERVAL = re.compile(r"^\s*(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
 _INTERVAL_FACTORS = {"": 1, "s": 1, "sec": 1, "secs": 1, "m": 60, "min": 60, "mins": 60, "h": 3600, "hr": 3600, "hrs": 3600}
-_TRUE = ("1", "true", "yes", "on")
+_TRUE = TRUE_WORDS
 _FALSE = ("0", "false", "no", "off", "")
 
 MAX_INTERVAL_S = 3600

@@ -53,6 +53,7 @@ from .const import (
     HEADER_USER,
     VERSION,
     WEB_DIR_ENV,
+    env_flag,
 )
 from .httputil import json_error, read_json
 from .tls import DualListener, TlsError, ssl_context
@@ -678,14 +679,6 @@ def create_gateway(
 
 
 # ---------------------------
-#   _flag
-# ---------------------------
-def _flag(env: dict[str, str], name: str) -> bool:
-    """Read a true/false variable of env; missing is false."""
-    return env.get(name, "").strip().lower() in ("1", "true", "yes", "on")
-
-
-# ---------------------------
 #   build
 # ---------------------------
 def build(env: dict[str, str], log: Callable[[str], None]) -> tuple[web.Application, str, int, ssl.SSLContext | None]:
@@ -706,7 +699,7 @@ def build(env: dict[str, str], log: Callable[[str], None]) -> tuple[web.Applicat
         allow = parse_allow(None)
     context: ssl.SSLContext | None = None
     tls_error = ""
-    if _flag(env, "ENABLE_TLS"):
+    if env_flag(env, "ENABLE_TLS"):
         try:
             context = ssl_context(
                 web_dir, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), env.get("OPENSSL_BIN", "openssl")
@@ -714,7 +707,7 @@ def build(env: dict[str, str], log: Callable[[str], None]) -> tuple[web.Applicat
         except TlsError as err:
             tls_error = str(err)
     # Moving browsers to an HTTPS that failed would lock everyone out.
-    force_https = _flag(env, "FORCE_HTTPS") and not tls_error
+    force_https = env_flag(env, "FORCE_HTTPS") and not tls_error
     auth = AuthStore(web_dir, env)
     app = create_gateway(
         lambda: aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=socket_path)),
