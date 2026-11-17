@@ -263,9 +263,9 @@ async def test_notify_test_api(make_client: ClientMaker) -> None:
 
 
 async def test_alert_notes_api(make_client: ClientMaker, tmp_path: Path) -> None:
-    """Notes are taken on known alerts and warnings only, and can be removed."""
+    """Notes are taken on known alerts only, and can be removed."""
     client = await make_client()
-    response = await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": True}, headers=FETCH)
+    response = await client.put("/api/alerts/ack", json={"key": "hot:sda", "acknowledged": True}, headers=FETCH)
     assert response.status == 404  # this app has no alerts
     supervisor = client.app[SUPERVISOR]
     alerts = Alerts(lambda: supervisor.settings, lambda _: None, store=client.app[MONITOR].history)
@@ -275,13 +275,14 @@ async def test_alert_notes_api(make_client: ClientMaker, tmp_path: Path) -> None
         assert response.status == 400
     response = await client.put("/api/alerts/ack", json={"key": "nothing", "acknowledged": True}, headers=FETCH)
     assert response.status == 404 and (await response.json())["error"] == "unknown_alert"
-    response = await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": True}, headers=FETCH)
+    await alerts.update({"hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})})
+    response = await client.put("/api/alerts/ack", json={"key": "hot:sda", "acknowledged": True}, headers=FETCH)
     assert response.status == 200
     status = await (await client.get("/api/status")).json()
-    assert status["acknowledged"] == ["banner:no_auth"]
-    await client.put("/api/alerts/ack", json={"key": "banner:no_auth", "acknowledged": False}, headers=FETCH)
+    assert status["alerts"][0]["acknowledged"] is True and "acknowledged" not in status
+    await client.put("/api/alerts/ack", json={"key": "hot:sda", "acknowledged": False}, headers=FETCH)
     status = await (await client.get("/api/status")).json()
-    assert status["acknowledged"] == []
+    assert status["alerts"][0]["acknowledged"] is False
 
 
 async def test_metrics(make_client: ClientMaker) -> None:

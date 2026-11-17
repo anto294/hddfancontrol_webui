@@ -265,7 +265,7 @@ function renderBanners() {
     if (!shown(alert.acknowledged)) continue;
     box.append(banner(["smart_warning", "smart_error", "fan_wear"].includes(alert.kind) ? "warning" : "error", alertText(alert), el("div", { class: "banner-actions" }, ackButton(alert.key, alert.acknowledged))));
   }
-  const anyAcked = status.alerts.some((a) => a.acknowledged) || status.acknowledged.length > 0;
+  const anyAcked = status.alerts.some((a) => a.acknowledged);
   if (hidden || (state.showAcked && anyAcked)) {
     box.append(
       el(

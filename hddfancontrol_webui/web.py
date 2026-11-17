@@ -186,7 +186,6 @@ async def get_status(request: web.Request) -> web.Response:
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
         alerts=alerts.status() if alerts is not None else [],
-        acknowledged=[key for key in alerts.acks if key.startswith("banner:")] if alerts is not None else [],
     )
     return web.json_response(data)
 

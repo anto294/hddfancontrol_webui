@@ -64,8 +64,6 @@ KINDS = (
 
 # Params that change at every sample: they are not part of what was taken note of.
 VOLATILE_PARAMS = ("temp", "percent")
-# Warnings of the web UI itself, not alerts, that can be taken note of too.
-BANNER_KEYS = ("banner:no_auth",)
 # Messages waiting to be sent; more than this while the server is down are dropped.
 QUEUE_SIZE = 100
 # The starts of alerts are kept this long, for a summary (which covers at
@@ -160,13 +158,10 @@ class Alerts:
         return json.dumps({k: v for k, v in params.items() if k not in VOLATILE_PARAMS}, sort_keys=True)
 
     def ack(self, key: str) -> bool:
-        """Take note of an active alert, or of a warning of the web UI. Blocking. False if unknown."""
-        if key in self.active:
-            signature = self.signature(self.active[key]["params"])
-        elif key in BANNER_KEYS:
-            signature = ""
-        else:
+        """Take note of an active alert. Blocking. False if unknown."""
+        if key not in self.active:
             return False
+        signature = self.signature(self.active[key]["params"])
         self.acks[key] = signature
         if self._store is not None:
             self._store.save_note(key, signature)
@@ -191,7 +186,7 @@ class Alerts:
             self._log("ALERT: " + render("en", f"alert.{kind}", params))
             self._notify(settings, kind, render(settings.notify_language, f"alert.{kind}", params), urgent=True)
         # A note lasts while the alert does: the next time it starts, it shows again.
-        dropped = [k for k in self.acks if k not in BANNER_KEYS and k not in conditions]
+        dropped = [k for k in self.acks if k not in conditions]
         for key in dropped:
             del self.acks[key]
         if dropped and self._store is not None:

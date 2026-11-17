@@ -248,22 +248,22 @@ async def test_notes_on_alerts(tmp_path: Path) -> None:
     await alerts.update(
         {"smart:a": ("smart_warning", smart), "hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})}
     )
-    assert alerts.ack("smart:a") and alerts.ack("hot:sda") and alerts.ack("banner:no_auth")
-    assert not alerts.ack("nothing")
+    assert alerts.ack("smart:a") and alerts.ack("hot:sda")
+    assert not alerts.ack("nothing") and not alerts.ack("banner:no_auth")
     await alerts.update(
         {"smart:a": ("smart_warning", smart), "hot:sda": ("drive_hot", {"drive": "sda", "temp": "52", "max": "50"})}
     )
     assert all(a["acknowledged"] for a in alerts.status())  # a new temperature is the same alert
 
     again = Alerts(lambda: settings, lambda _: None, store=store)
-    assert set(again.acks) == {"smart:a", "hot:sda", "banner:no_auth"}
+    assert set(again.acks) == {"smart:a", "hot:sda"}
     worse = {**smart, "counts": {"crc_errors": 6}}
     await again.update({"smart:a": ("smart_warning", worse)})
     assert again.status()[0]["acknowledged"] is False  # one more CRC error: shown again
-    assert "hot:sda" not in again.acks and "banner:no_auth" in again.acks  # the hot alert ended
-    again.unack("banner:no_auth")
-    again.unack("banner:no_auth")
-    assert set(store.notes()) == {"smart:a"}
+    assert "hot:sda" not in again.acks  # the hot alert ended
+    again.unack("smart:a")
+    again.unack("smart:a")
+    assert set(store.notes()) == set()
     store.close()
 
 
