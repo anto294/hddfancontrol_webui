@@ -20,7 +20,16 @@ from aiohttp.test_utils import TestClient
 from hddfancontrol_webui import gateway as gateway_module
 from hddfancontrol_webui.auth import AuthStore
 from hddfancontrol_webui.const import HEADER_CLIENT, HEADER_USER
-from hddfancontrol_webui.gateway import AUTH, LOGINS, SETUP, LoginLimiter, allowed, create_gateway, parse_allow
+from hddfancontrol_webui.gateway import (
+    AUTH,
+    LOGINS,
+    PASSWORD_CHECKS,
+    SETUP,
+    LoginLimiter,
+    allowed,
+    create_gateway,
+    parse_allow,
+)
 
 FETCH = {"X-Requested-With": "fetch"}
 CREDENTIALS = {"WEBUI_USERNAME": "anto", "WEBUI_PASSWORD": "a-long-password"}
@@ -317,8 +326,44 @@ async def test_password_checks_run_one_at_a_time(make_gateway: GatewayMaker, mon
         return True
 
     monkeypatch.setattr(gw.client.app[AUTH], "check", slow_check)
+    # Five clients at once (the test client has one address: each request plays another).
+    clients = iter(f"10.0.0.{n}" for n in range(1, 100))
+    monkeypatch.setattr(LoginLimiter, "client", staticmethod(lambda address: next(clients)))
     answers = await asyncio.gather(*(gw.client.post("/api/login", json=GOOD, headers=FETCH) for _ in range(5)))
     assert all(answer.status == 200 for answer in answers) and running["most"] == 1
+
+
+async def test_parallel_guesses_of_one_client_get_one_check(
+    make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """30 wrong logins sent at once by one client: one password check, the others 429 at once."""
+    gw = await make_gateway(CREDENTIALS)
+    checks: list[str] = []
+    real = gw.client.app[AUTH].check
+
+    def counted(username: str, password: str) -> bool:
+        checks.append(password)
+        time.sleep(0.05)
+        return bool(real(username, password))
+
+    monkeypatch.setattr(gw.client.app[AUTH], "check", counted)
+    bad = {"username": "anto", "password": "nope"}
+    answers = await asyncio.gather(*(gw.client.post("/api/login", json=bad, headers=FETCH) for _ in range(30)))
+    statuses = sorted(answer.status for answer in answers)
+    assert len(checks) == 1 and statuses == [401] + [429] * 29
+
+
+async def test_the_limit_is_checked_again_in_the_queue(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A check that waited for its turn is refused if the client went over the limit meanwhile."""
+    gw = await make_gateway(CREDENTIALS)
+    limiter = gw.client.app[LOGINS]
+    monkeypatch.setattr(limiter, "_max", 1)
+    await gw.client.app[PASSWORD_CHECKS].acquire()  # another check is running
+    waiting = asyncio.ensure_future(gw.client.post("/api/login", json=GOOD, headers=FETCH))
+    await asyncio.sleep(0.05)
+    limiter.failed("127.0.0.1")  # meanwhile, a wrong password of this client was counted
+    gw.client.app[PASSWORD_CHECKS].release()
+    assert (await waiting).status == 429
 
 
 async def test_too_many_wrong_passwords(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:

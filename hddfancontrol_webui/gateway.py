@@ -134,6 +134,13 @@ Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
 # ---------------------------
+#   TooManyAttempts
+# ---------------------------
+class TooManyAttempts(Exception):
+    """The client is over the limit of wrong passwords, or already has a check under way: 429."""
+
+
+# ---------------------------
 #   LoginLimiter
 # ---------------------------
 class LoginLimiter:
@@ -153,6 +160,20 @@ class LoginLimiter:
         self._window = window
         self._failures: dict[str, list[float]] = {}
         self._global: list[float] = []
+        # The clients with a password check waiting or running.
+        self._busy: set[str] = set()
+
+    def begin(self, address: str) -> bool:
+        """Start a password check of the client of address; False when it is blocked or has one under way."""
+        key = self.client(address)
+        if key in self._busy or self.blocked(address):
+            return False
+        self._busy.add(key)
+        return True
+
+    def end(self, address: str) -> None:
+        """The password check of the client of address is over."""
+        self._busy.discard(self.client(address))
 
     @staticmethod
     def client(address: str) -> str:
@@ -321,15 +342,28 @@ def _is_https(request: web.Request) -> bool:
 # ---------------------------
 #   _password_work
 # ---------------------------
-async def _password_work(request: web.Request, func: Callable[..., Any], *args: Any) -> Any:
-    """Run a password check or change in a thread, one at a time.
+async def _password_work(request: web.Request, address: str, func: Callable[..., Any], *args: Any) -> Any:
+    """Run a password check or change for the client of address in a thread, one at a time.
 
     Each scrypt hash takes 16 MiB. Without a limit, a burst of wrong logins
     (no session needed) runs one per worker thread and can push the
     container past its memory limit. One at a time also slows down guessing.
+
+    A client has at most one check waiting or running: a burst of parallel
+    guesses would otherwise all pass the limit before the first failure is
+    counted. The limit is checked again once it is this check's turn.
+    Raises TooManyAttempts for both.
     """
-    async with request.app[PASSWORD_CHECKS]:
-        return await asyncio.to_thread(func, *args)
+    logins = request.app[LOGINS]
+    if not logins.begin(address):
+        raise TooManyAttempts()
+    try:
+        async with request.app[PASSWORD_CHECKS]:
+            if logins.blocked(address):
+                raise TooManyAttempts()
+            return await asyncio.to_thread(func, *args)
+    finally:
+        logins.end(address)
 
 
 # ---------------------------
@@ -452,7 +486,11 @@ async def authentication(request: web.Request, handler: Handler) -> web.StreamRe
         address = request.remote or ""
         if logins.blocked(address):
             return json_error(429, "too_many_attempts")
-        if await _password_work(request, auth.check_basic, header):
+        try:
+            right = await _password_work(request, address, auth.check_basic, header)
+        except TooManyAttempts:
+            return json_error(429, "too_many_attempts")
+        if right:
             logins.succeeded(address)
             return await handler(request)
         _failed_login(request, address)
@@ -548,7 +586,11 @@ async def post_login(request: web.Request) -> web.Response:
     address = request.remote or ""
     if logins.blocked(address):
         return json_error(429, "too_many_attempts")
-    if not await _password_work(request, auth.check, username, password):
+    try:
+        right = await _password_work(request, address, auth.check, username, password)
+    except TooManyAttempts:
+        return json_error(429, "too_many_attempts")
+    if not right:
         _failed_login(request, address)
         _log(request, f"Wrong login for {username[:64]!r}")
         await asyncio.sleep(AUTH_FAILURE_DELAY)
@@ -605,7 +647,9 @@ async def post_setup(request: web.Request) -> web.Response:
         await asyncio.sleep(AUTH_FAILURE_DELAY)
         return json_error(401, "wrong_setup_code")
     try:
-        await _password_work(request, auth.set_credentials, data["username"], data["password"], "")
+        await _password_work(request, address, auth.set_credentials, data["username"], data["password"], "")
+    except TooManyAttempts:
+        return json_error(429, "too_many_attempts")
     except AuthError as err:
         return json_error(400, err.code)
     except OSError as err:
@@ -636,8 +680,10 @@ async def put_auth(request: web.Request) -> web.Response:
         return json_error(429, "too_many_attempts")
     try:
         await _password_work(
-            request, auth.set_credentials, data.get("username", ""), data.get("password", ""), data.get("current", "")
+            request, address, auth.set_credentials, data.get("username", ""), data.get("password", ""), data.get("current", "")
         )
+    except TooManyAttempts:
+        return json_error(429, "too_many_attempts")
     except AuthError as err:
         if err.code == "wrong_password":
             _failed_login(request, address)
