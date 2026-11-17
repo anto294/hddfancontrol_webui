@@ -487,3 +487,36 @@ def test_drive_temps_average() -> None:
     for seconds, value in ((0, 40.0), (0, 40.0), (20, 43.0), (40, 46.0), (60, 49.0)):
         result = temps.per_drive({"time": (start + timedelta(seconds=seconds)).isoformat(), "temps": {"sda": value}}, 0)
     assert result == {"sda": pytest.approx(46.0)}
+
+
+async def test_full_speed_does_not_wait_for_the_average(fake_sys: Path, fast: None) -> None:
+    """With AVERAGE, a drive that reaches its maximum puts its fans at full speed at once, in both modes."""
+    for mode in ("auto", "curve"):
+        current = {"temp": 35.0, "time": datetime.now(UTC)}
+        settings = from_dict({**SETTINGS.to_dict(), "drives": [A], "control_mode": mode, "average": 10, "hwmons": []})
+
+        def latest() -> dict[str, Any]:
+            return {"time": current["time"].isoformat(), "temps": {"sda A": current["temp"]}}
+
+        fans = FanController(PwmWriter(fake_sys), latest, lambda _: None, lambda: NAMES)
+        fans.start_control(settings)
+        await steps(15)
+        assert fans.auto.speed is not None and fans.auto.speed < 1.0
+        current.update(temp=50.0, time=datetime.now(UTC))
+        await steps(3)
+        assert fans.auto.speed == 1.0, mode
+        assert fans.auto.hottest is not None and fans.auto.hottest < 50.0  # the average is still catching up
+        await fans.stop()
+
+
+def test_drive_temps_raw_reading() -> None:
+    """raw holds the last reading of each drive, held like the average while the drive is null."""
+    temps = DriveTemps(hold_s=100, average=3)
+    start = datetime.now(UTC)
+    for seconds, value in ((0, 40.0), (20, 43.0), (40, 49.0)):
+        temps.per_drive({"time": (start + timedelta(seconds=seconds)).isoformat(), "temps": {"sda": value}}, 0)
+    assert temps.raw == {"sda": 49.0}
+    temps.per_drive({"time": (start + timedelta(seconds=60)).isoformat(), "temps": {"sda": None}}, 0)
+    assert temps.raw == {"sda": 49.0}
+    temps.per_drive(None, 0)
+    assert temps.raw == {}

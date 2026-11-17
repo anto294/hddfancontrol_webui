@@ -192,25 +192,34 @@ def _drive_temps(latest: dict[str, Any], hwmon_count: int) -> list[tuple[str, fl
 #   DriveTemps
 # ---------------------------
 class DriveTemps:
-    """The temperature of each drive, averaged, keeping for a while the last one of a drive that turned null."""
+    """The temperature of each drive, averaged, keeping for a while the last one of a drive that turned null.
+
+    per_drive gives the averages, for the speed; raw then holds the last
+    reading of each drive, for the check of the maximum, which must not
+    wait for an average to catch up.
+    """
 
     def __init__(self, hold_s: float, average: int = 1) -> None:
         """Keep a temperature hold_s seconds (of sample time) after its drive turned null; average the last samples."""
         self._hold = hold_s
         self._average = max(1, average)
-        self._last: dict[str, tuple[float, datetime]] = {}
+        self._last: dict[str, tuple[float, float, datetime]] = {}
+        # The last reading of each drive returned by per_drive, not averaged.
+        self.raw: dict[str, float] = {}
         self._recent: dict[str, list[float]] = {}
         self._seen: str | None = None
 
     def per_drive(self, latest: dict[str, Any] | None, hwmon_count: int) -> dict[str, float]:
         """Return {log name: temperature} of the drives that count now (awake, or held)."""
         if not latest:
+            self.raw = {}
             return {}
         when = datetime.fromisoformat(latest["time"])
         # A sample counts once in the average, however often it is read.
         new = latest["time"] != self._seen
         self._seen = latest["time"]
         temps: dict[str, float] = {}
+        self.raw = {}
         for name, temp in _drive_temps(latest, hwmon_count):
             if temp is not None:
                 recent = self._recent.setdefault(name, [])
@@ -218,12 +227,14 @@ class DriveTemps:
                     recent.append(temp)
                     del recent[: -self._average]
                 value = sum(recent) / len(recent)
-                self._last[name] = (value, when)
+                self._last[name] = (value, temp, when)
                 temps[name] = value
+                self.raw[name] = temp
             elif name in self._last:
-                held, seen = self._last[name]
+                held, held_raw, seen = self._last[name]
                 if (when - seen).total_seconds() <= self._hold:
                     temps[name] = held
+                    self.raw[name] = held_raw
                 else:
                     del self._last[name]
                     self._recent.pop(name, None)
@@ -487,8 +498,8 @@ class FanController:
 
     def _entries(
         self, temps: dict[str, float], follows: dict[str, str] | None, settings: Settings
-    ) -> list[tuple[str, float, tuple[float, float, float]]]:
-        """(log name, temperature, (min, target, max)) of the drives a fan follows.
+    ) -> list[tuple[str, float, float, tuple[float, float, float]]]:
+        """(log name, averaged temperature, last reading, (min, target, max)) of the drives a fan follows.
 
         The log names a drive "sda MODEL"; its limits are those of the
         settings drive with that kernel name, or the common ones (a drive
@@ -500,7 +511,8 @@ class FanController:
         for name, temp in temps.items():
             kernel = name.split()[0]
             if follows is None or kernel in follows:
-                entries.append((name, temp, settings.limits_of(by_kernel.get(kernel, ""))))
+                raw = self._temps.raw.get(name, temp)
+                entries.append((name, temp, raw, settings.limits_of(by_kernel.get(kernel, ""))))
         return entries
 
     async def _run_control(self, settings: Settings) -> None:
@@ -576,15 +588,16 @@ class FanController:
             for pwm in settings.pwms:
                 entries = self._entries(temps, follows[pwm.path], settings)
                 if settings.control_mode == "auto":
-                    error = max((temp - limits[1] for _, temp, limits in entries), default=None)
-                    at_max = any(temp >= limits[2] for _, temp, limits in entries)
+                    error = max((temp - limits[1] for _, temp, _, limits in entries), default=None)
+                    # The maximum is checked on the last reading: an average would only delay full speed.
+                    at_max = any(raw >= limits[2] for _, _, raw, limits in entries)
                     speed = controllers[pwm.path].step_error(error, at_max, interval)
                 else:
                     wanted = max(
-                        (curve_speed(asked[name], low, high, min_speed) for name, _, (low, _, high) in entries),
+                        (curve_speed(asked[name], low, high, min_speed) for name, _, _, (low, _, high) in entries),
                         default=min_speed,
                     )
-                    if any(temp >= high for _, temp, (_, _, high) in entries):
+                    if any(raw >= high for _, _, raw, (_, _, high) in entries):
                         wanted = 1.0
                     before = self.auto.speeds.get(pwm.path, 1.0)
                     speed = max(wanted, before - MAX_DECREASE_PER_STEP)
