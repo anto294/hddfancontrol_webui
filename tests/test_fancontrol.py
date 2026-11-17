@@ -553,3 +553,18 @@ async def test_a_drive_outside_every_group_is_followed_by_every_fan(fake_sys: Pa
     await steps(40)
     assert fans.auto.speeds == {PWM1: 0.0, PWM2: 0.0}
     await fans.stop()
+
+
+async def test_stop_clears_the_failsafe(fake_sys: Path, fast: None) -> None:
+    """After hddfancontrol stopped (failsafe), stopping control clears it, so manual mode shows no safety alert."""
+    fixed = sample({"sda": 30.0})  # no newer sample comes after the loss
+    fans = FanController(PwmWriter(fake_sys), lambda: fixed, lambda _: None)
+    fans.start_control(SETTINGS)
+    fans.measuring_lost()
+    await steps(3)
+    assert fans.status()["auto"]["failsafe"] is True
+    await fans.stop()
+    assert fans.status()["auto"] == {"hottest": None, "speed": None, "failsafe": False, "speeds": {}}
+    fans.start_manual(SETTINGS)
+    assert fans.status()["auto"]["failsafe"] is False
+    await fans.stop()

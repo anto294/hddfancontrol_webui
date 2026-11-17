@@ -449,6 +449,8 @@ class FanController:
         self.safety = False
         self.safety_reason = None
         self.error = None
+        # The failsafe and speeds of a loop that ended must not show as current.
+        self.auto = _ControlState()
 
     def _write(self, pwm: Pwm, speed: float) -> None:
         """Set one configured fan to a speed."""
