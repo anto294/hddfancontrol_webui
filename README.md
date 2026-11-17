@@ -205,6 +205,7 @@ The container runs privileged, because the fans and the drives need it, so the w
 - **Headers:** a strict Content Security Policy (no inline script or style), no framing, no sniffing, no referrer, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` same-origin, a `Permissions-Policy` that turns off camera, microphone and the like, and no server version.
 - **Container:** the compose file runs it with a read-only root, `no-new-privileges`, a process limit, a small `/tmp` without exec, and a memory limit. Everything the core writes in `/config` is mode 0600.
 - To reach the web UI from outside your network, use a VPN, or a reverse proxy with HTTPS in your LAN.
+- **Known issue of the image:** it uses Alpine's aiohttp (3.13.5 in Alpine 3.24), which several published advisories affect, fixed only in aiohttp 3.14.4; the image will move to it as soon as Alpine ships it. Until then, keep the port to your LAN (the default) and do not publish it to the Internet. The bare metal package already needs 3.14.4.
 
 ### HTTPS
 

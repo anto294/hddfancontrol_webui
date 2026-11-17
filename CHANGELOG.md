@@ -14,6 +14,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The bare metal tarballs come with a signed provenance attestation:
   `gh attestation verify <tarball> --repo anto294/hddfancontrol_webui`
   checks that the release workflow built them from the tagged source.
+- Known issue: the Docker image still uses Alpine's aiohttp (3.13.5 in
+  Alpine 3.24), affected by advisories fixed in aiohttp 3.14.4; it moves
+  to it when Alpine ships it. Keep the port to the LAN meanwhile.
 
 ### Changed
 
