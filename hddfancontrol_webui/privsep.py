@@ -36,6 +36,8 @@ from .tls import TLS_DIR
 _LOGGER = logging.getLogger(__name__)
 
 FALLBACK_USER = "nobody"
+# The ids of nobody on most systems, for one without that user.
+FALLBACK_ID = 65534
 SOCKET_FILE = "core.sock"
 GIVEN_TLS_DIR = "web-tls"
 GIVEN_CERT = "cert.pem"
@@ -95,10 +97,24 @@ def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser:
         entry = pwd.getpwnam(wanted)
     except KeyError:
         log.warning("User %s does not exist: the gateway runs as %s", wanted, FALLBACK_USER)
-        entry = pwd.getpwnam(FALLBACK_USER)
+        return _fallback_user()
     if entry.pw_uid == 0:
         log.warning("WEBUI_USER %s is root: the gateway runs as %s", wanted, FALLBACK_USER)
+        return _fallback_user()
+    return WebUser(entry.pw_name, entry.pw_uid, entry.pw_gid)
+
+
+# ---------------------------
+#   _fallback_user
+# ---------------------------
+def _fallback_user() -> WebUser:
+    """nobody, or its usual ids when the system has no such user: never root."""
+    try:
         entry = pwd.getpwnam(FALLBACK_USER)
+    except KeyError:
+        return WebUser(FALLBACK_USER, FALLBACK_ID, FALLBACK_ID)
+    if entry.pw_uid == 0 or entry.pw_gid == 0:
+        return WebUser(FALLBACK_USER, FALLBACK_ID, FALLBACK_ID)
     return WebUser(entry.pw_name, entry.pw_uid, entry.pw_gid)
 
 
@@ -128,6 +144,26 @@ def _give(path: Path, user: WebUser) -> None:
 #   prepare_web_dir
 # ---------------------------
 def prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger | None = None) -> Path:
+    """Make /config/web for the gateway and return it; a temporary folder when that fails.
+
+    The fans come first: a /config that cannot hold the folder (read only,
+    a link in its place) costs the stored credentials until the next start
+    (the setup code works), never the core.
+    """
+    log = log or _LOGGER
+    try:
+        return _prepare_web_dir(config_dir, user, log)
+    except OSError as err:
+        folder = Path(tempfile.mkdtemp(prefix="hddfancontrol-webui-web-"))
+        _give(folder, user)
+        log.error("Cannot prepare the gateway's folder in %s (%s): it uses %s until the next start", config_dir, err, folder)
+        return folder
+
+
+# ---------------------------
+#   _prepare_web_dir
+# ---------------------------
+def _prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger) -> Path:
     """Make /config/web for the gateway and return it. Raises OSError.
 
     What is in the folder is the gateway's: root never writes, changes or
@@ -138,7 +174,6 @@ def prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger | None 
     another user. /config itself gets the search bit for others, so the
     gateway can reach its folder and nothing else.
     """
-    log = log or _LOGGER
     config_dir.mkdir(parents=True, exist_ok=True)
     web_dir = config_dir / WEB_DIR
     if web_dir.is_symlink() or (web_dir.exists() and not web_dir.is_dir()):

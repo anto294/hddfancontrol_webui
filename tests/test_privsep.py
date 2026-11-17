@@ -48,6 +48,11 @@ def test_web_user_as_root(as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None
     assert user == WebUser("hddfancontrol-webui", 10001, 10001) and user.peers == frozenset({0, 10001})
     assert web_user("missing").name == "nobody"
     assert web_user("root").name == "nobody"
+    # No nobody either: its usual ids, never root.
+    del users["nobody"]
+    assert web_user("missing") == WebUser("nobody", 65534, 65534)
+    users["nobody"] = users["root"]
+    assert web_user("root") == WebUser("nobody", 65534, 65534)
 
 
 def test_prepare_web_dir(tmp_path: Path, as_root: list[tuple[str, int, int]]) -> None:
@@ -89,11 +94,12 @@ def test_prepare_web_dir_touches_nothing_the_gateway_put_there(tmp_path: Path, a
     prepare_web_dir(config, other)
     given = {Path(path).name for path, _, _ in as_root}
     assert "web" in given and "tls" in given and "hard" not in given and "settings.json" not in given
-    # A link in place of the folder itself is refused.
+    # A link in place of the folder itself is refused: the gateway gets a temporary folder.
     web_dir.rename(config / "moved")
     web_dir.symlink_to(config / "moved")
-    with pytest.raises(OSError):
-        prepare_web_dir(config, user)
+    temporary = prepare_web_dir(config, user)
+    assert temporary.is_dir() and not temporary.is_relative_to(config)
+    temporary.rmdir()
 
 
 def test_prepare_web_dir_without_the_search_bit(tmp_path: Path, as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None:
