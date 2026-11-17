@@ -90,6 +90,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   bar, and the tables of the settings become stacked blocks with the
   title of each field; no page scrolls sideways at 375 px.
 
+### Removed
+
+- 32-bit ARM (armv7): no Docker image and no bare metal tarball any
+  more. The last release for it is 0.6.0. amd64 and arm64 go on.
+
 ### Fixed
 
 - History: with the 1 hour window, lines of samples taken a minute apart

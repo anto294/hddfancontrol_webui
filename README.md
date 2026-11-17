@@ -48,7 +48,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 ## Requirements
 
 - A mainboard whose fan headers are PWM-controlled through a Linux hwmon driver (`nct6775`, `it87`, …). Most consumer and many server boards work; if a BIOS fan mode exists, the fans must not be locked at full speed.
-- **Docker:** any x86_64, arm64 or armv7 host. TrueNAS SCALE 24.10 or later runs it as a Custom App.
+- **Docker:** any x86_64 or arm64 host. TrueNAS SCALE 24.10 or later runs it as a Custom App.
 - **Bare metal:** Linux with systemd and Python 3.11 or later (Debian 12, Ubuntu 24.04, Proxmox VE 8, OpenMediaVault 7, Fedora, Arch, …), plus `smartmontools` and `hdparm`.
 
 ## Installation
@@ -86,7 +86,7 @@ The container runs privileged: it writes the PWM files of `/sys` and sends ATA c
 
 ### Bare metal
 
-Download `hddfancontrol-webui-<version>-linux-<arch>.tar.gz` from the [latest release](https://github.com/anto294/hddfancontrol_webui/releases/latest) (`amd64`, `arm64` or `armv7`), then:
+Download `hddfancontrol-webui-<version>-linux-<arch>.tar.gz` from the [latest release](https://github.com/anto294/hddfancontrol_webui/releases/latest) (`amd64` or `arm64`), then:
 
 ```bash
 tar xzf hddfancontrol-webui-*-linux-amd64.tar.gz
