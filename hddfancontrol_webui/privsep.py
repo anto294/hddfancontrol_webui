@@ -89,8 +89,9 @@ class WebUser:
 def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser:
     """The user of the gateway: WEBUI_USER (default DEFAULT_WEB_USER), or nobody when it does not exist.
 
-    Not running as root, the gateway runs as the current user. Root itself
-    is refused: the point is to have the network in another user.
+    Not running as root, the gateway runs as the current user. Root, and a
+    user whose group is root's, are refused: the point is to have the
+    network in another user, without root's group files.
     """
     log = log or _LOGGER
     if os.geteuid() != 0:
@@ -101,8 +102,8 @@ def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser:
     except KeyError:
         log.warning("User %s does not exist: the gateway runs as %s", wanted, FALLBACK_USER)
         return _fallback_user()
-    if entry.pw_uid == 0:
-        log.warning("WEBUI_USER %s is root: the gateway runs as %s", wanted, FALLBACK_USER)
+    if entry.pw_uid == 0 or entry.pw_gid == 0:
+        log.warning("WEBUI_USER %s is root or in root's group: the gateway runs as %s", wanted, FALLBACK_USER)
         return _fallback_user()
     return WebUser(entry.pw_name, entry.pw_uid, entry.pw_gid)
 

@@ -37,6 +37,7 @@ def test_web_user_as_root(as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None
         "hddfancontrol-webui": pwd.struct_passwd(("hddfancontrol-webui", "x", 10001, 10001, "", "/", "/sbin/nologin")),
         "nobody": pwd.struct_passwd(("nobody", "x", 65534, 65534, "", "/", "/sbin/nologin")),
         "root": pwd.struct_passwd(("root", "x", 0, 0, "", "/root", "/bin/sh")),
+        "wheel": pwd.struct_passwd(("wheel", "x", 1000, 0, "", "/", "/bin/sh")),
     }
 
     def getpwnam(name: str) -> pwd.struct_passwd:
@@ -47,6 +48,7 @@ def test_web_user_as_root(as_root: Any, monkeypatch: pytest.MonkeyPatch) -> None
     assert user == WebUser("hddfancontrol-webui", 10001, 10001) and user.peers == frozenset({0, 10001})
     assert web_user("missing").name == "nobody"
     assert web_user("root").name == "nobody"
+    assert web_user("wheel").name == "nobody"  # root's group
     # No nobody either: its usual ids, never root.
     del users["nobody"]
     assert web_user("missing") == WebUser("nobody", 65534, 65534)
