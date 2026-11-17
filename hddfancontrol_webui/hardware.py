@@ -283,6 +283,30 @@ class Hardware:
                 return candidate
         return None
 
+    def kernel_names(self) -> dict[str, str]:
+        """Map the stable /dev paths of whole drives (by-id, by-path) and /dev/sdX to their kernel name (sdX).
+
+        The temperature log names drives by kernel name; the settings by
+        these paths. Only reads the links: no drive is touched.
+        """
+        names: dict[str, str] = {}
+        for folder in ("by-id", "by-path"):
+            base = self._dev / "disk" / folder
+            try:
+                entries = list(base.iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                if _PART.search(entry.name):
+                    continue
+                try:
+                    kernel = entry.resolve().name
+                except OSError:
+                    continue
+                names[f"/dev/disk/{folder}/{entry.name}"] = kernel
+                names[f"/dev/{kernel}"] = kernel
+        return names
+
     def dev_exists(self, path: str) -> bool:
         """Whether a /dev path (a by-id link or a device) leads to something now."""
         return (self._dev / path.removeprefix("/dev/")).exists()

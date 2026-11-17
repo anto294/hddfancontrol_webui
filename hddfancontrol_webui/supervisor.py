@@ -42,7 +42,7 @@ from .const import (
     SOURCE_WEBUI,
     STOP_TIMEOUT,
 )
-from .fancontrol import PWM_MAX, FanController, NotManual
+from .fancontrol import FanController, NotManual
 from .hardware import Hardware
 from .settings import SOURCE_FILE, Settings, SettingsStore, hddfancontrol_args, hdidle_args
 
@@ -158,18 +158,16 @@ class Daemon:
         binary: str,
         logs: LogBuffer,
         on_exit: Callable[[], None] | None = None,
-        on_restart: Callable[[], None] | None = None,
     ) -> None:
         """Name the program for the logs and the API.
 
         on_exit() runs (in a thread) when the program ended by itself or could
-        not start, and on_restart() before it is started again after that.
+        not start.
         """
         self.name = name
         self.binary = binary
         self._logs = logs
         self._on_exit = on_exit
-        self._on_restart = on_restart
         self._task: asyncio.Task[None] | None = None
         self.state = MODE_STOPPED
         self.pid: int | None = None
@@ -202,10 +200,7 @@ class Daemon:
         """Run the program, and run it again after a delay whenever it exits."""
         delay = RESTART_DELAY_MIN
         log = self._log
-        exited = False
         while True:
-            if exited and self._on_restart is not None:
-                await self._hook(self._on_restart)
             began = time.monotonic()
             log(f"Starting: {self.binary} {' '.join(args)}")
             try:
@@ -228,7 +223,6 @@ class Daemon:
                     self.pid = None
                 log(f"Exited with code {self.last_exit}")
                 self.state = "restarting"
-            exited = True
             if self._on_exit is not None:
                 await self._hook(self._on_exit)
             if time.monotonic() - began >= RESTART_RESET_AFTER:
@@ -320,9 +314,7 @@ class Supervisor:
         self.temp_log = temp_log
         self.fans = fans
         self.settings, self.source = store.load()
-        self.hddfancontrol = Daemon(
-            SOURCE_HDDFANCONTROL, hddfancontrol, logs, on_exit=self._curve_lost, on_restart=self._curve_back
-        )
+        self.hddfancontrol = Daemon(SOURCE_HDDFANCONTROL, hddfancontrol, logs, on_exit=self._measuring_lost)
         self.hdidle = Daemon(SOURCE_HDIDLE, hdidle, logs)
         self.manual = False
         self._manual_timeout = manual_timeout
@@ -391,29 +383,11 @@ class Supervisor:
             pwms.append(replace(pwm, path=where, chip=chip))
         return replace(settings, pwms=tuple(pwms)), missing
 
-    def _curve_lost(self) -> None:
-        """hddfancontrol ended by itself. In the curve mode nothing drives the fans now: full speed. Blocking.
-
-        In the auto mode and manual control it only measures, and the fan
-        controller has its own rule for temperatures that stop coming.
-        """
-        if self.manual or self.read_only or self.fans.active or self.test.running:
-            return
-        paths = [p.path for p in self.settings.pwms if p.path not in self.missing_pwms]
-        if not paths:
-            return
-        self._log("WARNING: hddfancontrol stopped, the chosen fans run at full speed until it runs again")
-        for path in paths:
-            try:
-                self.fans.writer.write(path, PWM_MAX)
-            except OSError as err:
-                self._log(f"Cannot write {path}: {err}")
-
-    def _curve_back(self) -> None:
-        """hddfancontrol starts again: give the fans back the mode they had, which it saves and restores. Blocking."""
-        if self.manual or self.fans.active or self.test.running:
-            return
-        self.fans.writer.restore()
+    def _measuring_lost(self) -> None:
+        """hddfancontrol ended by itself: the fan controller stops trusting the temperatures until new ones come."""
+        if self.fans.active and not self.manual:
+            self._log("WARNING: hddfancontrol stopped, the fans run at full speed until it measures again")
+            self.fans.measuring_lost()
 
     def _temp_log(self) -> Path | None:
         """The temperature log path, if its directory can be created."""
@@ -461,10 +435,9 @@ class Supervisor:
                 "Choose them in the web UI, and use the PWM test to find the values of the fans."
             )
             return
-        auto = settings.control_mode == "auto"
-        self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=auto))
-        if auto:
-            self.fans.start_auto(settings)
+        # hddfancontrol only measures; the fan controller drives the fans in every mode.
+        self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
+        self.fans.start_control(settings)
 
     async def _stop_daemons(self) -> None:
         """Stop both daemons, then the fan controller, which gives the fans back last."""

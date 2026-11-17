@@ -439,7 +439,9 @@ def _drive_limits(
         mine_high = own.get("max", high)
         if mine_low is not None and mine_high is not None and mine_low >= mine_high:
             check.add(name + ".max", "range_order")
-        elif mine_target is not None and mine_high is not None and mine_target >= mine_high:
+        # A target is checked only when the drive has its own: with only its own
+        # maximum under the common target, the auto mode simply runs full speed sooner.
+        elif "target" in own and mine_target is not None and mine_high is not None and mine_target >= mine_high:
             check.add(name + ".target", "target_order")
         limits[drive] = own
     return limits

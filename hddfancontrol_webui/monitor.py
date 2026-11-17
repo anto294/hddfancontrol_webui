@@ -297,13 +297,17 @@ class Monitor:
         if latest is not None and fresh and settings.drives:
             temps = list(latest["temps"].items())
             for name, temp in temps[: len(temps) - len(settings.hwmons)]:
-                key = f"hot:{name.split()[0]}"
-                limit = settings.drive_temp_max - (HOT_HYSTERESIS if key in active else 0.0)
+                kernel = name.split()[0]
+                key = f"hot:{kernel}"
+                drive = drives.get(kernel)
+                # The drive's own maximum, when it has one in the settings.
+                paths = set(drive.ids if drive else []) | {f"/dev/{kernel}"}
+                own = next((d for d in settings.drives if d in paths), "")
+                maximum = settings.limits_of(own)[2]
+                limit = maximum - (HOT_HYSTERESIS if key in active else 0.0)
                 if temp is not None and temp >= limit:
-                    kernel = name.split()[0]
-                    drive = drives.get(kernel)
                     label = self._drive_name(drive.ids if drive else [], name)
-                    found[key] = (KIND_DRIVE_HOT, {"drive": label, "temp": f"{temp:g}", "max": f"{settings.drive_temp_max:g}"})
+                    found[key] = (KIND_DRIVE_HOT, {"drive": label, "temp": f"{temp:g}", "max": f"{maximum:g}"})
 
         mode = status.get("mode")
         for pwm in settings.pwms:

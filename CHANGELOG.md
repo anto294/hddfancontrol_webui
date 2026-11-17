@@ -9,11 +9,24 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Fan groups: in the settings each fan can follow only some drives (by
+  default all of them), so the case fans can cool the hot enterprise
+  drives while another fan follows the rest.
+- Limits per drive: each drive can have its own minimum, target and
+  maximum temperature over the common ones; the hot drive alert uses the
+  drive's own maximum.
+
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.
 
 ### Changed
 
+- The curve mode now runs in the web UI too: hddfancontrol only measures,
+  in every mode. The curve is the same, with a margin against pumping: a
+  drive asks for more speed at once, but for less only once it is 2 °C
+  cooler, and a fan slows down by at most 10 % per check. `AVERAGE` now
+  averages the samples of each drive in the web UI. When hddfancontrol
+  stops, every fan goes to full speed until it measures again.
 - Overview: each drive takes one line, with the name given to it (or its
   model without the brand prefix) and its kernel name and size under it;
   an arrow shows a drive that got 1 °C warmer or cooler in the last 10

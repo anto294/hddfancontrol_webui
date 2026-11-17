@@ -94,12 +94,14 @@ def test_log_buffer(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 async def test_curve_mode(setup: tuple[Supervisor, Path]) -> None:
-    """hddfancontrol drives the fans, hd-idle runs, and both stop."""
+    """hddfancontrol only measures, the fan controller runs the curve, hd-idle runs, and all stop."""
     supervisor, calls = setup
     await supervisor.start()
     await wait_for(lambda: supervisor.hddfancontrol.state == "running" and supervisor.hdidle.state == "running")
     assert supervisor.mode == "running"
-    await wait_for(lambda: "--pwm" in read(calls))
+    assert supervisor.fans.mode == "curve" and supervisor.fans.active
+    await wait_for(lambda: "--fan-cmd /bin/true" in read(calls))
+    assert "--pwm" not in read(calls)
     assert "--temp-log" in read(calls)
     status = supervisor.status()
     assert status["daemons"]["hddfancontrol"]["pid"] and status["control_mode"] == "curve"
@@ -183,8 +185,9 @@ async def test_pwm_test_takes_the_output_and_gives_it_back(
     await supervisor.start_pwm_test([PWM1])
     await wait_for(lambda: not supervisor.test.running)
     assert "enable during test: 1" in read(calls)
-    assert enable.read_text().strip() == "5"
+    # Fan control takes the output again after the test; stopping gives it back to the chip.
     await supervisor.stop()
+    assert enable.read_text().strip() == "5"
 
 
 async def test_pwm_test_cancel(setup: tuple[Supervisor, Path], make_script: ScriptMaker) -> None:
@@ -336,7 +339,7 @@ async def test_fans_follow_their_chip(
     await supervisor.start()
     assert supervisor.settings.pwms[0].path == moved_to and store.load()[0].pwms[0].path == moved_to
     assert moved == [(PWM1, moved_to)]
-    await wait_for(lambda: moved_to in read(calls))
+    await wait_for(lambda: moved_to in supervisor.fans.writer.values)
     await supervisor.stop()
 
     (fake_sys / "class/hwmon/hwmon7").rename(tmp_path / "gone")
@@ -360,8 +363,8 @@ async def test_manual_ends_without_a_page(setup: tuple[Supervisor, Path], fake_s
         await asyncio.sleep(0.05)
         supervisor.touch_manual()
     assert supervisor.manual
-    # The fans are given back by the restart that follows.
-    await wait_for(lambda: (fake_sys / "class/hwmon/hwmon2/pwm1_enable").read_text().strip() == "5")
+    # Then manual control ends and fan control takes over again.
+    await wait_for(lambda: not supervisor.manual and supervisor.fans.mode == "curve")
     assert any("leaving manual control" in line["text"] for line in supervisor.logs.since(0))
     await supervisor.stop()
 
@@ -381,36 +384,35 @@ async def test_manual_watch_waits_for_the_pwm_test(setup: tuple[Supervisor, Path
     await supervisor.stop()
 
 
-async def test_curve_mode_full_speed_while_hddfancontrol_is_down(
+async def test_full_speed_while_hddfancontrol_is_down(
     tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """In the curve mode, hddfancontrol ending by itself puts the fans at full speed until it starts again."""
+    """hddfancontrol ending by itself puts the fans at full speed at once, until it measures again."""
     real = asyncio.sleep
-    gate = asyncio.Event()
 
-    async def held(delay: float) -> None:
-        # The restart delay waits for the test; other sleeps are short.
-        if delay >= 1:
-            await gate.wait()
+    async def quick(delay: float) -> None:
         await real(0.01)
 
-    monkeypatch.setattr(supervisor_module.asyncio, "sleep", held)
+    monkeypatch.setattr(supervisor_module.asyncio, "sleep", quick)
+    from hddfancontrol_webui import fancontrol as fancontrol_module
+
+    monkeypatch.setattr(fancontrol_module.asyncio, "sleep", quick)
     store = SettingsStore(tmp_path / "config", {})
-    store.save(from_dict(CONFIG))
+    store.save(from_dict({**CONFIG, "drive_temp_min": 30, "drive_temp_max": 50}))
     logs = LogBuffer(echo=False)
-    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: logs.add("fan-control", text))
+    sample = {"value": {"time": "2999-01-01T00:00:00+00:00", "temps": {"sda X": 20.0}}}
+    fans = FanController(PwmWriter(fake_sys), lambda: sample["value"], lambda text: logs.add("fan-control", text))
     supervisor = Supervisor(store, logs, None, fans, hddfancontrol=make_script("crash", "sys.exit(3)"), hdidle="/bin/true")
-    enable = fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1_enable"
     value = fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1"
     await supervisor.start()
-    await wait_for(lambda: value.read_text().strip() == "255")
-    assert enable.read_text().strip() == "1"
-    assert any("full speed until it runs again" in line["text"] for line in logs.since(0))
-    gate.set()
-    # Before the next start the chip gets its mode back, so hddfancontrol saves the right one.
-    await wait_for(lambda: supervisor.hddfancontrol.restarts >= 1)
+    await wait_for(lambda: fans.auto.failsafe and value.read_text().strip() == "255")
+    assert any("until it measures again" in line["text"] for line in logs.since(0))
+    # A newer sample: control resumes.
+    supervisor.hddfancontrol._on_exit = None
+    sample["value"] = {"time": "2999-01-01T00:01:00+00:00", "temps": {"sda X": 20.0}}
+    await wait_for(lambda: not fans.auto.failsafe)
     await supervisor.stop()
-    assert enable.read_text().strip() == "5"
+    assert (fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1_enable").read_text().strip() == "5"
 
 
 async def test_daemon_hook_errors_are_logged(make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -426,7 +428,7 @@ async def test_daemon_hook_errors_are_logged(make_script: ScriptMaker, monkeypat
     def broken() -> None:
         raise RuntimeError("hook")
 
-    daemon = Daemon("x", make_script("exits2", "sys.exit(1)"), logs, on_exit=broken, on_restart=broken)
+    daemon = Daemon("x", make_script("exits2", "sys.exit(1)"), logs, on_exit=broken)
     daemon.start([])
     await wait_for(lambda: daemon.restarts >= 2)
     await daemon.stop()

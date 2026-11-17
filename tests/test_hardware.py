@@ -121,3 +121,12 @@ def test_drive_connection(tmp_path: Path) -> None:
         "sdc": ("usb", "xhci_hcd", ""),
         "nvme0n1": ("nvme", "nvme", "8.0 GT/s PCIe x4"),
     }
+
+
+def test_kernel_names(fake_sys: Path, fake_dev: Path) -> None:
+    """Stable names of whole drives and /dev/sdX lead to the kernel name; partitions do not count."""
+    names = Hardware(fake_dev, fake_sys).kernel_names()
+    assert names["/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"] == "sda"
+    assert names["/dev/sda"] == "sda" and names["/dev/disk/by-id/nvme-eui.002538"] == "nvme0n1"
+    assert not any("part" in key for key in names)
+    assert Hardware(fake_dev / "none", fake_sys).kernel_names() == {}

@@ -157,6 +157,11 @@ def test_conditions_hot_drive(tmp_path: Path, fake_sys: Path, fake_dev: Path, mo
     monitor.alerts.active["hot:sda"] = {"kind": "drive_hot", "params": {}, "since": 0}
     monitor._settings = lambda: from_dict({"drives": [DRIVE], "drive_temp_min": 30, "drive_temp_max": 41, "target_temp": 35})
     assert "hot:sda" in monitor.conditions({})  # 40 > 41 - 2: still on
+    # A drive's own maximum counts over the common one.
+    monitor.alerts.active.clear()
+    own = {DRIVE: {"max": 39}}
+    monitor._settings = lambda: from_dict({"drives": [DRIVE], "drive_temp_min": 30, "drive_temp_max": 50, "drive_limits": own})
+    assert monitor.conditions({})["hot:sda"][1]["max"] == "39"
     monkeypatch.setattr("hddfancontrol_webui.monitor.FRESH_SAMPLE_SECONDS", 1)
     assert "hot:sda" not in monitor.conditions({})  # an old sample says nothing
     monitor.history.close()

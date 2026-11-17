@@ -10,7 +10,7 @@
 Control the case fans of a NAS from the temperature of its hard drives, and spin the drives down when they are idle, from a web page. Built around [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma and [hd-idle](https://github.com/adelolmo/hd-idle) by adelolmo, for **TrueNAS SCALE** first, and for any Linux system with Docker or systemd.
 
 > [!NOTE]
-> The fan control itself is [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma: it measures the drives without waking them and drives the fans. This project runs it and hd-idle, keeps them running, and adds around them the web UI, the auto mode, manual control, the history, SMART data and alerts. It is not an official desbma project.
+> The drive temperatures come from [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma, which measures the drives without waking them. This project runs it and hd-idle, keeps them running, drives the fans from what it measures (curve and auto modes, fan groups, limits per drive), and adds the web UI, manual control, the history, SMART data and alerts. It is not an official desbma project.
 
 ## Contents
 
@@ -32,6 +32,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 ## What you can do with it
 
 - **Keep the drives cool and the NAS quiet:** the fans follow the hottest drive, either along a curve between two temperatures, or in the auto mode, which keeps the drives at a target with as little fan speed as it needs.
+- **Fan groups and limits per drive:** each fan can follow only some drives (the case fans the hot enterprise drives, another fan the rest), and each drive can have its own minimum, target and maximum.
 - **Find out which fan is which:** in manual control, move the slider of any PWM output and watch the speed change; each output gets its previous setting back when you leave. The curve and auto modes drive only the fans you choose.
 - **Set it up without knowing how:** on the first start a guided setup asks one question at a time: which drives to keep cool, which fans cool them (an Identify button runs a fan at full speed for 10 seconds so you can hear which one it is), how cool to keep the drives, whether idle drives may sleep, and a password.
 - **Set up the fans without a shell:** the PWM test finds the value at which each fan starts and stops, and copies them into the settings.
@@ -114,11 +115,19 @@ On the first start, with no drive and no fan chosen, the web UI opens the **guid
 
 | Mode | What drives the fans | You set |
 |---|---|---|
-| **Curve** | hddfancontrol itself: minimum speed up to the minimum temperature, full speed from the maximum, in proportion in between | Minimum and maximum temperature, minimum speed |
+| **Curve** | The web UI: minimum speed up to the minimum temperature, full speed from the maximum, in proportion in between | Minimum and maximum temperature, minimum speed |
 | **Auto** | The web UI keeps the hottest drive near a target with as little speed as it needs, and adapts to load, season and case by itself | Target and maximum temperature, minimum speed |
 | **Manual** | You, with a slider per PWM output, until you go back or the container restarts | — |
 
-The auto mode is a PI controller (feedback control, not machine learning). It speeds up at once when the drives warm, and slows down at most 10 % per check, so a short dip does not stop the fans. The extra temperature sensors of **Settings** count in the auto mode too, when they have a range: each asks for a speed in proportion between its minimum and maximum, as in the curve mode, and the fans run at the higher of that and what the drives need. A sensor without a range is used only by the curve mode, where hddfancontrol picks its range. In both the auto mode and manual control, hddfancontrol keeps running to read the drive temperatures without waking sleeping drives, and two safety rules apply: a drive at the maximum temperature puts every fan at full speed, and temperatures that stop coming in do too (in manual control, only when drives are chosen, so that you can find out which fan is which before choosing them). In manual control, full speed lasts until you leave it. When control ends, every PWM output gets its previous mode back.
+In every mode hddfancontrol only measures: it reads the drive temperatures without waking sleeping drives, and the web UI writes the PWM files.
+
+- **Curve:** as hddfancontrol does it, plus a margin against pumping: a drive asks for more speed as soon as it warms, but for less only once it is 2 °C cooler, and a fan slows down by at most 10 % per check. **Average** (`AVERAGE`) averages the last samples of each drive first.
+- **Auto:** a PI controller (feedback control, not machine learning). It speeds up at once when the drives warm, and slows down at most 10 % per check, so a short dip does not stop the fans.
+- **Fan groups:** in **Settings**, each fan can follow only some drives; by default it follows all of them. A fan whose drives are all gone from the host follows every drive.
+- **Limits per drive:** each drive can have its own minimum, target and maximum, over the common ones. The **Drives** tab shows the highest temperature the drive itself recommends (some, such as a Seagate Exos, say 40 °C, well under their datasheet limit): it is a hint, not applied by itself.
+- **Extra sensors:** the temperature sensors of **Settings** count when they have a range: each asks for a speed in proportion between its minimum and maximum, and every fan runs at the higher of that and what its drives need.
+
+Safety rules, in every mode: a drive at its maximum puts its fans at full speed (in manual control, every fan, until you leave it); temperatures that stop coming in, or hddfancontrol stopping, put every fan at full speed (in manual control, only when drives are chosen, so that you can find out which fan is which before choosing them); a drive whose temperature turns empty (asleep, or a failed probe during heavy I/O) keeps its last temperature for five checks. When control ends, every PWM output gets its previous mode back, or stays at full speed with `RESTORE_FAN_SETTINGS=false`.
 
 ## Spin down
 
@@ -178,9 +187,9 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `TARGET_TEMP` | `40` | Target temperature of the auto mode, °C |
 | `MIN_FAN_SPEED_PRCT` | `20` | Minimum fan speed, % |
 | `INTERVAL` | `20s` | Check interval (`10s`, `1min`, …) |
-| `AVERAGE` | `1` | Number of samples to average |
+| `AVERAGE` | `1` | Number of samples of each drive to average |
 | `HWMONS` | — | Other temperature inputs, as `PATH[:MIN:MAX]`, separated by spaces |
-| `RESTORE_FAN_SETTINGS` | `true` | When hddfancontrol stops, give the fans back their settings; `false` leaves them at full speed |
+| `RESTORE_FAN_SETTINGS` | `true` | When fan control stops, give the fans back their settings; `false` leaves them at full speed |
 | `VERBOSITY` | `INFO` | `TRACE`, `DEBUG`, `INFO`, `WARN` or `ERROR` |
 | `SPIN_DOWN_TIME_S` | `600` | Idle time before spin down, seconds; `0` turns hd-idle off |
 | `SPIN_DOWN_COMMAND` | `ata` | `ata` or `scsi` |

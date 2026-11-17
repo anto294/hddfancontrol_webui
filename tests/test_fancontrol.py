@@ -125,7 +125,7 @@ async def test_auto_mode_drives_the_fans(fake_sys: Path, fast: None) -> None:
     latest = sample({"sda": 35.0, "sdb": None, "coretemp": 90.0})
     lines: list[str] = []
     fans = FanController(PwmWriter(fake_sys), lambda: latest, lines.append)
-    fans.start_auto(SETTINGS)
+    fans.start_control(SETTINGS)
     assert fans.active
     await asyncio.sleep(0.1)
     assert fans.auto.hottest == 35.0
@@ -197,7 +197,7 @@ async def test_auto_mode_follows_a_hot_sensor(fake_sys: Path, fast: None) -> Non
     lines: list[str] = []
     latest = sample({"sda A": 30.0, "x/1": 65.0, "y/1": 90.0})
     fans = FanController(PwmWriter(fake_sys), lambda: latest, lines.append)
-    fans.start_auto(settings)
+    fans.start_control(settings)
     await asyncio.sleep(0.1)
     assert fans.auto.hottest == 30.0 and fans.auto.speed == 1.0
     assert read(fake_sys, "pwm1") == "255"
@@ -211,7 +211,7 @@ async def test_auto_mode_failsafe(fake_sys: Path, fast: None, monkeypatch: pytes
     lines: list[str] = []
     monkeypatch.setattr(fancontrol, "datetime", _Later)
     fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lines.append)
-    fans.start_auto(SETTINGS)
+    fans.start_control(SETTINGS)
     await asyncio.sleep(0.1)
     assert fans.auto.failsafe and fans.auto.speed == 1.0
     assert read(fake_sys, "pwm1") == "255"
@@ -288,7 +288,7 @@ async def test_auto_mode_survives_an_error(fake_sys: Path, fast: None) -> None:
     current: dict[str, Any] = {"value": "broken"}
     lines: list[str] = []
     fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lines.append)
-    fans.start_auto(SETTINGS)
+    fans.start_control(SETTINGS)
     await asyncio.sleep(0.1)
     assert fans.active and fans.error is not None and fans.status()["error"] == fans.error
     assert read(fake_sys, "pwm1") == "255"
@@ -340,3 +340,150 @@ async def test_manual_values_never_land_after_stop(fake_sys: Path, fast: None) -
     assert all(refused)
     assert read(fake_sys, "pwm1_enable") == "5"
     assert fans.writer.values == {}
+
+
+A = "/dev/disk/by-id/ata-A"
+B = "/dev/disk/by-id/ata-B"
+NAMES = {A: "sda", B: "sdb"}
+
+
+async def steps(count: int) -> None:
+    """Wait for about count control steps (asyncio.sleep is short with the fast fixture)."""
+    for _ in range(count):
+        await asyncio.sleep(1)
+
+
+def test_curve_speed() -> None:
+    """The curve: minimum up to the minimum temperature, full speed from the maximum, a line between."""
+    assert fancontrol.curve_speed(25, 30, 50, 0.2) == 0.2
+    assert fancontrol.curve_speed(40, 30, 50, 0.2) == pytest.approx(0.6)
+    assert fancontrol.curve_speed(55, 30, 50, 0.2) == 1.0
+
+
+async def test_curve_mode_cools_down_before_slowing(fake_sys: Path, fast: None) -> None:
+    """A drive going back and forth by one degree keeps its speed; cooler by the margin, the fans slow down gently."""
+    current: dict[str, Any] = {"temp": 40.0}
+    settings = from_dict(
+        {
+            "drives": [A],
+            "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
+            "drive_temp_min": 30,
+            "drive_temp_max": 50,
+            "min_fan_speed_prct": 20,
+            "interval_s": 1,
+        }
+    )
+
+    def latest() -> dict[str, Any]:
+        return {"time": datetime.now(UTC).isoformat(), "temps": {"sda A": current["temp"]}}
+
+    fans = FanController(PwmWriter(fake_sys), latest, lambda _: None, lambda: NAMES)
+    fans.start_control(settings)
+    await steps(30)
+    assert fans.mode == "curve" and fans.auto.speed == pytest.approx(0.6)
+    current["temp"] = 39.0
+    await steps(20)
+    assert fans.auto.speed == pytest.approx(0.6)  # one degree back: no change
+    current["temp"] = 41.0
+    await steps(20)
+    assert fans.auto.speed == pytest.approx(0.64)  # warmer: at once
+    current["temp"] = 30.0
+    seen = []
+    for _ in range(30):
+        await steps(1)
+        seen.append(fans.auto.speed)
+    # Slowing down takes steps of at most 10 %, down to the minimum.
+    assert any(speed is not None and 0.2 < speed < 0.6 for speed in seen)
+    assert fans.auto.speed == pytest.approx(0.2)
+    current["temp"] = 50.0
+    await steps(5)
+    assert fans.auto.speed == 1.0
+    await fans.stop()
+
+
+async def test_fan_groups_and_drive_limits(fake_sys: Path, fast: None) -> None:
+    """Each fan follows its own drives with their own limits; a fan of drives that are gone follows every drive."""
+    settings = from_dict(
+        {
+            "drives": [A, B],
+            "pwms": [
+                {"path": PWM1, "start": 200, "stop": 75, "drives": [A]},
+                {"path": PWM2, "start": 200, "stop": 75, "drives": [B]},
+            ],
+            "drive_limits": {A: {"min": 30, "max": 40}},
+            "drive_temp_min": 30,
+            "drive_temp_max": 50,
+            "min_fan_speed_prct": 0,
+            "interval_s": 1,
+        }
+    )
+    sample = sample_now = {"temps": {"sda A": 40.0, "sdb B": 35.0}}
+    names = dict(NAMES)
+
+    def latest() -> dict[str, Any]:
+        return {"time": datetime.now(UTC).isoformat(), **sample_now}
+
+    fans = FanController(PwmWriter(fake_sys), latest, lambda _: None, lambda: names)
+    fans.start_control(settings)
+    await steps(40)
+    # sda is at its own maximum (40): full speed; sdb at 35 of 30-50: a quarter.
+    assert fans.auto.speeds[PWM1] == 1.0
+    assert fans.auto.speeds[PWM2] == pytest.approx(0.25)
+    # Drive B is gone from the host: its fan follows every drive.
+    names.pop(B)
+    fans._names_at = -1e9
+    await steps(20)
+    assert fans.auto.speeds[PWM2] == 1.0
+    assert sample is sample_now
+    await fans.stop()
+
+
+async def test_auto_mode_follows_each_drive_target(fake_sys: Path, fast: None) -> None:
+    """In the auto mode a drive over its own target counts more than a hotter drive under its own."""
+    settings = from_dict(
+        {
+            "drives": [A, B],
+            "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
+            "control_mode": "auto",
+            "drive_limits": {B: {"target": 30, "max": 40}},
+            "target_temp": 40,
+            "drive_temp_max": 50,
+            "interval_s": 1,
+        }
+    )
+    sample = {"temps": {"sda A": 39.0, "sdb B": 40.0}}
+    fans = FanController(
+        PwmWriter(fake_sys), lambda: {"time": datetime.now(UTC).isoformat(), **sample}, lambda _: None, lambda: NAMES
+    )
+    fans.start_control(settings)
+    await steps(10)
+    assert fans.auto.speed == 1.0  # sdb is at its own maximum
+    # Both under their targets (sda by 5, sdb by 1): the fans slow down.
+    sample["temps"] = {"sda A": 35.0, "sdb B": 29.0}
+    await steps(30)
+    slow = fans.auto.speed
+    assert slow is not None and slow < 1.0
+    # sdb 6 over its own target, sda cooler than ever: the fans speed up for sdb.
+    sample["temps"] = {"sda A": 34.0, "sdb B": 36.0}
+    await steps(10)
+    assert fans.auto.speed is not None and fans.auto.speed > slow
+    await fans.stop()
+
+
+async def test_restore_off_leaves_full_speed(fake_sys: Path, fast: None) -> None:
+    """With restore_fan_settings off, the fans stay at full speed when control ends."""
+    settings = from_dict({**SETTINGS.to_dict(), "restore_fan_settings": False})
+    fans = FanController(PwmWriter(fake_sys), lambda: sample({"sda": 30.0, "coretemp.0/1": 50.0}), lambda _: None)
+    fans.start_control(settings)
+    await steps(10)
+    await fans.stop()
+    assert read(fake_sys, "pwm1") == "255" and read(fake_sys, "pwm1_enable") == "1"
+
+
+def test_drive_temps_average() -> None:
+    """The temperature of a drive is the average of its last samples, each counted once."""
+    temps = DriveTemps(hold_s=100, average=3)
+    start = datetime.now(UTC)
+    for seconds, value in ((0, 40.0), (0, 40.0), (20, 43.0), (40, 46.0), (60, 49.0)):
+        result = temps.per_drive({"time": (start + timedelta(seconds=seconds)).isoformat(), "temps": {"sda": value}}, 0)
+    assert result == {"sda": pytest.approx(46.0)}
