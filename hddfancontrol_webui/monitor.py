@@ -22,6 +22,7 @@ from .alerts import (
     KIND_SMART_WARNING,
     Alerts,
     Condition,
+    render,
 )
 from .const import RECORD_PERIOD
 from .hardware import Hardware
@@ -51,6 +52,10 @@ SMART_COUNTS = (
 # Drive temperatures older than this say nothing about now (the safety
 # alert of the fan controller covers them).
 FRESH_SAMPLE_SECONDS = 600.0
+# The daily summary goes out at this local hour; the weekly one on Monday at this hour.
+SUMMARY_HOUR = 9
+SUMMARY_KEY = "summary_last"
+
 # How often the SMART loop looks at its interval.
 SMART_CHECK_PERIOD = 60.0
 
@@ -264,6 +269,85 @@ class Monitor:
             if self.alerts is not None:
                 status = self._status() if self._status is not None else {}
                 await self.alerts.update(await asyncio.to_thread(self.conditions, status))
+                await self._send_summary()
+
+    @staticmethod
+    def summary_time(kind: str, now: float) -> float:
+        """The last time a summary of this kind ("daily", "weekly") was due, as a timestamp (local time)."""
+        local = time.localtime(now)
+
+        def at(day: int) -> float:
+            # mktime takes days out of the month (0, -3...) and moves the month.
+            return time.mktime((local.tm_year, local.tm_mon, day, SUMMARY_HOUR, 0, 0, 0, 0, -1))
+
+        day = local.tm_mday if at(local.tm_mday) <= now else local.tm_mday - 1
+        if kind == "weekly":
+            day -= time.localtime(at(day)).tm_wday
+        return at(day)
+
+    def summary_due(self, now: float | None = None) -> float | None:
+        """The time of the summary to send now, or None. Blocking: SQLite.
+
+        The first time (or after the summary is turned on) nothing is sent:
+        the time is only recorded, and the first summary comes at the next one.
+        """
+        settings = self._settings()
+        if settings.notify_summary == "off" or not settings.notify_url:
+            return None
+        now = time.time() if now is None else now
+        due = self.summary_time(settings.notify_summary, now)
+        last = self.history.get_meta(f"{SUMMARY_KEY}_{settings.notify_summary}")
+        if last is None:
+            self.history.set_meta(f"{SUMMARY_KEY}_{settings.notify_summary}", str(due))
+            return None
+        return due if due > float(last) else None
+
+    def build_summary(self, due: float) -> str:
+        """The text of the summary that ends at due, in the language of the alerts. Blocking: files and SQLite."""
+        settings = self._settings()
+        lang = settings.notify_language
+        days = 7 if settings.notify_summary == "weekly" else 1
+        since = int(due - days * 86400)
+        lines = [render(lang, f"summary.title_{settings.notify_summary}", {})]
+        drives = self.hardware.drives()
+        by_id = {i: drive for drive in drives for i in drive.ids}
+        stats = self.history.stats(since)
+        for kind, name, _low, avg, high in stats:
+            if kind != "temp":
+                continue
+            drive = by_id.get(name)
+            fallback = drive.model if drive else name.split()[-1] if not name.startswith("/") else os.path.basename(name)
+            label = self._drive_name(drive.ids if drive else [name], fallback)
+            lines.append(render(lang, "summary.drive", {"drive": label, "max": f"{high:.0f}", "avg": f"{avg:.0f}"}))
+        chosen = {pwm.path for pwm in settings.pwms}
+        for kind, name, _low, avg, _high in stats:
+            if kind == "rpm" and name in chosen:
+                lines.append(render(lang, "summary.fan", {"fan": self._fan_name(name), "rpm": f"{avg:.0f}"}))
+        if self.alerts is not None:
+            raised = sum(1 for ts, _ in self.alerts.raised if ts >= since)
+            lines.append(render(lang, "summary.alerts", {"count": raised, "active": len(self.alerts.active)}))
+        smart = [data.get("status") for data in self.smart().values()]
+        if smart:
+            lines.append(
+                render(
+                    lang,
+                    "summary.smart",
+                    {"ok": smart.count("ok"), "warning": smart.count("warning"), "failing": smart.count("failing")},
+                )
+            )
+        return "\n".join(lines)
+
+    async def _send_summary(self) -> None:
+        """Send the summary when one is due."""
+        if self.alerts is None:
+            return
+        due = await asyncio.to_thread(self.summary_due)
+        if due is None:
+            return
+        text = await asyncio.to_thread(self.build_summary, due)
+        self.alerts.send_summary(text)
+        settings = self._settings()
+        await asyncio.to_thread(self.history.set_meta, f"{SUMMARY_KEY}_{settings.notify_summary}", str(due))
 
     def _drive_name(self, ids: list[str], fallback: str) -> str:
         """The name given to a drive, by any of its stable names, or fallback."""

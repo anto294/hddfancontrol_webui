@@ -34,6 +34,11 @@ CONTROL_MODES = ("curve", "auto")
 # How alerts are sent to NOTIFY_URL (notify.py), and in which language.
 NOTIFY_FORMATS = ("ntfy", "gotify", "json")
 NOTIFY_LANGUAGES = ("en", "it")
+# A summary of the drives and fans sent with the alerts, or none.
+NOTIFY_SUMMARIES = ("off", "daily", "weekly")
+MAX_REPEAT_H = 168
+MAX_SELFTEST_DAYS = 365
+_QUIET = re.compile(r"^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$")
 MAX_URL_LENGTH = 500
 # The host, then nothing or a path, query or fragment: no overlap, so no slow backtracking.
 _URL = re.compile(r"^https?://[^\s/?#]+(?:[/?#]\S*)?$")
@@ -141,6 +146,16 @@ class Settings:
     notify_url: str = ""
     notify_format: str = "ntfy"
     notify_language: str = "en"
+    # An alert still on is sent again every this many hours (0: once).
+    notify_repeat_h: int = 0
+    # Quiet hours (local time, from included, to excluded; equal: none): only
+    # the urgent alerts are sent, the rest at the end of the quiet hours.
+    notify_quiet_from: int = 0
+    notify_quiet_to: int = 0
+    notify_summary: str = "off"
+    # SMART self-tests every this many days (0: never).
+    selftest_short_days: int = 0
+    selftest_long_days: int = 0
     # Limits of single drives over the common ones: {drive: {"min", "target", "max"}}, each optional.
     drive_limits: dict[str, dict[str, float]] = field(default_factory=dict)
 
@@ -401,6 +416,12 @@ def from_dict(data: Any) -> Settings:
         notify_url=_notify_url(check, data.get("notify_url", defaults.notify_url)),
         notify_format=check.choice(data, "notify_format", defaults.notify_format, NOTIFY_FORMATS),
         notify_language=check.choice(data, "notify_language", defaults.notify_language, NOTIFY_LANGUAGES),
+        notify_repeat_h=check.integer(data, "notify_repeat_h", defaults.notify_repeat_h, 0, MAX_REPEAT_H),
+        notify_quiet_from=check.integer(data, "notify_quiet_from", defaults.notify_quiet_from, 0, 23),
+        notify_quiet_to=check.integer(data, "notify_quiet_to", defaults.notify_quiet_to, 0, 23),
+        notify_summary=check.choice(data, "notify_summary", defaults.notify_summary, NOTIFY_SUMMARIES),
+        selftest_short_days=check.integer(data, "selftest_short_days", defaults.selftest_short_days, 0, MAX_SELFTEST_DAYS),
+        selftest_long_days=check.integer(data, "selftest_long_days", defaults.selftest_long_days, 0, MAX_SELFTEST_DAYS),
         drive_limits=drive_limits,
     )
     if check.problems:
@@ -520,13 +541,24 @@ def env_document(env: Mapping[str, str]) -> dict[str, Any]:
         "HISTORY_DAYS": "history_days",
         "SMART_INTERVAL_H": "smart_interval_h",
         "NOTIFY_URL": "notify_url",
+        "NOTIFY_REPEAT_H": "notify_repeat_h",
+        "SELFTEST_SHORT_DAYS": "selftest_short_days",
+        "SELFTEST_LONG_DAYS": "selftest_long_days",
     }
     for var, key in simple.items():
         if env.get(var, "").strip():
             doc[key] = env[var].strip()
     if env.get("CONTROL_MODE", "").strip():
         doc["control_mode"] = env["CONTROL_MODE"].strip().lower()
-    for var, key in {"NOTIFY_FORMAT": "notify_format", "NOTIFY_LANGUAGE": "notify_language"}.items():
+    if env.get("NOTIFY_QUIET", "").strip():
+        quiet = _QUIET.match(env["NOTIFY_QUIET"])
+        # "22-7"; anything else is left for from_dict to refuse.
+        doc["notify_quiet_from"], doc["notify_quiet_to"] = quiet.groups() if quiet else (env["NOTIFY_QUIET"], 0)
+    for var, key in {
+        "NOTIFY_FORMAT": "notify_format",
+        "NOTIFY_LANGUAGE": "notify_language",
+        "NOTIFY_SUMMARY": "notify_summary",
+    }.items():
         if env.get(var, "").strip():
             doc[key] = env[var].strip().lower()
     if env.get("VERBOSITY", "").strip():

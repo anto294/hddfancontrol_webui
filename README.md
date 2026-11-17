@@ -153,6 +153,8 @@ The web UI watches for:
 
 Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back), is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address.
 
+An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come every day or every Monday at 9: highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state. The hours are local time: set `TZ` on the container (TrueNAS apps run in UTC otherwise).
+
 - **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
 - **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
 - **json**: any webhook that takes a POST with `{"title", "message", "level"}` (`level` is `alert` or `ok`).
@@ -198,6 +200,12 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `NOTIFY_URL` | — | Where alerts are sent (see [Alerts](#alerts)); empty, none |
 | `NOTIFY_FORMAT` | `ntfy` | `ntfy`, `gotify` or `json` |
 | `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en` or `it` |
+| `NOTIFY_REPEAT_H` | `0` | Send again an alert still on (and not taken note of) every this many hours; `0` sends it once |
+| `NOTIFY_QUIET` | — | Quiet hours, local time, such as `22-7`: only urgent alerts go out, the rest when they end |
+| `NOTIFY_SUMMARY` | `off` | `daily` or `weekly` (Monday) summary at 9, local time |
+| `SELFTEST_SHORT_DAYS` | `0` | Run a short SMART self-test every this many days; `0` never |
+| `SELFTEST_LONG_DAYS` | `0` | Run a long SMART self-test every this many days; `0` never |
+| `TZ` | — | Time zone of the container (such as `Europe/Rome`), for the quiet hours, the summary and the self-tests |
 
 ## Resource use
 

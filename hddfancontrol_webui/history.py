@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS alert_notes (
     signature TEXT NOT NULL,
     ts INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -176,3 +180,24 @@ class History:
         """Forget the notes on these alerts."""
         with self._lock:
             self._db.executemany("DELETE FROM alert_notes WHERE key = ?", [(key,) for key in keys])
+
+    def stats(self, since: int) -> list[tuple[str, str, float, float, float]]:
+        """(kind, name, minimum, average, maximum) of every series since a time."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT s.kind, s.name, MIN(m.value), AVG(m.value), MAX(m.value) "
+                "FROM samples m JOIN series s ON s.id = m.series WHERE m.ts >= ? GROUP BY m.series ORDER BY s.kind, s.name",
+                (since,),
+            ).fetchall()
+        return [(kind, name, low, avg, high) for kind, name, low, avg, high in rows]
+
+    def get_meta(self, key: str) -> str | None:
+        """A small value kept by the web UI (when the last summary went out, for example)."""
+        with self._lock:
+            row = self._db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return None if row is None else str(row[0])
+
+    def set_meta(self, key: str, value: str) -> None:
+        """Keep a small value."""
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))

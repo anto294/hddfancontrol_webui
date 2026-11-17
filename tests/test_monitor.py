@@ -245,3 +245,67 @@ async def test_smart_interval_change_applies_at_once(
     task.cancel()
     assert reads[1] - reads[0] == 3600
     monitor.history.close()
+
+
+def test_summary(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """The summary is due daily or weekly at 9 local time, never at the first look, and lists drives, fans and alerts."""
+    from hddfancontrol_webui.alerts import Alerts
+
+    def local(day: int, hour: int) -> float:
+        return time.mktime((2026, 11, day, hour, 0, 0, 0, 0, -1))
+
+    assert Monitor.summary_time("daily", local(17, 10)) == local(17, 9)
+    assert Monitor.summary_time("daily", local(17, 8)) == local(16, 9)
+    assert Monitor.summary_time("weekly", local(19, 10)) == local(16, 9)  # 16 Nov 2026 is a Monday
+    assert Monitor.summary_time("weekly", local(16, 8)) == local(9, 9)
+
+    pwm = "/sys/class/hwmon/hwmon2/pwm1"
+    settings = from_dict(
+        {
+            "drives": [DRIVE],
+            "pwms": [{"path": pwm, "start": 200, "stop": 75}],
+            "notify_url": "https://x.example/",
+            "notify_summary": "daily",
+        }
+    )
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
+    monitor.alerts = Alerts(lambda: settings, lambda _: None)
+    monitor.alerts.raised = [(local(17, 13), "drive_hot")]
+    monitor.history.record(int(local(17, 12)), [("temp", "/dev/disk/by-id/wwn-0x5000c500e0000001", 41.0), ("rpm", pwm, 900.0)])
+    monitor.history.record(
+        int(local(17, 13)), [("temp", "/dev/disk/by-id/wwn-0x5000c500e0000001", 45.0), ("rpm", pwm, 1100.0)]
+    )
+    monitor.history.save_smart(DRIVE, {"status": "warning"})
+    assert monitor.summary_due(local(17, 10)) is None  # first look: only recorded
+    assert monitor.summary_due(local(17, 11)) is None  # same day
+    due = monitor.summary_due(local(18, 9) + 1800)
+    assert due == local(18, 9)
+    text = monitor.build_summary(due)
+    assert text.splitlines()[0] == "hddfancontrol: the last 24 hours"
+    assert "ST4000VN006: highest 45 °C, average 43 °C" in text
+    assert "pwm1: 1000 RPM on average" in text and "Alerts: 1 raised, 0 still on" in text
+    assert "SMART: 0 OK, 1 to check, 0 failing" in text
+    monitor._settings = lambda: from_dict({**settings.to_dict(), "notify_summary": "off"})
+    assert monitor.summary_due(local(19, 10)) is None
+    monitor.history.close()
+
+
+async def test_summary_is_sent_once(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """A due summary goes to the alerts once, and is recorded."""
+    sent: list[str] = []
+    settings = from_dict({"drives": [DRIVE], "notify_url": "https://x.example/", "notify_summary": "weekly"})
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
+
+    class FakeAlerts:
+        raised: list[Any] = []
+        active: dict[str, Any] = {}
+
+        def send_summary(self, text: str) -> None:
+            sent.append(text)
+
+    monitor.alerts = FakeAlerts()  # type: ignore[assignment]  # only what the summary uses
+    monitor.history.set_meta("summary_last_weekly", "0")
+    await monitor._send_summary()
+    await monitor._send_summary()
+    assert len(sent) == 1 and sent[0].startswith("hddfancontrol: the last 7 days")
+    monitor.history.close()

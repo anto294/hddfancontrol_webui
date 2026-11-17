@@ -15,6 +15,11 @@ problem coming back is shown again.
 
 Notifications go through a queue with one sender task, in order: a slow or
 dead server never holds up the monitor that raises the alerts.
+
+An alert still on, and not taken note of, is sent again every
+notify_repeat_h hours. In the quiet hours only the urgent kinds
+(URGENT_KINDS) are sent; the rest waits, and goes out as one message
+when the quiet hours end.
 """
 
 from __future__ import annotations
@@ -59,6 +64,10 @@ VOLATILE_PARAMS = ("temp", "percent")
 BANNER_KEYS = ("banner:no_auth",)
 # Messages waiting to be sent; more than this while the server is down are dropped.
 QUEUE_SIZE = 100
+# Alerts sent even in the quiet hours: something needs a hand now.
+URGENT_KINDS = (KIND_DRIVE_HOT, KIND_SAFETY, KIND_SMART_FAILING, KIND_FANS_MISSING, KIND_DRIVE_MISSING)
+# At most this many held messages go in the message sent after the quiet hours.
+HELD_LINES = 20
 
 Condition = tuple[str, dict[str, Any]]
 Sender = Callable[[str, str, str, bool], Awaitable[None]]
@@ -94,6 +103,18 @@ def render(lang: str, key: str, params: dict[str, Any]) -> str:
 
 
 # ---------------------------
+#   in_quiet_hours
+# ---------------------------
+def in_quiet_hours(settings: Settings, now: float) -> bool:
+    """Whether now (a timestamp) is in the quiet hours of the settings, in local time."""
+    start, end = settings.notify_quiet_from, settings.notify_quiet_to
+    if start == end:
+        return False
+    hour = time.localtime(now).tm_hour
+    return start <= hour < end if start < end else hour >= start or hour < end
+
+
+# ---------------------------
 #   Alerts
 # ---------------------------
 class Alerts:
@@ -105,6 +126,7 @@ class Alerts:
         log: Callable[[str], None],
         sender: Sender = send,
         store: History | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         """Read the address and language from settings(), log with log, send with sender.
 
@@ -119,6 +141,11 @@ class Alerts:
         self.acks: dict[str, str] = store.notes() if store is not None else {}
         self._queue: asyncio.Queue[Message] = asyncio.Queue(QUEUE_SIZE)
         self._worker: asyncio.Task[None] | None = None
+        self._clock = clock
+        # Texts held during the quiet hours.
+        self._held: list[str] = []
+        # When each kind of alert started, for the summary.
+        self.raised: list[tuple[float, str]] = []
 
     @staticmethod
     def signature(params: dict[str, Any]) -> str:
@@ -144,14 +171,17 @@ class Alerts:
             self._store.delete_notes([key])
 
     async def update(self, conditions: dict[str, Condition]) -> None:
-        """Raise the alerts that start now and end those that are over."""
+        """Raise the alerts that start now, remind of those still on, and end those that are over."""
+        now = self._clock()
+        settings = self._settings()
         for key, (kind, params) in conditions.items():
             if key in self.active:
                 self.active[key]["params"] = params
                 continue
-            self.active[key] = {"kind": kind, "params": params, "since": time.time()}
+            self.active[key] = {"kind": kind, "params": params, "since": now, "sent": now}
+            self.raised.append((now, kind))
             self._log("ALERT: " + render("en", f"alert.{kind}", params))
-            await self._notify(f"alert.{kind}", params, urgent=True)
+            self._notify(settings, kind, render(settings.notify_language, f"alert.{kind}", params), urgent=True)
         # A note lasts while the alert does: the next time it starts, it shows again.
         dropped = [k for k in self.acks if k not in BANNER_KEYS and k not in conditions]
         for key in dropped:
@@ -161,20 +191,63 @@ class Alerts:
         for key in [k for k in self.active if k not in conditions]:
             alert = self.active.pop(key)
             self._log("Over: " + render("en", f"alert.{alert['kind']}", alert["params"]))
-            await self._notify(f"alert.{alert['kind']}", alert["params"], urgent=False)
+            text = render(settings.notify_language, f"alert.{alert['kind']}", alert["params"])
+            self._notify(settings, alert["kind"], render(settings.notify_language, "alert.over", {"text": text}), urgent=False)
+        self._remind(settings, now)
+        if self._held and not in_quiet_hours(settings, now):
+            self._send_held(settings)
+        # The summary counts the alerts of the last week at most.
+        self.raised = [(ts, kind) for ts, kind in self.raised if now - ts < 8 * 86400]
 
-    async def _notify(self, key: str, params: dict[str, Any], urgent: bool) -> None:
-        """Queue one alert, or its end, in the language of the settings; never waits for the server."""
-        settings = self._settings()
+    def _remind(self, settings: Settings, now: float) -> None:
+        """Send again the alerts still on after notify_repeat_h hours, unless taken note of."""
+        if settings.notify_repeat_h <= 0:
+            return
+        for key, alert in self.active.items():
+            if self.acks.get(key) == self.signature(alert["params"]):
+                continue
+            if now - alert["sent"] < settings.notify_repeat_h * 3600:
+                continue
+            # A reminder of something not urgent waits for the end of the quiet hours.
+            if alert["kind"] not in URGENT_KINDS and in_quiet_hours(settings, now):
+                continue
+            alert["sent"] = now
+            text = render(settings.notify_language, f"alert.{alert['kind']}", alert["params"])
+            hours = f"{(now - alert['since']) / 3600:.0f}"
+            self._notify(
+                settings,
+                alert["kind"],
+                render(settings.notify_language, "alert.still", {"text": text, "hours": hours}),
+                urgent=True,
+            )
+
+    def _notify(self, settings: Settings, kind: str, text: str, urgent: bool) -> None:
+        """Queue one message; in the quiet hours, hold it unless it is an urgent start. Never waits for the server."""
         if not settings.notify_url:
             return
-        text = render(settings.notify_language, key, params)
-        if not urgent:
-            text = render(settings.notify_language, "alert.over", {"text": text})
+        if in_quiet_hours(settings, self._clock()) and not (urgent and kind in URGENT_KINDS):
+            self._held.append(text)
+            return
+        self._queue_message(settings.notify_url, settings.notify_format, text, urgent)
+
+    def _send_held(self, settings: Settings) -> None:
+        """Send what the quiet hours held, as one message."""
+        held, self._held = self._held, []
+        lines = held[:HELD_LINES] + (["…"] if len(held) > HELD_LINES else [])
+        text = render(settings.notify_language, "alert.held", {"count": len(held)}) + "\n" + "\n".join(lines)
+        if settings.notify_url:
+            self._queue_message(settings.notify_url, settings.notify_format, text, False)
+
+    def send_summary(self, text: str) -> None:
+        """Send a summary (held in the quiet hours like any message that is not urgent)."""
+        self._notify(self._settings(), "summary", text, urgent=False)
+
+    def _queue_message(self, url: str, fmt: str, text: str, urgent: bool) -> None:
+        """Put a message in the queue of the sender, starting it if needed."""
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._send_queued(), name="notify")
         try:
-            self._queue.put_nowait((settings.notify_url, settings.notify_format, text, urgent))
+            self._queue.put_nowait((url, fmt, text, urgent))
         except asyncio.QueueFull:
             self._log("WARNING: too many notifications waiting, one is dropped")
 

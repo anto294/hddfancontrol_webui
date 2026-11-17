@@ -1573,3 +1573,14 @@ details.help p {
 .table-scroll {
   overflow-x: auto;
 }
+
+/* Two numbers side by side in one field (quiet hours). */
+.pair {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pair input {
+  width: 5rem;
+}

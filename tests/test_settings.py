@@ -345,3 +345,23 @@ def test_fan_groups_and_drive_limits() -> None:
     for broken in ({"drive_limits": []}, {"drives": [a], "drive_limits": {a: 5}}):
         with pytest.raises(SettingsError):
             from_dict(broken)
+
+
+def test_reminders_quiet_hours_summary_and_selftests() -> None:
+    """The newer notification and self-test settings, from the environment and checked."""
+    env = {
+        "NOTIFY_REPEAT_H": "6",
+        "NOTIFY_QUIET": "22-7",
+        "NOTIFY_SUMMARY": "Weekly",
+        "SELFTEST_SHORT_DAYS": "7",
+        "SELFTEST_LONG_DAYS": "30",
+    }
+    settings = from_dict(env_document(env))
+    assert (settings.notify_repeat_h, settings.notify_quiet_from, settings.notify_quiet_to) == (6, 22, 7)
+    assert settings.notify_summary == "weekly"
+    assert (settings.selftest_short_days, settings.selftest_long_days) == (7, 30)
+    with pytest.raises(SettingsError) as err:
+        from_dict(env_document({"NOTIFY_QUIET": "late", "NOTIFY_REPEAT_H": "999"}))
+    assert {p["field"] for p in err.value.problems} == {"notify_quiet_from", "notify_repeat_h"}
+    with pytest.raises(SettingsError):
+        from_dict({"notify_quiet_to": 24, "notify_summary": "hourly"})

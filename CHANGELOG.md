@@ -19,6 +19,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   drive", with the highest temperature the drive recommends as a hint to
   apply in one click. The overview colors each drive against its own
   limits and lists the speed of each fan.
+- Notifications: an alert still on (and not taken note of) can be sent
+  again every few hours; quiet hours send only urgent alerts and the rest
+  together when they end; a daily or weekly summary of temperatures, fans,
+  alerts and SMART. Environment: `NOTIFY_REPEAT_H`, `NOTIFY_QUIET`,
+  `NOTIFY_SUMMARY`, and `TZ` for local time.
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.

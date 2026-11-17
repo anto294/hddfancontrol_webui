@@ -251,6 +251,26 @@
                 <option value="en">English</option>
                 <option value="it">Italiano</option>
               </select></label>
+            <label class="field"><span data-i18n="settings.notify_repeat_h"></span>
+              <input type="number" name="notify_repeat_h" min="0" max="168">
+              <small class="muted" data-i18n="settings.notify_repeat_help"></small>
+              <small class="error" data-error="notify_repeat_h"></small></label>
+            <label class="field"><span data-i18n="settings.notify_quiet"></span>
+              <span class="pair">
+                <input type="number" name="notify_quiet_from" min="0" max="23" aria-label="from">
+                <span aria-hidden="true">–</span>
+                <input type="number" name="notify_quiet_to" min="0" max="23" aria-label="to">
+              </span>
+              <small class="muted" data-i18n="settings.notify_quiet_help"></small>
+              <small class="error" data-error="notify_quiet_from"></small>
+              <small class="error" data-error="notify_quiet_to"></small></label>
+            <label class="field"><span data-i18n="settings.notify_summary"></span>
+              <select name="notify_summary">
+                <option value="off" data-i18n="settings.summary_off"></option>
+                <option value="daily" data-i18n="settings.summary_daily"></option>
+                <option value="weekly" data-i18n="settings.summary_weekly"></option>
+              </select>
+              <small class="muted" data-i18n="settings.notify_summary_help"></small></label>
           </div>
           <div class="actions">
             <button type="button" id="notify-test" class="secondary" data-icon="bell" data-i18n="action.notify_test"></button>
@@ -274,6 +294,13 @@
               <input type="number" name="smart_interval_h" min="0" max="168">
               <small class="muted" data-i18n="settings.smart_interval_help"></small>
               <small class="error" data-error="smart_interval_h"></small></label>
+            <label class="field"><span data-i18n="settings.selftest_short_days"></span>
+              <input type="number" name="selftest_short_days" min="0" max="365">
+              <small class="error" data-error="selftest_short_days"></small></label>
+            <label class="field"><span data-i18n="settings.selftest_long_days"></span>
+              <input type="number" name="selftest_long_days" min="0" max="365">
+              <small class="muted" data-i18n="settings.selftest_help"></small>
+              <small class="error" data-error="selftest_long_days"></small></label>
             <label class="field"><span data-i18n="settings.verbosity"></span>
               <select name="verbosity">
                 <option>TRACE</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option>

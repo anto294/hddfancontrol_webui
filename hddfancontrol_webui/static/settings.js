@@ -81,7 +81,7 @@ function renderSettings() {
   if (!settings) return;
   const form = $("settings-form");
   $("settings-source").textContent = t(`settings.source_${state.settingsSource}`);
-  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "verbosity", "spin_down_time_s", "spin_down_command", "notify_url", "notify_format", "notify_language"]) {
+  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "verbosity", "spin_down_time_s", "spin_down_command", "notify_url", "notify_format", "notify_language", "notify_repeat_h", "notify_quiet_from", "notify_quiet_to", "notify_summary", "selftest_short_days", "selftest_long_days"]) {
     form[name].value = settings[name];
   }
   form.restore_fan_settings.checked = settings.restore_fan_settings;
@@ -260,10 +260,10 @@ function optionalNumber(value) {
 function collectSettings() {
   const form = $("settings-form");
   const doc = {};
-  for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "spin_down_time_s"]) {
+  for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "spin_down_time_s", "notify_repeat_h", "notify_quiet_from", "notify_quiet_to", "selftest_short_days", "selftest_long_days"]) {
     doc[name] = form[name].value === "" ? null : Number(form[name].value);
   }
-  for (const name of ["control_mode", "verbosity", "spin_down_command", "notify_url", "notify_format", "notify_language"]) doc[name] = form[name].value;
+  for (const name of ["control_mode", "verbosity", "spin_down_command", "notify_url", "notify_format", "notify_language", "notify_summary"]) doc[name] = form[name].value;
   doc.restore_fan_settings = form.restore_fan_settings.checked;
 
   doc.drives = [];

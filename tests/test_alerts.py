@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -260,3 +261,55 @@ def test_render_smart_problems() -> None:
     """SMART warning codes become the sentences of the web UI."""
     text = render("it", "alert.smart_warning", {"drive": "sda", "warnings": ["crc_errors"]})
     assert text == "sda: Errori CRC dell'interfaccia: controlla il cavo. (SMART)"
+
+
+def local(hour: int, day: int = 2) -> float:
+    """A timestamp at this local hour (of a fixed day)."""
+    return time.mktime((2026, 3, day, hour, 0, 0, 0, 0, -1))
+
+
+async def test_reminders_and_quiet_hours() -> None:
+    """An alert still on is sent again; in the quiet hours only urgent starts go out, the rest after them."""
+    sent: list[tuple[str, bool]] = []
+    clock = {"now": local(12)}
+
+    async def sender(url: str, fmt: str, text: str, urgent: bool) -> None:
+        sent.append((text, urgent))
+
+    settings = Settings(notify_url="https://x.example/", notify_repeat_h=2, notify_quiet_from=22, notify_quiet_to=7)
+    alerts = Alerts(lambda: settings, lambda _: None, sender, clock=lambda: clock["now"])
+    hot = {"hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})}
+    stalled = {"stalled:p": ("fan_stalled", {"fan": "Back", "percent": "60"})}
+    await alerts.update({**hot, **stalled})
+    clock["now"] += 3600
+    await alerts.update({**hot, **stalled})
+    await alerts.flush()
+    assert len(sent) == 2  # no reminder before 2 h
+    clock["now"] += 3600
+    alerts.ack("stalled:p")  # taken note of: no reminder
+    await alerts.update({**hot, **stalled})
+    await alerts.flush()
+    assert len(sent) == 3 and sent[-1][0].startswith("Still going on after 2 h: sda")
+    # Quiet hours: the end of the stalled fan waits, a new hot drive goes out at once.
+    clock["now"] = local(23)
+    await alerts.update({**hot, "hot:sdb": ("drive_hot", {"drive": "sdb", "temp": "52", "max": "50"})})
+    await alerts.flush()
+    # The new hot drive and the reminder of the old one (both urgent) go out; the end of the stalled fan waits.
+    assert any(text.startswith("sdb") for text, _ in sent[-2:]) and not any("Back to normal" in text for text, _ in sent)
+    alerts.send_summary("Weekly summary")
+    clock["now"] = local(8, day=3)
+    await alerts.update({**hot})
+    await alerts.flush()
+    held = next(text for text, _ in sent if text.startswith("During"))
+    assert held.startswith("During the quiet hours (2):") and "Back" in held and "Weekly summary" in held
+    assert [kind for _, kind in alerts.raised] == ["drive_hot", "fan_stalled", "drive_hot"]
+    await alerts.stop()
+
+
+def test_quiet_hours_within_a_day() -> None:
+    """Quiet hours that do not cross midnight; equal hours mean none."""
+    from hddfancontrol_webui.alerts import in_quiet_hours
+
+    settings = Settings(notify_quiet_from=13, notify_quiet_to=15)
+    assert in_quiet_hours(settings, local(14)) and not in_quiet_hours(settings, local(15))
+    assert not in_quiet_hours(Settings(), local(3))
