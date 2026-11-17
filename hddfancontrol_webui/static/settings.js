@@ -81,7 +81,7 @@ function renderSettings() {
   if (!settings) return;
   const form = $("settings-form");
   $("settings-source").textContent = t(`settings.source_${state.settingsSource}`);
-  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "verbosity", "spin_down_time_s", "spin_down_command", "notify_url", "notify_format", "notify_language", "notify_repeat_h", "notify_quiet_from", "notify_quiet_to", "notify_summary", "selftest_short_days", "selftest_long_days"]) {
+  for (const name of ["control_mode", "drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "verbosity", "spin_down_time_s", "spin_down_command", "notify_url", "notify_format", "notify_language", "notify_repeat_h", ...CRON_FIELDS]) {
     form[name].value = settings[name];
   }
   form.restore_fan_settings.checked = settings.restore_fan_settings;
@@ -174,6 +174,7 @@ function renderSettings() {
     );
   }
   labelCells($("hwmon-list"));
+  renderCron();
 }
 
 // The drives ticked in the drive table now, as {kernel, id, name}.
@@ -276,10 +277,11 @@ function optionalNumber(value) {
 function collectSettings() {
   const form = $("settings-form");
   const doc = {};
-  for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "smart_interval_h", "spin_down_time_s", "notify_repeat_h", "notify_quiet_from", "notify_quiet_to", "selftest_short_days", "selftest_long_days"]) {
+  for (const name of ["drive_temp_min", "drive_temp_max", "target_temp", "min_fan_speed_prct", "interval_s", "average", "history_days", "spin_down_time_s", "notify_repeat_h"]) {
     doc[name] = form[name].value === "" ? null : Number(form[name].value);
   }
-  for (const name of ["control_mode", "verbosity", "spin_down_command", "notify_url", "notify_format", "notify_language", "notify_summary"]) doc[name] = form[name].value;
+  for (const name of ["control_mode", "verbosity", "spin_down_command", "notify_url", "notify_format", "notify_language"]) doc[name] = form[name].value;
+  for (const name of CRON_FIELDS) doc[name] = form[name].value.trim();
   doc.restore_fan_settings = form.restore_fan_settings.checked;
 
   doc.drives = [];
@@ -475,8 +477,66 @@ async function importSettings(file) {
   pollStatus();
 }
 
+// --- schedules: cron expressions -----------------------------------------
+
+const CRON_FIELDS = ["smart_schedule", "selftest_short", "selftest_long", "notify_summary", "notify_quiet"];
+// Ready-made expressions offered by each field; any other can be typed.
+const CRON_PRESETS = {
+  smart_schedule: [["0 */6 * * *", "cron.every_six_hours"], ["0 * * * *", "cron.every_hour"], ["0 3 * * *", "cron.every_night"]],
+  selftest_short: [["0 3 * * 0", "cron.every_sunday"], ["0 3 * * *", "cron.every_night"]],
+  selftest_long: [["0 3 1 * *", "cron.every_month"], ["0 3 1,15 * *", "cron.twice_a_month"]],
+  notify_summary: [["0 9 * * *", "cron.every_morning"], ["0 9 * * 1", "cron.every_monday"]],
+  notify_quiet: [["* 22-23,0-6 * * *", "cron.nights"], ["* 22-23,0-8 * * 0,6", "cron.weekend_nights"]],
+};
+const CRON_DELAY_MS = 300;
+const cronTimers = {};
+
+// The server sends its own wall clock ("2026-11-22T03:00"): shown as is, whatever the zone of the browser.
+function cronWall(text, timeOnly = false) {
+  const date = new Date(text);
+  const time = { hour: "2-digit", minute: "2-digit" };
+  return timeOnly ? date.toLocaleTimeString(I18N.lang, time) : date.toLocaleString(I18N.lang, { weekday: "short", day: "numeric", month: "short", ...time });
+}
+
+async function previewCron(name) {
+  const input = $("settings-form")[name];
+  const out = document.querySelector(`[data-cron-preview="${name}"]`);
+  const error = document.querySelector(`[data-error="${name}"]`);
+  const expr = input.value.trim();
+  error.textContent = "";
+  if (!expr) {
+    out.textContent = t("cron.never");
+    return;
+  }
+  const stretches = name === "notify_quiet";
+  try {
+    const data = await api("GET", `/api/cron?expr=${encodeURIComponent(expr)}${stretches ? "&windows=1" : ""}`);
+    if (input.value.trim() !== expr) return;
+    const items = stretches ? data.windows.map(([start, end]) => `${cronWall(start)} – ${cronWall(end, start.slice(0, 10) === end.slice(0, 10))}`) : data.runs.map((run) => cronWall(run));
+    out.textContent = items.length ? t("cron.next", { times: items.join(" · "), zone: data.zone }) : t("cron.not_soon");
+  } catch (err) {
+    if (input.value.trim() !== expr) return;
+    out.textContent = "";
+    const problem = err.data && err.data.problems && err.data.problems[0];
+    error.textContent = problem ? t(`error.${problem.code}`, problem.params || {}) : errorText(err);
+  }
+}
+
+function renderCron() {
+  for (const name of CRON_FIELDS) {
+    $(`cron-${name}`).replaceChildren(...CRON_PRESETS[name].map(([value, key]) => el("option", { value, label: t(key) })));
+    previewCron(name);
+  }
+}
+
 // The groups and the limits follow the drives and fans ticked above.
 document.addEventListener("DOMContentLoaded", () => {
+  for (const name of CRON_FIELDS) {
+    $("settings-form")[name].addEventListener("input", () => {
+      clearTimeout(cronTimers[name]);
+      cronTimers[name] = setTimeout(() => previewCron(name), CRON_DELAY_MS);
+    });
+  }
   for (const id of ["drive-list", "pwm-list"]) {
     $(id).addEventListener("change", () => {
       renderGroups();

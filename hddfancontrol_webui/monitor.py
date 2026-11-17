@@ -27,6 +27,7 @@ from .alerts import (
     render,
 )
 from .const import RECORD_PERIOD
+from .cron import parse
 from .hardware import Hardware
 from .history import History
 from .settings import Settings
@@ -54,12 +55,16 @@ SMART_COUNTS = (
 # Drive temperatures older than this say nothing about now (the safety
 # alert of the fan controller covers them).
 FRESH_SAMPLE_SECONDS = 600.0
-# The daily summary goes out at this local hour; the weekly one on Monday at this hour.
-SUMMARY_HOUR = 9
+# The meta key of the last summary sent, as "<expression>|<timestamp>". A
+# summary covers the time since the run before (at most MAX_SUMMARY_DAYS).
 SUMMARY_KEY = "summary_last"
+MAX_SUMMARY_DAYS = 31
 
-# Self-tests start in this window of local hours (at night), at most one long one per night.
-SELFTEST_HOURS = range(2, 5)
+# A self-test due (by its cron expression) is tried for this long: a drive
+# asleep is tried again every minute, and a web UI started late still runs it.
+SELFTEST_GRACE = 3 * 3600
+# No test starts on a drive whose long test started less than this ago: it would abort it.
+LONG_TEST_GUARD = 86400
 
 # Fan wear: the RPM of a chosen fan at the same PWM, over the last WEAR_WINDOW,
 # against a baseline of its first WEAR_WINDOW of history, once the history is
@@ -328,34 +333,22 @@ class Monitor:
                 worn[pwm.path] = 1 - ratio / weight
         return worn
 
-    @staticmethod
-    def summary_time(kind: str, now: float) -> float:
-        """The last time a summary of this kind ("daily", "weekly") was due, as a timestamp (local time)."""
-        local = time.localtime(now)
-
-        def at(day: int) -> float:
-            # mktime takes days out of the month (0, -3...) and moves the month.
-            return time.mktime((local.tm_year, local.tm_mon, day, SUMMARY_HOUR, 0, 0, 0, 0, -1))
-
-        day = local.tm_mday if at(local.tm_mday) <= now else local.tm_mday - 1
-        if kind == "weekly":
-            day -= time.localtime(at(day)).tm_wday
-        return at(day)
-
     def summary_due(self, now: float | None = None) -> float | None:
         """The time of the summary to send now, or None. Blocking: SQLite.
 
-        The first time (or after the summary is turned on) nothing is sent:
-        the time is only recorded, and the first summary comes at the next one.
+        The first time (or after the expression changed) nothing is sent:
+        the time is only recorded, and the first summary comes at the next run.
         """
         settings = self._settings()
-        if settings.notify_summary == "off" or not settings.notify_url:
+        if not settings.notify_summary or not settings.notify_url:
             return None
         now = time.time() if now is None else now
-        due = self.summary_time(settings.notify_summary, now)
-        last = self.history.get_meta(f"{SUMMARY_KEY}_{settings.notify_summary}")
-        if last is None:
-            self.history.set_meta(f"{SUMMARY_KEY}_{settings.notify_summary}", str(due))
+        due = parse(settings.notify_summary).previous(now)
+        if due is None:
+            return None
+        expression, _, last = (self.history.get_meta(SUMMARY_KEY) or "").rpartition("|")
+        if expression != settings.notify_summary:
+            self.history.set_meta(SUMMARY_KEY, f"{settings.notify_summary}|{due}")
             return None
         return due if due > float(last) else None
 
@@ -363,9 +356,10 @@ class Monitor:
         """The text of the summary that ends at due, in the language of the alerts. Blocking: files and SQLite."""
         settings = self._settings()
         lang = settings.notify_language
-        days = 7 if settings.notify_summary == "weekly" else 1
-        since = int(due - days * 86400)
-        lines = [render(lang, f"summary.title_{settings.notify_summary}", {})]
+        before = parse(settings.notify_summary).previous(due - 60)
+        since = int(max(before or 0, due - MAX_SUMMARY_DAYS * 86400))
+        span = {name: time.strftime("%d/%m %H:%M", time.localtime(stamp)) for name, stamp in (("from", since), ("to", due))}
+        lines = [render(lang, "summary.title", span)]
         drives = self.hardware.drives()
         by_id = {i: drive for drive in drives for i in drive.ids}
         stats = self.history.stats(since)
@@ -403,8 +397,7 @@ class Monitor:
             return
         text = await asyncio.to_thread(self.build_summary, due)
         self.alerts.send_summary(text)
-        settings = self._settings()
-        await asyncio.to_thread(self.history.set_meta, f"{SUMMARY_KEY}_{settings.notify_summary}", str(due))
+        await asyncio.to_thread(self.history.set_meta, SUMMARY_KEY, f"{self._settings().notify_summary}|{due}")
 
     def _drive_name(self, ids: list[str], fallback: str) -> str:
         """The name given to a drive, by any of its stable names, or fallback."""
@@ -546,31 +539,29 @@ class Monitor:
             return await asyncio.to_thread(self.smart)
 
     async def run_selftests(self, now: float | None = None) -> list[tuple[str, str]]:
-        """Start the self-tests that are due, at night; return (device, kind) of those started.
+        """Start the self-tests that are due by their cron expressions; return (device, kind) of those started.
 
-        A drive asleep is left alone and tried again a minute later. Only one
-        long test starts per night, and no short test on a drive whose long
-        test started less than a day ago (it would abort it).
+        A test is due from the last run of its expression for SELFTEST_GRACE,
+        once per drive. A drive asleep is left alone and tried again a
+        minute later. No test starts on a drive whose long test started less
+        than LONG_TEST_GUARD ago (it would abort it); the long test goes first.
         """
         settings = self._settings()
         now = time.time() if now is None else now
-        local = time.localtime(now)
-        if local.tm_hour not in SELFTEST_HOURS:
-            return []
-        night = time.strftime("%Y-%m-%d", local)
         started: list[tuple[str, str]] = []
-        for kind, days in (("long", settings.selftest_long_days), ("short", settings.selftest_short_days)):
-            if days <= 0:
+        for kind, expression in (("long", settings.selftest_long), ("short", settings.selftest_short)):
+            if not expression:
+                continue
+            due = parse(expression).previous(now)
+            if due is None or now - due > SELFTEST_GRACE:
                 continue
             for device in settings.monitor_drives:
                 key = f"selftest_{kind}_{device}"
                 last = await asyncio.to_thread(self.history.get_meta, key)
-                if last is not None and now - float(last) < days * 86400:
-                    continue
-                if kind == "long" and await asyncio.to_thread(self.history.get_meta, "selftest_long_night") == night:
+                if last is not None and float(last) >= due:
                     continue
                 long_last = await asyncio.to_thread(self.history.get_meta, f"selftest_long_started_{device}")
-                if kind == "short" and long_last is not None and now - float(long_last) < 86400:
+                if long_last is not None and now - float(long_last) < LONG_TEST_GUARD:
                     continue
                 result = await self._selftest(device, kind)
                 if result.get("status") == STATUS_STANDBY:
@@ -580,23 +571,22 @@ class Monitor:
                 if result.get("status") == "started":
                     started.append((device, kind))
                     if kind == "long":
-                        await asyncio.to_thread(self.history.set_meta, "selftest_long_night", night)
                         await asyncio.to_thread(self.history.set_meta, f"selftest_long_started_{device}", str(now))
                     if self._log is not None:
                         self._log(f"SMART {kind} self-test started on {name}")
                 elif self._log is not None:
-                    # Not tried again before the next period: a drive that cannot test would be tried all night.
+                    # Not tried again before the next run: a drive that cannot test would be tried for hours.
                     self._log(
                         f"WARNING: cannot start the SMART {kind} self-test on {name}: {'; '.join(result.get('messages', []))}"
                     )
         return started
 
     async def _smart_loop(self) -> None:
-        """Read the SMART data every smart_interval_h hours; 0 means only on demand.
+        """Read the SMART data at the runs of smart_schedule; empty means only on demand.
 
-        The interval is read again every SMART_CHECK_PERIOD, so a new one
-        applies at once instead of after the old wait. The first read comes
-        SMART_CHECK_PERIOD after the start.
+        The expression is read again every SMART_CHECK_PERIOD, so a new one
+        applies at once. The first read comes SMART_CHECK_PERIOD after the
+        start; after it, a read is due when the expression ran since the last.
         """
         last: float | None = None
         while True:
@@ -605,12 +595,17 @@ class Monitor:
                 await self.run_selftests()
             except Exception as err:  # the loop must outlive any error
                 self._failed("SMART self-test", err)
-            hours = self._settings().smart_interval_h
-            if hours <= 0 or (last is not None and time.monotonic() - last < hours * 3600):
+            expression = self._settings().smart_schedule
+            now = time.time()
+            if not expression:
                 continue
+            if last is not None:
+                due = parse(expression).previous(now)
+                if due is None or due <= last:
+                    continue
             try:
                 await self.refresh_smart()
                 self._worked("SMART refresh")
             except Exception as err:  # the loop must outlive any error
                 self._failed("SMART refresh", err)
-            last = time.monotonic()
+            last = now

@@ -17,9 +17,9 @@ Notifications go through a queue with one sender task, in order: a slow or
 dead server never holds up the monitor that raises the alerts.
 
 An alert still on, and not taken note of, is sent again every
-notify_repeat_h hours. In the quiet hours only the urgent kinds
-(URGENT_KINDS) are sent; the rest waits, and goes out as one message
-when the quiet hours end.
+notify_repeat_h hours. In the quiet hours (the minutes the notify_quiet
+cron expression matches) only the urgent kinds (URGENT_KINDS) are sent;
+the rest waits, and goes out as one message when the quiet hours end.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from .aio import cancel_and_wait
+from .cron import parse
 from .history import History
 from .notify import NotifyError, send
 from .settings import Settings
@@ -108,12 +109,8 @@ def render(lang: str, key: str, params: dict[str, Any]) -> str:
 #   in_quiet_hours
 # ---------------------------
 def in_quiet_hours(settings: Settings, now: float) -> bool:
-    """Whether now (a timestamp) is in the quiet hours of the settings, in local time."""
-    start, end = settings.notify_quiet_from, settings.notify_quiet_to
-    if start == end:
-        return False
-    hour = time.localtime(now).tm_hour
-    return start <= hour < end if start < end else hour >= start or hour < end
+    """Whether the minute of now (a timestamp) matches the quiet hours expression, in local time."""
+    return bool(settings.notify_quiet) and parse(settings.notify_quiet).matches(now)
 
 
 # ---------------------------

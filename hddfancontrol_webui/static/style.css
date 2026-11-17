@@ -1592,15 +1592,19 @@ details.help p {
   overflow-x: auto;
 }
 
-/* Two numbers side by side in one field (quiet hours). */
-.pair {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+/* Schedules: cron expressions, with the next runs under each. */
+input.cron,
+.cron-syntax {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-.pair input {
-  width: 5rem;
+.cron-syntax {
+  white-space: pre-wrap;
+}
+
+.cron-preview {
+  color: var(--accent);
+  overflow-wrap: anywhere;
 }
 
 /* Bay map: one tile per bay, in the columns of the case. */

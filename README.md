@@ -137,7 +137,7 @@ hd-idle spins the chosen drives down after an idle time: one for every drive, an
 
 - **History:** every 30 seconds the web UI stores the drive temperatures that hddfancontrol measured (each drive under its `/dev/disk/by-id` name, since `sda` can be another drive after a reboot), and the PWM and speed of every fan, in `/config/history.db` (SQLite). It keeps 30 days by default; longer windows are averaged, so a chart never has more than 600 points per line.
 - **Logs:** besides the lines of hddfancontrol, hd-idle and the web UI, `docker logs` and the **Log** tab show one `[temps]` line with the drives that drive the fans (and the hottest one), the chosen fans with their PWM and speed, and the drives that are only monitored, with their last SMART temperature. It is written when a value changes by a degree or a percent, and at least every 10 minutes.
-- **SMART self-tests:** with **Short/Long SMART self-test every (days)** in **Settings**, the web UI starts the tests at night (2 to 5, local time), never on a sleeping drive, one long test per night; the drive runs it by itself and the next SMART read shows the result. A failed test is a SMART warning. TrueNAS can schedule them too: use one or the other.
+- **SMART self-tests:** with **Short/Long SMART self-test** in **Settings → Schedules** (cron expressions, such as `0 3 * * sun`), the web UI starts the tests on every monitored drive, never on a sleeping one (it tries again for 3 hours); the long test goes first, and no other test starts on that drive for a day. The drive runs it by itself and the next SMART read shows the result. A failed test is a SMART warning. TrueNAS can schedule them too: use one or the other.
 - **SMART:** `smartctl -a -n standby` reads the drives marked as monitored in **Settings** (by default, the drives that drive the fans) every 6 hours by default, and when you press **Read SMART now**. A drive asleep at that time is not woken and keeps its last data.
 - **Bay map:** in **Drives → Bay map**, draw the bays of the case (rows and columns as seen from the front) and put each drive in its bay; the overview then shows the drives as in the case, with their temperature and any SMART problem, so the drive to pull is found at once. Kept in `/config/bays.json`.
 - **Names:** give a fan or a drive a name in the **Fans** tab or the drive list of **Settings**. Names are kept in `/config/labels.json`, and changing one does not restart fan control. Drives are named by their `/dev/disk/by-id` path, which does not change between boots.
@@ -174,7 +174,11 @@ The web UI watches for:
 
 Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back), is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address.
 
-An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come every day or every Monday at 9: highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state. The hours are local time: set `TZ` on the container (TrueNAS apps run in UTC otherwise).
+An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come on a schedule: highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state since the one before. The quiet hours and the summary are set in **Settings → Schedules**.
+
+### Schedules
+
+Every schedule (SMART reads, self-tests, summary, quiet hours) is a cron expression as in crontab: `minute hour day month weekday`, with `*`, ranges (`1-5`), lists (`1,15`), steps (`*/6`), names (`mon`, `jan`) and the macros `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`. Each field offers a few ready-made ones and shows its next runs as you type. When both the day of the month and the weekday are given, either one is enough, as in cron. For the quiet hours every minute the expression matches is quiet: `* 22-23,0-6 * * *` is every night from 22 to 7. An empty field means never. The times are those of the server: set `TZ` on the container (TrueNAS apps run in UTC otherwise).
 
 - **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
 - **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
@@ -217,16 +221,16 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `SPIN_DOWN_TIME_S` | `600` | Idle time before spin down, seconds; `0` turns hd-idle off |
 | `SPIN_DOWN_COMMAND` | `ata` | `ata` or `scsi` |
 | `HISTORY_DAYS` | `30` | Days of history to keep |
-| `SMART_INTERVAL_H` | `6` | Hours between SMART reads; `0` reads only on demand |
+| `SMART_SCHEDULE` | `0 */6 * * *` | When SMART is read (cron, see [Schedules](#schedules)); empty reads only on demand. The older `SMART_INTERVAL_H` (hours) still works |
 | `NOTIFY_URL` | — | Where alerts are sent (see [Alerts](#alerts)); empty, none |
 | `NOTIFY_FORMAT` | `ntfy` | `ntfy`, `gotify` or `json` |
 | `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en` or `it` |
 | `NOTIFY_REPEAT_H` | `0` | Send again an alert still on (and not taken note of) every this many hours; `0` sends it once |
-| `NOTIFY_QUIET` | — | Quiet hours, local time, such as `22-7`: only urgent alerts go out, the rest when they end |
-| `NOTIFY_SUMMARY` | `off` | `daily` or `weekly` (Monday) summary at 9, local time |
-| `SELFTEST_SHORT_DAYS` | `0` | Run a short SMART self-test every this many days; `0` never |
-| `SELFTEST_LONG_DAYS` | `0` | Run a long SMART self-test every this many days; `0` never |
-| `TZ` | — | Time zone of the container (such as `Europe/Rome`), for the quiet hours, the summary and the self-tests |
+| `NOTIFY_QUIET` | — | Quiet hours, the minutes a cron expression matches, such as `* 22-23,0-6 * * *`: only urgent alerts go out, the rest when they end |
+| `NOTIFY_SUMMARY` | — | When a summary is sent (cron), such as `0 9 * * mon` |
+| `SELFTEST_SHORT` | — | When a short SMART self-test starts (cron), such as `0 3 * * sun` |
+| `SELFTEST_LONG` | — | When a long SMART self-test starts (cron), such as `0 3 1 * *` |
+| `TZ` | — | Time zone of the container (such as `Europe/Rome`), for the schedules |
 
 ## Resource use
 

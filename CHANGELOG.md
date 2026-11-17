@@ -21,13 +21,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   limits and lists the speed of each fan.
 - Notifications: an alert still on (and not taken note of) can be sent
   again every few hours; quiet hours send only urgent alerts and the rest
-  together when they end; a daily or weekly summary of temperatures, fans,
+  together when they end; a scheduled summary of temperatures, fans,
   alerts and SMART. Environment: `NOTIFY_REPEAT_H`, `NOTIFY_QUIET`,
   `NOTIFY_SUMMARY`, and `TZ` for local time.
-- Scheduled SMART self-tests: a short and a long test every so many days
-  (`SELFTEST_SHORT_DAYS`, `SELFTEST_LONG_DAYS`), started at night without
-  waking a sleeping drive, one long test per night. The drive card shows
-  the last self-test, and a failed one is a SMART warning.
+- Scheduled SMART self-tests, short and long (`SELFTEST_SHORT`,
+  `SELFTEST_LONG`), started without waking a sleeping drive. The drive
+  card shows the last self-test, and a failed one is a SMART warning.
+- Schedules are cron expressions, written by hand or picked from a list,
+  with the next runs shown as you type: SMART reads, self-tests, summary
+  and quiet hours, in a "Schedules" card of the settings.
 - Fan wear: once the history is three weeks old, the speed of each chosen
   fan at a given PWM is kept as its baseline; a fan that turns 15 % slower
   than that over the last week raises an alert (worn bearings show this
@@ -47,6 +49,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- SMART reads follow a cron expression, `smart_schedule` (default
+  `0 */6 * * *`, environment `SMART_SCHEDULE`), instead of a number of
+  hours. A saved `smart_interval_h` and `SMART_INTERVAL_H` still work and
+  are turned into the matching expression.
 - The curve mode now runs in the web UI too: hddfancontrol only measures,
   in every mode. The curve is the same, with a margin against pumping: a
   drive asks for more speed at once, but for less only once it is 2 °C

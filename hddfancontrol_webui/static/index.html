@@ -282,26 +282,48 @@
               <input type="number" name="notify_repeat_h" min="0" max="168">
               <small class="muted" data-i18n="settings.notify_repeat_help"></small>
               <small class="error" data-error="notify_repeat_h"></small></label>
-            <label class="field"><span data-i18n="settings.notify_quiet"></span>
-              <span class="pair">
-                <input type="number" name="notify_quiet_from" min="0" max="23" aria-label="from">
-                <span aria-hidden="true">–</span>
-                <input type="number" name="notify_quiet_to" min="0" max="23" aria-label="to">
-              </span>
-              <small class="muted" data-i18n="settings.notify_quiet_help"></small>
-              <small class="error" data-error="notify_quiet_from"></small>
-              <small class="error" data-error="notify_quiet_to"></small></label>
-            <label class="field"><span data-i18n="settings.notify_summary"></span>
-              <select name="notify_summary">
-                <option value="off" data-i18n="settings.summary_off"></option>
-                <option value="daily" data-i18n="settings.summary_daily"></option>
-                <option value="weekly" data-i18n="settings.summary_weekly"></option>
-              </select>
-              <small class="muted" data-i18n="settings.notify_summary_help"></small></label>
           </div>
           <div class="actions">
             <button type="button" id="notify-test" class="secondary" data-icon="bell" data-i18n="action.notify_test"></button>
             <span id="notify-result" class="small"></span>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2 data-icon="calendar" data-i18n="settings.schedules"></h2>
+          <p class="muted small" data-i18n="settings.schedules_help"></p>
+          <p class="muted small"><code class="cron-syntax" data-i18n="settings.cron_syntax"></code></p>
+          <div class="fields">
+            <label class="field"><span data-i18n="settings.smart_schedule"></span>
+              <input type="text" name="smart_schedule" class="cron" list="cron-smart_schedule" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <datalist id="cron-smart_schedule"></datalist>
+              <small class="cron-preview" data-cron-preview="smart_schedule"></small>
+              <small class="muted" data-i18n="settings.smart_schedule_help"></small>
+              <small class="error" data-error="smart_schedule"></small></label>
+            <label class="field"><span data-i18n="settings.selftest_short"></span>
+              <input type="text" name="selftest_short" class="cron" list="cron-selftest_short" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <datalist id="cron-selftest_short"></datalist>
+              <small class="cron-preview" data-cron-preview="selftest_short"></small>
+              <small class="muted" data-i18n="settings.selftest_short_help"></small>
+              <small class="error" data-error="selftest_short"></small></label>
+            <label class="field"><span data-i18n="settings.selftest_long"></span>
+              <input type="text" name="selftest_long" class="cron" list="cron-selftest_long" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <datalist id="cron-selftest_long"></datalist>
+              <small class="cron-preview" data-cron-preview="selftest_long"></small>
+              <small class="muted" data-i18n="settings.selftest_long_help"></small>
+              <small class="error" data-error="selftest_long"></small></label>
+            <label class="field"><span data-i18n="settings.notify_summary"></span>
+              <input type="text" name="notify_summary" class="cron" list="cron-notify_summary" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <datalist id="cron-notify_summary"></datalist>
+              <small class="cron-preview" data-cron-preview="notify_summary"></small>
+              <small class="muted" data-i18n="settings.notify_summary_help"></small>
+              <small class="error" data-error="notify_summary"></small></label>
+            <label class="field"><span data-i18n="settings.notify_quiet"></span>
+              <input type="text" name="notify_quiet" class="cron" list="cron-notify_quiet" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <datalist id="cron-notify_quiet"></datalist>
+              <small class="cron-preview" data-cron-preview="notify_quiet"></small>
+              <small class="muted" data-i18n="settings.notify_quiet_help"></small>
+              <small class="error" data-error="notify_quiet"></small></label>
           </div>
         </article>
 
@@ -317,17 +339,6 @@
             <label class="field"><span data-i18n="settings.history_days"></span>
               <input type="number" name="history_days" min="1" max="365">
               <small class="error" data-error="history_days"></small></label>
-            <label class="field"><span data-i18n="settings.smart_interval_h"></span>
-              <input type="number" name="smart_interval_h" min="0" max="168">
-              <small class="muted" data-i18n="settings.smart_interval_help"></small>
-              <small class="error" data-error="smart_interval_h"></small></label>
-            <label class="field"><span data-i18n="settings.selftest_short_days"></span>
-              <input type="number" name="selftest_short_days" min="0" max="365">
-              <small class="error" data-error="selftest_short_days"></small></label>
-            <label class="field"><span data-i18n="settings.selftest_long_days"></span>
-              <input type="number" name="selftest_long_days" min="0" max="365">
-              <small class="muted" data-i18n="settings.selftest_help"></small>
-              <small class="error" data-error="selftest_long_days"></small></label>
             <label class="field"><span data-i18n="settings.verbosity"></span>
               <select name="verbosity">
                 <option>TRACE</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option>

@@ -276,7 +276,7 @@ async def test_reminders_and_quiet_hours() -> None:
     async def sender(url: str, fmt: str, text: str, urgent: bool) -> None:
         sent.append((text, urgent))
 
-    settings = Settings(notify_url="https://x.example/", notify_repeat_h=2, notify_quiet_from=22, notify_quiet_to=7)
+    settings = Settings(notify_url="https://x.example/", notify_repeat_h=2, notify_quiet="* 22-23,0-6 * * *")
     alerts = Alerts(lambda: settings, lambda _: None, sender, clock=lambda: clock["now"])
     hot = {"hot:sda": ("drive_hot", {"drive": "sda", "temp": "51", "max": "50"})}
     stalled = {"stalled:p": ("fan_stalled", {"fan": "Back", "percent": "60"})}
@@ -306,10 +306,11 @@ async def test_reminders_and_quiet_hours() -> None:
     await alerts.stop()
 
 
-def test_quiet_hours_within_a_day() -> None:
-    """Quiet hours that do not cross midnight; equal hours mean none."""
+def test_quiet_hours_expression() -> None:
+    """The quiet hours are the minutes the expression matches; empty means none."""
     from hddfancontrol_webui.alerts import in_quiet_hours
 
-    settings = Settings(notify_quiet_from=13, notify_quiet_to=15)
+    settings = Settings(notify_quiet="* 13-14 * * mon-fri")  # 2 March 2026 is a Monday
     assert in_quiet_hours(settings, local(14)) and not in_quiet_hours(settings, local(15))
+    assert not in_quiet_hours(settings, local(14, day=7))
     assert not in_quiet_hours(Settings(), local(3))

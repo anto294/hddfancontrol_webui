@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .const import FAN_CMD_NOOP, SETTINGS_FILE
+from .cron import CronError, parse
 from .storage import write_atomic
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,11 +35,7 @@ CONTROL_MODES = ("curve", "auto")
 # How alerts are sent to NOTIFY_URL (notify.py), and in which language.
 NOTIFY_FORMATS = ("ntfy", "gotify", "json")
 NOTIFY_LANGUAGES = ("en", "it")
-# A summary of the drives and fans sent with the alerts, or none.
-NOTIFY_SUMMARIES = ("off", "daily", "weekly")
 MAX_REPEAT_H = 168
-MAX_SELFTEST_DAYS = 365
-_QUIET = re.compile(r"^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$")
 MAX_URL_LENGTH = 500
 # The host, then nothing or a path, query or fragment: no overlap, so no slow backtracking.
 _URL = re.compile(r"^https?://[^\s/?#]+(?:[/?#]\S*)?$")
@@ -61,7 +58,6 @@ MAX_INTERVAL_S = 3600
 MAX_AVERAGE = 100
 MAX_SPIN_DOWN_S = 86400
 MAX_HISTORY_DAYS = 365
-MAX_SMART_INTERVAL_H = 168
 MIN_TEMP = 0.0
 MAX_TEMP = 120.0
 
@@ -142,20 +138,22 @@ class Settings:
     control_mode: str = "curve"
     target_temp: float = 40.0
     history_days: int = 30
-    smart_interval_h: int = 6
+    # The schedules are cron expressions (cron.py), in local time; empty: never.
+    # SMART data is read at these times (empty: only on demand).
+    smart_schedule: str = "0 */6 * * *"
     notify_url: str = ""
     notify_format: str = "ntfy"
     notify_language: str = "en"
     # An alert still on is sent again every this many hours (0: once).
     notify_repeat_h: int = 0
-    # Quiet hours (local time, from included, to excluded; equal: none): only
-    # the urgent alerts are sent, the rest at the end of the quiet hours.
-    notify_quiet_from: int = 0
-    notify_quiet_to: int = 0
-    notify_summary: str = "off"
-    # SMART self-tests every this many days (0: never).
-    selftest_short_days: int = 0
-    selftest_long_days: int = 0
+    # Quiet hours: every minute the expression matches ("* 22-23,0-6 * * *").
+    # Only the urgent alerts are sent then, the rest when they end.
+    notify_quiet: str = ""
+    # When a summary of the drives and fans goes out with the alerts.
+    notify_summary: str = ""
+    # When the SMART self-tests start, on every monitored drive.
+    selftest_short: str = ""
+    selftest_long: str = ""
     # Limits of single drives over the common ones: {drive: {"min", "target", "max"}}, each optional.
     drive_limits: dict[str, dict[str, float]] = field(default_factory=dict)
 
@@ -248,6 +246,22 @@ class _Collector:
             self.add(key, "invalid_choice", choices=", ".join(choices))
             return default
         return str(value)
+
+    def cron(self, data: Mapping[str, Any], key: str, default: str) -> str:
+        """Read a cron expression, or empty for never."""
+        value = data.get(key, default)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return ""
+        if not isinstance(value, str):
+            self.add(key, "cron_fields")
+            return default
+        text = " ".join(value.split())
+        try:
+            parse(text)
+        except CronError as err:
+            self.add(key, err.code, **err.params)
+            return default
+        return text
 
     def boolean(self, data: Mapping[str, Any], key: str, default: bool) -> bool:
         """Read a boolean, from JSON or from an environment string."""
@@ -412,16 +426,15 @@ def from_dict(data: Any) -> Settings:
         control_mode=check.choice(data, "control_mode", defaults.control_mode, CONTROL_MODES),
         target_temp=target if target is not None else defaults.target_temp,
         history_days=check.integer(data, "history_days", defaults.history_days, 1, MAX_HISTORY_DAYS),
-        smart_interval_h=check.integer(data, "smart_interval_h", defaults.smart_interval_h, 0, MAX_SMART_INTERVAL_H),
+        smart_schedule=check.cron(_smart_schedule(data), "smart_schedule", defaults.smart_schedule),
         notify_url=_notify_url(check, data.get("notify_url", defaults.notify_url)),
         notify_format=check.choice(data, "notify_format", defaults.notify_format, NOTIFY_FORMATS),
         notify_language=check.choice(data, "notify_language", defaults.notify_language, NOTIFY_LANGUAGES),
         notify_repeat_h=check.integer(data, "notify_repeat_h", defaults.notify_repeat_h, 0, MAX_REPEAT_H),
-        notify_quiet_from=check.integer(data, "notify_quiet_from", defaults.notify_quiet_from, 0, 23),
-        notify_quiet_to=check.integer(data, "notify_quiet_to", defaults.notify_quiet_to, 0, 23),
-        notify_summary=check.choice(data, "notify_summary", defaults.notify_summary, NOTIFY_SUMMARIES),
-        selftest_short_days=check.integer(data, "selftest_short_days", defaults.selftest_short_days, 0, MAX_SELFTEST_DAYS),
-        selftest_long_days=check.integer(data, "selftest_long_days", defaults.selftest_long_days, 0, MAX_SELFTEST_DAYS),
+        notify_quiet=check.cron(data, "notify_quiet", defaults.notify_quiet),
+        notify_summary=check.cron(data, "notify_summary", defaults.notify_summary),
+        selftest_short=check.cron(data, "selftest_short", defaults.selftest_short),
+        selftest_long=check.cron(data, "selftest_long", defaults.selftest_long),
         drive_limits=drive_limits,
     )
     if check.problems:
@@ -466,6 +479,32 @@ def _drive_limits(
             check.add(name + ".target", "target_order")
         limits[drive] = own
     return limits
+
+
+# ---------------------------
+#   _smart_schedule
+# ---------------------------
+def _smart_schedule(data: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Turn smart_interval_h (hours, up to 0.6) into smart_schedule, when only the old key is there.
+
+    Every N hours from midnight ("0 */N * * *"), every N/24 days, or weekly:
+    the same as before when N divides 24, close to it otherwise. 0 (only on
+    demand) becomes empty.
+    """
+    if "smart_schedule" in data or "smart_interval_h" not in data:
+        return data
+    hours = data["smart_interval_h"]
+    try:
+        number = int(hours)
+    except (TypeError, ValueError):
+        return {"smart_schedule": hours}
+    if number <= 0:
+        return {"smart_schedule": ""}
+    if number < 24:
+        return {"smart_schedule": "0 * * * *" if number == 1 else f"0 */{number} * * *"}
+    if number < 168:
+        return {"smart_schedule": "0 0 * * *" if number < 48 else f"0 0 */{number // 24} * *"}
+    return {"smart_schedule": "0 0 * * 0"}
 
 
 # ---------------------------
@@ -540,24 +579,22 @@ def env_document(env: Mapping[str, str]) -> dict[str, Any]:
         "TARGET_TEMP": "target_temp",
         "HISTORY_DAYS": "history_days",
         "SMART_INTERVAL_H": "smart_interval_h",
+        "SMART_SCHEDULE": "smart_schedule",
         "NOTIFY_URL": "notify_url",
         "NOTIFY_REPEAT_H": "notify_repeat_h",
-        "SELFTEST_SHORT_DAYS": "selftest_short_days",
-        "SELFTEST_LONG_DAYS": "selftest_long_days",
+        "NOTIFY_QUIET": "notify_quiet",
+        "NOTIFY_SUMMARY": "notify_summary",
+        "SELFTEST_SHORT": "selftest_short",
+        "SELFTEST_LONG": "selftest_long",
     }
     for var, key in simple.items():
         if env.get(var, "").strip():
             doc[key] = env[var].strip()
     if env.get("CONTROL_MODE", "").strip():
         doc["control_mode"] = env["CONTROL_MODE"].strip().lower()
-    if env.get("NOTIFY_QUIET", "").strip():
-        quiet = _QUIET.match(env["NOTIFY_QUIET"])
-        # "22-7"; anything else is left for from_dict to refuse.
-        doc["notify_quiet_from"], doc["notify_quiet_to"] = quiet.groups() if quiet else (env["NOTIFY_QUIET"], 0)
     for var, key in {
         "NOTIFY_FORMAT": "notify_format",
         "NOTIFY_LANGUAGE": "notify_language",
-        "NOTIFY_SUMMARY": "notify_summary",
     }.items():
         if env.get(var, "").strip():
             doc[key] = env[var].strip().lower()

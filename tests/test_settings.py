@@ -236,9 +236,9 @@ def test_new_environment_variables() -> None:
         settings.control_mode,
         settings.target_temp,
         settings.history_days,
-        settings.smart_interval_h,
+        settings.smart_schedule,
         settings.average,
-    ) == ("auto", 38, 90, 0, 3)
+    ) == ("auto", 38, 90, "", 3)
 
 
 def test_hwmon_env_without_range() -> None:
@@ -348,20 +348,56 @@ def test_fan_groups_and_drive_limits() -> None:
 
 
 def test_reminders_quiet_hours_summary_and_selftests() -> None:
-    """The newer notification and self-test settings, from the environment and checked."""
+    """The schedules are cron expressions, from the environment and checked."""
     env = {
         "NOTIFY_REPEAT_H": "6",
-        "NOTIFY_QUIET": "22-7",
-        "NOTIFY_SUMMARY": "Weekly",
-        "SELFTEST_SHORT_DAYS": "7",
-        "SELFTEST_LONG_DAYS": "30",
+        "NOTIFY_QUIET": "*  22-23,0-6 * * *",
+        "NOTIFY_SUMMARY": "@weekly",
+        "SELFTEST_SHORT": "0 3 * * sun",
+        "SELFTEST_LONG": "0 3 1 * *",
+        "SMART_SCHEDULE": "0 */2 * * *",
+        "SMART_INTERVAL_H": "12",
     }
     settings = from_dict(env_document(env))
-    assert (settings.notify_repeat_h, settings.notify_quiet_from, settings.notify_quiet_to) == (6, 22, 7)
-    assert settings.notify_summary == "weekly"
-    assert (settings.selftest_short_days, settings.selftest_long_days) == (7, 30)
+    assert (settings.notify_repeat_h, settings.notify_quiet) == (6, "* 22-23,0-6 * * *")
+    assert settings.notify_summary == "@weekly"
+    assert (settings.selftest_short, settings.selftest_long) == ("0 3 * * sun", "0 3 1 * *")
+    assert settings.smart_schedule == "0 */2 * * *"  # wins over the old SMART_INTERVAL_H
+    assert from_dict({"notify_summary": None, "selftest_long": "  "}).notify_summary == ""
     with pytest.raises(SettingsError) as err:
-        from_dict(env_document({"NOTIFY_QUIET": "late", "NOTIFY_REPEAT_H": "999"}))
-    assert {p["field"] for p in err.value.problems} == {"notify_quiet_from", "notify_repeat_h"}
-    with pytest.raises(SettingsError):
-        from_dict({"notify_quiet_to": 24, "notify_summary": "hourly"})
+        from_dict(env_document({"NOTIFY_QUIET": "22-7", "NOTIFY_REPEAT_H": "999"}))
+    assert {p["field"]: p["code"] for p in err.value.problems} == {
+        "notify_quiet": "cron_fields",
+        "notify_repeat_h": "out_of_range",
+    }
+    with pytest.raises(SettingsError) as err:
+        from_dict({"notify_summary": "0 25 * * *", "selftest_short": 3})
+    assert [(p["field"], p["code"]) for p in err.value.problems] == [
+        ("notify_summary", "cron_range"),
+        ("selftest_short", "cron_fields"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("hours", "schedule"),
+    [
+        (0, ""),
+        (1, "0 * * * *"),
+        (6, "0 */6 * * *"),
+        ("12", "0 */12 * * *"),
+        (24, "0 0 * * *"),
+        (72, "0 0 */3 * *"),
+        (168, "0 0 * * 0"),
+    ],
+)
+def test_smart_interval_becomes_a_schedule(hours: int | str, schedule: str) -> None:
+    """smart_interval_h of a settings file of 0.6, or SMART_INTERVAL_H, turns into smart_schedule."""
+    assert from_dict({"smart_interval_h": hours}).smart_schedule == schedule
+    assert from_dict(env_document({"SMART_INTERVAL_H": str(hours)})).smart_schedule == schedule
+
+
+def test_smart_interval_not_a_number() -> None:
+    """A wrong old interval is reported on smart_schedule."""
+    with pytest.raises(SettingsError) as err:
+        from_dict({"smart_interval_h": "often"})
+    assert err.value.problems[0]["field"] == "smart_schedule"

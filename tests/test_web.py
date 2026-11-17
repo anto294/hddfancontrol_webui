@@ -512,3 +512,27 @@ async def test_bays_api(make_client: ClientMaker) -> None:
     assert response.status == 200 and (await response.json())["slots"] == [DRIVE, ""]
     bad = await client.put("/api/bays", json={"rows": 1, "cols": 1, "slots": ["/tmp/x"]}, headers=FETCH)
     assert bad.status == 400 and (await bad.json())["error"] == "invalid_dev_path"
+
+
+async def test_cron_preview(make_client: ClientMaker) -> None:
+    """The next runs or stretches of an expression, in the wall clock of the server; a wrong one is a 400."""
+    client = await make_client()
+    data = await (await client.get("/api/cron", params={"expr": "0 3 * * *"})).json()
+    assert len(data["runs"]) == 3 and all(run.endswith("T03:00") for run in data["runs"]) and data["zone"]
+    data = await (await client.get("/api/cron", params={"expr": "* 22-23,0-6 * * *", "windows": "1"})).json()
+    assert len(data["windows"]) == 3 and all(end.endswith("T07:00") for _, end in data["windows"])
+    data = await (await client.get("/api/cron", params={"expr": "0 0 29 2 mon"})).json()
+    assert len(data["runs"]) == 3
+    bad = await client.get("/api/cron", params={"expr": "0 24 * * *"})
+    body = await bad.json()
+    assert bad.status == 400 and body["error"] == "cron_range" and body["problems"][0]["params"]["max"] == 23
+
+
+async def test_cron_preview_far_runs(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runs past the search limit are left out."""
+    from hddfancontrol_webui import cron
+
+    client = await make_client()
+    monkeypatch.setattr(cron, "SEARCH_DAYS", 400)
+    data = await (await client.get("/api/cron", params={"expr": "0 0 29 2 *"})).json()
+    assert len(data["runs"]) <= 1

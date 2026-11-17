@@ -110,7 +110,7 @@ async def test_loops_start_and_stop(tmp_path: Path, fake_sys: Path, fake_dev: Pa
     assert calls and monitor.history.query(24 * 365)["series"]
     monitor.history.close()
 
-    idle = make_monitor(tmp_path / "b", fake_sys, fake_dev, from_dict({"smart_interval_h": 0}), reader)
+    idle = make_monitor(tmp_path / "b", fake_sys, fake_dev, from_dict({"smart_schedule": ""}), reader)
     calls.clear()
     idle.start()
     await real(0.05)
@@ -211,12 +211,13 @@ async def test_loops_survive_errors(tmp_path: Path, fake_sys: Path, fake_dev: Pa
     monitor.history.close()
 
 
-async def test_smart_interval_change_applies_at_once(
+async def test_smart_schedule_change_applies_at_once(
     tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A shorter SMART interval applies at the next check, not after the old wait."""
+    """SMART is read at start, then at the runs of smart_schedule; a new expression applies at the next check."""
     real = asyncio.sleep
-    clock = {"now": 0.0}
+    start = time.mktime((2026, 11, 17, 0, 0, 30, 0, 0, -1))
+    clock = {"now": start}
 
     async def tick(_: float) -> None:
         clock["now"] += 60
@@ -230,34 +231,29 @@ async def test_smart_interval_change_applies_at_once(
 
     monkeypatch.setattr(monitor_module.asyncio, "sleep", tick)
     # Only the monitor's clock: the event loop keeps the real one.
-    fake_time = type("FakeTime", (), {"monotonic": staticmethod(lambda: clock["now"]), "time": staticmethod(time.time)})
+    fake_time = type("FakeTime", (), {"time": staticmethod(lambda: clock["now"])})
     monkeypatch.setattr(monitor_module, "time", fake_time)
-    settings = {"value": from_dict({"drives": [DRIVE], "smart_interval_h": 168})}
+    settings = {"value": from_dict({"drives": [DRIVE], "smart_schedule": "@yearly"})}
     monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings["value"], reader)
     monitor._settings = lambda: settings["value"]
     task = asyncio.create_task(monitor._smart_loop())
     while not reads:
         await real(0.005)
-    assert reads == [60.0]
-    settings["value"] = from_dict({"drives": [DRIVE], "smart_interval_h": 1})
+    assert reads == [start + 60]
+    settings["value"] = from_dict({"drives": [DRIVE], "smart_schedule": "0 * * * *"})
     while len(reads) < 2:
         await real(0.005)
     task.cancel()
-    assert reads[1] - reads[0] == 3600
+    assert reads[1] == start + 3600  # the first check after 01:00
     monitor.history.close()
 
 
 def test_summary(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
-    """The summary is due daily or weekly at 9 local time, never at the first look, and lists drives, fans and alerts."""
+    """The summary is due at the runs of its expression, never at the first look, and lists drives, fans and alerts."""
     from hddfancontrol_webui.alerts import Alerts
 
     def local(day: int, hour: int) -> float:
         return time.mktime((2026, 11, day, hour, 0, 0, 0, 0, -1))
-
-    assert Monitor.summary_time("daily", local(17, 10)) == local(17, 9)
-    assert Monitor.summary_time("daily", local(17, 8)) == local(16, 9)
-    assert Monitor.summary_time("weekly", local(19, 10)) == local(16, 9)  # 16 Nov 2026 is a Monday
-    assert Monitor.summary_time("weekly", local(16, 8)) == local(9, 9)
 
     pwm = "/sys/class/hwmon/hwmon2/pwm1"
     settings = from_dict(
@@ -265,7 +261,7 @@ def test_summary(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
             "drives": [DRIVE],
             "pwms": [{"path": pwm, "start": 200, "stop": 75}],
             "notify_url": "https://x.example/",
-            "notify_summary": "daily",
+            "notify_summary": "0 9 * * *",
         }
     )
     monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
@@ -281,19 +277,23 @@ def test_summary(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     due = monitor.summary_due(local(18, 9) + 1800)
     assert due == local(18, 9)
     text = monitor.build_summary(due)
-    assert text.splitlines()[0] == "hddfancontrol: the last 24 hours"
+    assert text.splitlines()[0] == "hddfancontrol: from 17/11 09:00 to 18/11 09:00"
     assert "ST4000VN006: highest 45 °C, average 43 °C" in text
     assert "pwm1: 1000 RPM on average" in text and "Alerts: 1 raised, 0 still on" in text
     assert "SMART: 0 OK, 1 to check, 0 failing" in text
-    monitor._settings = lambda: from_dict({**settings.to_dict(), "notify_summary": "off"})
+    monitor._settings = lambda: from_dict({**settings.to_dict(), "notify_summary": ""})
     assert monitor.summary_due(local(19, 10)) is None
+    # A new expression starts over: only recorded at the first look.
+    monitor._settings = lambda: from_dict({**settings.to_dict(), "notify_summary": "0 10 * * *"})
+    assert monitor.summary_due(local(19, 11)) is None
+    assert monitor.summary_due(local(20, 11)) == local(20, 10)
     monitor.history.close()
 
 
 async def test_summary_is_sent_once(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     """A due summary goes to the alerts once, and is recorded."""
     sent: list[str] = []
-    settings = from_dict({"drives": [DRIVE], "notify_url": "https://x.example/", "notify_summary": "weekly"})
+    settings = from_dict({"drives": [DRIVE], "notify_url": "https://x.example/", "notify_summary": "0 9 * * 1"})
     monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
 
     class FakeAlerts:
@@ -304,15 +304,15 @@ async def test_summary_is_sent_once(tmp_path: Path, fake_sys: Path, fake_dev: Pa
             sent.append(text)
 
     monitor.alerts = FakeAlerts()  # type: ignore[assignment]  # only what the summary uses
-    monitor.history.set_meta("summary_last_weekly", "0")
+    monitor.history.set_meta("summary_last", "0 9 * * 1|0")
     await monitor._send_summary()
     await monitor._send_summary()
-    assert len(sent) == 1 and sent[0].startswith("hddfancontrol: the last 7 days")
+    assert len(sent) == 1 and sent[0].startswith("hddfancontrol: from ")
     monitor.history.close()
 
 
-async def test_selftests_run_at_night(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
-    """Due self-tests start at night only; one long test per night; a sleeping drive is tried later."""
+async def test_selftests_follow_their_schedule(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """Self-tests start at the runs of their expressions, for a few hours; a sleeping drive is tried later."""
     other = "/dev/disk/by-id/nvme-Samsung_980_S64"
     calls: list[tuple[str, str]] = []
     asleep = {DRIVE}
@@ -328,7 +328,8 @@ async def test_selftests_run_at_night(tmp_path: Path, fake_sys: Path, fake_dev: 
         )
 
     settings = from_dict(
-        {"drives": [DRIVE], "monitor_drives": [DRIVE, other], "selftest_short_days": 7, "selftest_long_days": 30}
+        # 18 November 2026 is a Wednesday.
+        {"drives": [DRIVE], "monitor_drives": [DRIVE, other], "selftest_short": "0 3 * * wed", "selftest_long": "0 3 18 * *"}
     )
     monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
     monitor._selftest = selftest
@@ -338,8 +339,8 @@ async def test_selftests_run_at_night(tmp_path: Path, fake_sys: Path, fake_dev: 
     def local(day: int, hour: int) -> float:
         return time.mktime((2026, 11, day, hour, 0, 0, 0, 0, -1))
 
-    assert await monitor.run_selftests(local(17, 12)) == [] and calls == []  # daytime
-    # Night: DRIVE sleeps; the other cannot run a long test, so its short one starts.
+    assert await monitor.run_selftests(local(17, 12)) == [] and calls == []  # nothing due
+    # Due: DRIVE sleeps; the other cannot run a long test, so its short one starts.
     assert await monitor.run_selftests(local(18, 3)) == [(other, "short")]
     assert any("cannot start the SMART long self-test" in line for line in lines)
     # DRIVE wakes up: its long test starts, and its short test waits for it.
@@ -347,10 +348,10 @@ async def test_selftests_run_at_night(tmp_path: Path, fake_sys: Path, fake_dev: 
     calls.clear()
     assert await monitor.run_selftests(local(18, 3) + 60) == [(DRIVE, "long")]
     assert (DRIVE, "short") not in calls
-    # Nothing is due again soon.
+    # Past SELFTEST_GRACE nothing is due.
     calls.clear()
     assert await monitor.run_selftests(local(19, 3)) == [] and calls == []
-    # A week later the short tests are due again; DRIVE's long test was 7 days ago, so its short one runs.
+    # The next Wednesday the short tests are due again; DRIVE's long test was 7 days ago, so its short one runs.
     assert sorted(await monitor.run_selftests(local(25, 3))) == sorted([(DRIVE, "short"), (other, "short")])
     monitor.history.close()
 

@@ -33,6 +33,7 @@ from aiohttp import web
 from .auth import SESSION_COOKIE, SESSION_LIFETIME, AuthError, AuthStore
 from .bays import BayError, Bays
 from .const import HISTORY_MAX_HOURS, SOURCE_SENSORS, VERSION
+from .cron import CronError, parse, windows
 from .hardware import Hardware
 from .history import History
 from .labels import LabelError, Labels
@@ -442,6 +443,8 @@ async def get_history(request: web.Request) -> web.Response:
 # ---------------------------
 # A CSV never holds more than this many points per series (a year of 30 s samples is a million).
 CSV_MAX_POINTS = 20000
+# How many runs or stretches the preview of a cron expression shows.
+CRON_PREVIEW = 3
 
 
 async def get_history_csv(request: web.Request) -> web.Response:
@@ -537,6 +540,41 @@ async def put_bays(request: web.Request) -> web.Response:
         _LOGGER.error("Cannot save the bay map: %s", err)
         return _json_error(500, "save_failed")
     return web.json_response(bays)
+
+
+# ---------------------------
+#   get_cron
+# ---------------------------
+async def get_cron(request: web.Request) -> web.Response:
+    """Check a cron expression (?expr=) and give its next runs, or with ?windows=1 its next stretches.
+
+    For the preview under the schedule fields: {runs: [time, ...]} or
+    {windows: [[start, end], ...]}, with zone. The times are the local
+    wall clock of the server ("2026-11-22T03:00"), which the schedules
+    follow, not the time zone of the browser. A wrong expression is a 400
+    with the problem of the settings check.
+    """
+    expression = " ".join(request.query.get("expr", "").split())
+    try:
+        cron = parse(expression)
+    except CronError as err:
+        return _json_error(400, err.code, [{"field": "expr", "code": err.code, "params": err.params}])
+    now = time.time()
+
+    def wall(stamp: float) -> str:
+        return time.strftime("%Y-%m-%dT%H:%M", time.localtime(stamp))
+
+    zone = time.strftime("%Z", time.localtime(now))
+    if request.query.get("windows") == "1":
+        found = await asyncio.to_thread(windows, cron, now, CRON_PREVIEW)
+        return web.json_response({"windows": [[wall(start), wall(end)] for start, end in found], "zone": zone})
+    runs: list[str] = []
+    after: float | None = now
+    while after is not None and len(runs) < CRON_PREVIEW:
+        after = cron.next(after)
+        if after is not None:
+            runs.append(wall(after))
+    return web.json_response({"runs": runs, "zone": zone})
 
 
 # ---------------------------
@@ -894,6 +932,7 @@ def create_app(
     router.add_put("/api/labels", put_labels)
     router.add_get("/api/bays", get_bays)
     router.add_put("/api/bays", put_bays)
+    router.add_get("/api/cron", get_cron)
     router.add_get("/api/settings", get_settings)
     router.add_put("/api/settings", put_settings)
     router.add_delete("/api/settings", delete_settings)

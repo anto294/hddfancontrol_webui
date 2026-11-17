@@ -39,7 +39,7 @@ def test_codes_of_the_server_are_translated() -> None:
     """Error codes, modes, states and statuses that the server sends have a text."""
     en = load("en")
     source = "\n".join(p.read_text() for p in (STATIC.parent).glob("*.py"))
-    codes = set(re.findall(r'(?:add\([^,]+, |_json_error\(\d+, |AuthError\()"([a-z_]+)"', source))
+    codes = set(re.findall(r'(?:add\([^,]+, |_json_error\(\d+, |AuthError\(|CronError\()"([a-z_]+)"', source))
     assert codes, "no code found"
     assert {c for c in codes if f"error.{c}" not in en} == set()
     for prefix, values in {
