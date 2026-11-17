@@ -68,6 +68,7 @@ RUN apk add --no-cache \
       kmod \
       lm-sensors-detect \
       nvme-cli \
+      openssl \
       py3-aiohttp \
       python3 \
       smartmontools \

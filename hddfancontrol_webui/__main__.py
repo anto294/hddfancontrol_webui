@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
+import ssl
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,7 @@ from .settings import SettingsStore
 from .smart import read_smart, start_selftest
 from .supervisor import LogBuffer, Supervisor
 from .templog import TempLog
+from .tls import DualListener, TlsError, ssl_context
 from .web import STATE, create_app
 
 
@@ -59,8 +62,12 @@ def _env_flag(name: str, default: bool) -> bool:
 # ---------------------------
 #   build
 # ---------------------------
-def build() -> tuple[web.Application, int]:
-    """Build the application from the environment, and return it with its port."""
+def build() -> tuple[web.Application, int, ssl.SSLContext | None]:
+    """Build the application from the environment, and return it with its port and its TLS context (or None).
+
+    A certificate that cannot be read or made leaves HTTPS off, with an
+    error in the log, instead of stopping: the fans come first.
+    """
     config_dir = Path(os.environ.get("CONFIG_DIR", str(DEFAULT_CONFIG_DIR)))
     port = int(os.environ.get("WEBUI_PORT", str(DEFAULT_PORT)))
     load_modules = _env_flag("LOAD_SENSOR_MODULES", True)
@@ -116,11 +123,28 @@ def build() -> tuple[web.Application, int]:
             env.get("MODPROBE_BIN", MODPROBE_BIN),
         )
 
-    app = create_app(supervisor, hardware, temp_log, history, monitor, auth, labels, scan, Bays(config_dir))
+    context: ssl.SSLContext | None = None
+    tls_error = ""
+    if _env_flag("ENABLE_TLS", False):
+        try:
+            context = ssl_context(
+                config_dir, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), env.get("OPENSSL_BIN", "openssl")
+            )
+        except TlsError as err:
+            tls_error = str(err)
+    # Redirecting to an HTTPS that failed would lock everyone out.
+    force_https = _env_flag("FORCE_HTTPS", False) and not tls_error
+    app = create_app(
+        supervisor, hardware, temp_log, history, monitor, auth, labels, scan, Bays(config_dir), force_https=force_https
+    )
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:
         """Scan the sensors, then start everything; stop it all when the server stops."""
-        logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}, listening on port {port}")
+        scheme = "HTTPS and HTTP" if context else "HTTP"
+        redirect = ", HTTP redirected to HTTPS" if force_https else ""
+        logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}, listening on port {port} ({scheme}{redirect})")
+        if tls_error:
+            logs.add(SOURCE_WEBUI, f"ERROR: HTTPS is off: {tls_error}")
         if not auth.enabled:
             logs.add(
                 SOURCE_WEBUI,
@@ -155,7 +179,40 @@ def build() -> tuple[web.Application, int]:
         history.close()
 
     app.cleanup_ctx.append(lifecycle)
-    return app, port
+    return app, port, context
+
+
+# ---------------------------
+#   serve
+# ---------------------------
+async def serve(
+    app: web.Application, host: str, port: int, context: ssl.SSLContext | None, access_log: logging.Logger | None
+) -> None:
+    """Serve until SIGTERM or SIGINT, then clean up (which gives the fans back).
+
+    With a TLS context, one port answers both HTTPS and HTTP (DualListener).
+    """
+    runner = web.AppRunner(app, access_log=access_log, handle_signals=False)
+    await runner.setup()
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(signum, stop.set)
+    listener: DualListener | None = None
+    try:
+        if context is None:
+            await web.TCPSite(runner, host, port).start()
+        else:
+            server = runner.server
+            if server is None:  # setup() made it
+                raise RuntimeError("the server was not made")
+            listener = DualListener(server, host, port, context)
+            await listener.start()
+        await stop.wait()
+    finally:
+        if listener is not None:
+            await listener.close()
+        await runner.cleanup()
 
 
 # ---------------------------
@@ -164,13 +221,13 @@ def build() -> tuple[web.Application, int]:
 def main() -> None:
     """Run until SIGTERM or SIGINT, which stop the daemons and give the fans back."""
     logging.basicConfig(level=logging.INFO, format="[webui] %(levelname)s %(name)s: %(message)s")
-    app, port = build()
+    app, port, context = build()
     # A container listens on every interface; Docker decides what is published.
     host = os.environ.get("WEBUI_HOST", "0.0.0.0")  # noqa: S104  # nosec B104
     # The page polls the API every few seconds: one log line per request
     # would bury everything else. Errors are still logged.
     access_log = logging.getLogger("aiohttp.access") if _env_flag("WEBUI_ACCESS_LOG", False) else None
-    web.run_app(app, host=host, port=port, print=None, access_log=access_log)
+    asyncio.run(serve(app, host, port, context, access_log))
 
 
 if __name__ == "__main__":

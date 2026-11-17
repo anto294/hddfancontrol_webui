@@ -43,7 +43,7 @@ ClientMaker = Callable[..., Awaitable[Client]]
 def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker) -> ClientMaker:
     """Build a client on an app with fake hardware and programs."""
 
-    async def make(env: dict[str, str] | None = None) -> Client:
+    async def make(env: dict[str, str] | None = None, force_https: bool = False) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
         log_path = config / "templog" / "temps.jsonl"
@@ -72,7 +72,17 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         async def scan() -> SensorReport:
             return SensorReport(state="done")
 
-        app = create_app(supervisor, hardware, temp_log, history, monitor, AuthStore(config, env or {}), Labels(config), scan)
+        app = create_app(
+            supervisor,
+            hardware,
+            temp_log,
+            history,
+            monitor,
+            AuthStore(config, env or {}),
+            Labels(config),
+            scan,
+            force_https=force_https,
+        )
 
         async def stop(app: web.Application) -> None:
             await supervisor.stop()
@@ -536,3 +546,15 @@ async def test_cron_preview_far_runs(make_client: ClientMaker, monkeypatch: pyte
     monkeypatch.setattr(cron, "SEARCH_DAYS", 400)
     data = await (await client.get("/api/cron", params={"expr": "0 0 29 2 *"})).json()
     assert len(data["runs"]) <= 1
+
+
+async def test_force_https(make_client: ClientMaker) -> None:
+    """With force_https, plain HTTP is redirected to the same address over HTTPS, except /healthz."""
+    client = await make_client(force_https=True)
+    response = await client.get("/api/status?x=1", allow_redirects=False)
+    assert response.status == 308
+    assert response.headers["Location"] == f"https://{client.server.host}:{client.server.port}/api/status?x=1"
+    assert "Content-Security-Policy" in response.headers
+    assert (await client.get("/healthz", allow_redirects=False)).status == 200
+    proxied = await client.get("/api/status", headers={"X-Forwarded-Proto": "https"}, allow_redirects=False)
+    assert proxied.status == 200 and "Strict-Transport-Security" not in proxied.headers

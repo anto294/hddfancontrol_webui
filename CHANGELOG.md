@@ -27,6 +27,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Scheduled SMART self-tests, short and long (`SELFTEST_SHORT`,
   `SELFTEST_LONG`), started without waking a sleeping drive. The drive
   card shows the last self-test, and a failed one is a SMART warning.
+- HTTPS: `ENABLE_TLS=true` serves HTTPS on the web UI port, with
+  `TLS_CERT` and `TLS_KEY` or a self-signed certificate made in
+  `/config/tls`. The same port still answers plain HTTP, and
+  `FORCE_HTTPS=true` redirects it to HTTPS (also behind a reverse proxy,
+  from `X-Forwarded-Proto`); `/healthz` stays on HTTP for the health
+  check. The image now includes `openssl`.
 - Schedules are cron expressions, written by hand or picked from a list,
   with the next runs shown as you type: SMART reads, self-tests, summary
   and quiet hours, in a "Schedules" card of the settings.

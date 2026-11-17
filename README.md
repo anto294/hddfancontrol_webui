@@ -144,7 +144,7 @@ hd-idle spins the chosen drives down after an idle time: one for every drive, an
 
 ## On a phone
 
-The web UI fits a phone screen, and can go on its home screen as an app: in Safari on iPhone, **Share → Add to Home Screen**; in Chrome on Android, **⋮ → Add to Home screen**. It then opens full screen, without the browser bars. Chrome installs it as a real app only over HTTPS (behind a reverse proxy with a certificate); over plain HTTP it is a shortcut that opens in the browser.
+The web UI fits a phone screen, and can go on its home screen as an app: in Safari on iPhone, **Share → Add to Home Screen**; in Chrome on Android, **⋮ → Add to Home screen**. It then opens full screen, without the browser bars. Chrome installs it as a real app only over HTTPS with a certificate it trusts ([HTTPS](#https) with your own certificate, or a reverse proxy); otherwise it is a shortcut that opens in the browser.
 
 ## Prometheus and Grafana
 
@@ -190,7 +190,15 @@ Every schedule (SMART reads, self-tests, summary, quiet hours) is a cron express
 - Credentials set in the web UI are stored as a scrypt hash in `/config/auth.json`. `WEBUI_USERNAME` and `WEBUI_PASSWORD` win over them, and cannot be changed from the web UI.
 - A login gives an HttpOnly, SameSite=Strict session cookie, valid for 7 days or until the container restarts. Scripts can use HTTP Basic authentication. A failed login waits one second.
 - Every change needs a header that other sites cannot send, and every value is checked before it reaches a command line or a file: only `/dev` paths for drives, only PWM files that exist on the host for manual control and the PWM test.
-- The web UI has no HTTPS of its own. To reach it from outside your network, put it behind a reverse proxy with HTTPS, or a VPN.
+- The session cookie is marked Secure over HTTPS. To reach the web UI from outside your network, use a VPN, or a reverse proxy with HTTPS.
+
+### HTTPS
+
+Set `ENABLE_TLS=true` and the web UI speaks HTTPS on its own port. Without `TLS_CERT` and `TLS_KEY` it makes a self-signed certificate at the first start, in `/config/tls` (valid 10 years, for the host name, `localhost` and `127.0.0.1`): the browser warns once, and you accept it for that address. To avoid the warning, give your own certificate and key (PEM files, mounted in the container) with `TLS_CERT` and `TLS_KEY`.
+
+The same port still answers plain HTTP, so an old bookmark keeps working; with `FORCE_HTTPS=true` it is redirected to HTTPS (except `/healthz`, which the container health check reads over HTTP). Behind a reverse proxy that terminates HTTPS, `FORCE_HTTPS` alone redirects the requests the proxy marks as HTTP (`X-Forwarded-Proto`). The web UI sends no `Strict-Transport-Security`: with a self-signed certificate the browser would then refuse the page instead of warning.
+
+If the certificate cannot be read or made, the web UI starts over plain HTTP (no redirect) and says why in the log: the fans are controlled either way.
 
 ## Environment variables
 
@@ -202,6 +210,9 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `WEBUI_PASSWORD` | — | Password of the web UI |
 | `WEBUI_PORT` | `8080` | Port of the web UI |
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
+| `ENABLE_TLS` | `false` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; see [HTTPS](#https) |
+| `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
+| `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/tls` |
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
 | `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request (the page polls every few seconds) |
 | `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |

@@ -31,5 +31,8 @@ services:
       # - SPIN_DOWN_TIME_S=600
       # - NOTIFY_URL=https://ntfy.sh/a-topic-of-yours
       # - TZ=Europe/Rome
+      # HTTPS on the same port (a self-signed certificate is made in /config/tls):
+      # - ENABLE_TLS=true
+      # - FORCE_HTTPS=true
     # The web UI and the daemons fit easily in this.
     mem_limit: 128m

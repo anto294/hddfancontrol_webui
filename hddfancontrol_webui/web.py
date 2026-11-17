@@ -76,6 +76,7 @@ LOGIN_MAX_ADDRESSES = 10000
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 SensorScan = Callable[[], Awaitable[SensorReport]]
 
+FORCE_HTTPS: web.AppKey[bool] = web.AppKey("force_https", bool)
 SUPERVISOR: web.AppKey[Supervisor] = web.AppKey("supervisor", Supervisor)
 HARDWARE: web.AppKey[Hardware] = web.AppKey("hardware", Hardware)
 TEMP_LOG: web.AppKey[TempLog] = web.AppKey("temp_log", TempLog)
@@ -201,6 +202,22 @@ async def security_headers(request: web.Request, handler: Handler) -> web.Stream
     if isinstance(response, web.HTTPException):
         raise response
     return response
+
+
+# ---------------------------
+#   https_only
+# ---------------------------
+@web.middleware
+async def https_only(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """With FORCE_HTTPS, send a request that came over plain HTTP to the same address over HTTPS.
+
+    /healthz stays on HTTP, for the health check of the container. No
+    Strict-Transport-Security: with a self-signed certificate it would
+    turn the warning a browser lets you pass into an error it does not.
+    """
+    if request.app[FORCE_HTTPS] and not _is_https(request) and request.path != "/healthz":
+        raise web.HTTPPermanentRedirect(f"https://{request.host}{request.path_qs}")
+    return await handler(request)
 
 
 # ---------------------------
@@ -893,14 +910,19 @@ def create_app(
     labels: Labels,
     sensor_scan: SensorScan | None = None,
     bays: Bays | None = None,
+    force_https: bool = False,
 ) -> web.Application:
-    """Build the application around parts that the caller starts and stops."""
+    """Build the application around parts that the caller starts and stops.
+
+    With force_https, a request over plain HTTP is redirected to HTTPS.
+    """
 
     async def default_scan() -> SensorReport:
         return await scan_sensor_modules(lambda text: supervisor.logs.add(SOURCE_SENSORS, text))
 
-    app = web.Application(middlewares=[security_headers, authentication, csrf], client_max_size=64 * 1024)
+    app = web.Application(middlewares=[security_headers, https_only, authentication, csrf], client_max_size=64 * 1024)
     app[SUPERVISOR] = supervisor
+    app[FORCE_HTTPS] = force_https
     app[HARDWARE] = hardware
     app[TEMP_LOG] = temp_log
     app[HISTORY] = history
