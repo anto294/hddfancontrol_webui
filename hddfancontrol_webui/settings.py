@@ -695,9 +695,10 @@ class SettingsStore:
     def load(self) -> tuple[Settings, str]:
         """Return the settings in force and where they come from.
 
-        A file that cannot be read or holds invalid values is reported in
-        ``error`` and the environment is used, so a bad file never stops the
-        fans from being controlled.
+        A file that cannot be read (whatever the reason: not UTF-8, nested
+        too deep) or holds invalid values is reported in ``error`` and the
+        environment is used, so a bad file never stops the fans from being
+        controlled.
         """
         self.error = None
         if self.path.exists():
@@ -705,12 +706,12 @@ class SettingsStore:
                 with self.path.open(encoding="utf-8") as handle:
                     data = json.load(handle)
                 return from_dict(data), SOURCE_FILE
-            except (OSError, json.JSONDecodeError) as err:
-                _LOGGER.error("Cannot read %s, using the environment: %s", self.path, err)
-                self.error = SettingsError([{"field": "", "code": "unreadable_file", "params": {}}])
             except SettingsError as err:
                 _LOGGER.error("Invalid values in %s, using the environment: %s", self.path, err)
                 self.error = err
+            except Exception as err:  # not UTF-8, nested too deep, a bug: the fans come first
+                _LOGGER.error("Cannot read %s, using the environment: %r", self.path, err)
+                self.error = SettingsError([{"field": "", "code": "unreadable_file", "params": {}}])
         return self.from_env(), SOURCE_ENV
 
     def from_env(self) -> Settings:
@@ -720,7 +721,10 @@ class SettingsStore:
         except SettingsError as err:
             _LOGGER.error("Invalid environment variables, using the defaults: %s", err)
             self.error = err
-            return Settings()
+        except Exception as err:  # a bug must not stop the start: the defaults control nothing
+            _LOGGER.error("Cannot read the environment variables, using the defaults: %r", err)
+            self.error = SettingsError([{"field": "", "code": "unreadable_env", "params": {}}])
+        return Settings()
 
     def save(self, settings: Settings) -> None:
         """Write the file in one step, so a crash never leaves half a file. Blocking."""

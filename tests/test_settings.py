@@ -436,3 +436,40 @@ def test_odd_values_are_settings_errors(doc: dict[str, Any]) -> None:
     """Values that Python cannot turn into numbers are reported as problems, never raised as something else."""
     with pytest.raises(SettingsError):
         from_dict(env_document(doc["env"]) if "env" in doc else doc)
+
+
+@pytest.mark.parametrize("content", [b'{"drives": ["\xe9"]}', b"[" * 100000, b"\xff\xfe"])
+def test_a_broken_file_never_stops_the_start(tmp_path: Path, content: bytes) -> None:
+    """A settings.json that is not UTF-8, or nested too deep, falls back to the environment with an error."""
+    store = SettingsStore(tmp_path, {"INTERVAL": "7"})
+    store.path.write_bytes(content)
+    settings, source = store.load()
+    assert source == SOURCE_ENV and settings.interval_s == 7 and store.error is not None
+
+
+def test_an_unexpected_error_falls_back_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Whatever goes wrong reading the file or the environment, the start goes on: environment, else defaults."""
+    from hddfancontrol_webui import settings as settings_module
+
+    store = SettingsStore(tmp_path, {})
+    store.save(Settings())
+
+    def broken(data: Any) -> Settings:
+        raise RuntimeError("a bug")
+
+    monkeypatch.setattr(settings_module, "from_dict", broken)
+    settings, source = store.load()
+    assert settings == Settings() and source == SOURCE_ENV and store.error is not None
+
+
+def test_an_unexpected_error_in_the_environment_gives_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bug reading the environment leaves the defaults, which control nothing, and says so."""
+    from hddfancontrol_webui import settings as settings_module
+
+    def broken(env: Any) -> dict[str, Any]:
+        raise RuntimeError("a bug")
+
+    monkeypatch.setattr(settings_module, "env_document", broken)
+    store = SettingsStore(Path("/nonexistent"), {})
+    assert store.from_env() == Settings() and store.error is not None
+    assert store.error.problems[0]["code"] == "unreadable_env"

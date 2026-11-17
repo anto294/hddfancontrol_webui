@@ -35,6 +35,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   temperature of `1e400`, an interval with thousands of digits) are
   reported as invalid values instead of stopping the start or answering
   500.
+- A `settings.json` that is not UTF-8 or is nested too deep, or any other
+  error reading it, no longer stops the start: the environment is used,
+  with the error shown, as for a file with invalid values.
 - A JSON body nested too deep gets 400 `invalid_json` instead of an
   internal error with a traceback in the log.
 

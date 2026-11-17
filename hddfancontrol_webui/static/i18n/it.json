@@ -243,6 +243,7 @@
   "error.unknown_drive": "Non è uno dei dischi scelti.",
   "error.target_order": "Deve essere più bassa della temperatura massima.",
   "error.unreadable_file": "Il file delle impostazioni non si può leggere.",
+  "error.unreadable_env": "Impossibile leggere le variabili d'ambiente: sono in uso i valori predefiniti (vedi il log).",
   "error.invalid_settings": "Alcuni valori non sono validi.",
   "error.busy": "È in corso un test PWM o una ricerca dei sensori: aspetta che finisca.",
   "error.save_failed": "Impossibile scrivere in /config. Il volume è montato in scrittura?",

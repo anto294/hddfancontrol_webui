@@ -243,6 +243,7 @@
   "error.unknown_drive": "Not one of the chosen drives.",
   "error.target_order": "Must be lower than the maximum temperature.",
   "error.unreadable_file": "The settings file cannot be read.",
+  "error.unreadable_env": "The environment variables cannot be read: the defaults are in use (see the log).",
   "error.invalid_settings": "Some values are not valid.",
   "error.busy": "A PWM test or a scan is running. Wait until it ends.",
   "error.save_failed": "Cannot write to /config. Is the volume writable?",
