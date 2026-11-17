@@ -36,6 +36,48 @@ function sendPwm(path, value) {
   );
 }
 
+// A fan in use: chosen in the settings, named, or turning. The other outputs
+// (empty connectors, the CPU of another board) go in a folded list.
+function fanInUse(pwm, configured) {
+  return configured.has(pwm.path) || Boolean(state.labels[pwm.path]) || Boolean(pwm.rpm);
+}
+
+function fanLine(pwm) {
+  const range = el("input", { type: "range", min: 0, max: 255, step: 1, "aria-label": pwm.path });
+  range.addEventListener("pointerdown", () => state.dragging.add(pwm.path));
+  range.addEventListener("pointerup", () => state.dragging.delete(pwm.path));
+  const line = el(
+    "div",
+    { class: "fan-line", "data-path": pwm.path },
+    el(
+      "div",
+      { class: "fan-name" },
+      el("strong", { text: shortPath(pwm.path) }),
+      el("span", { class: "badge" }),
+      labelInput(pwm.path, state.labels[pwm.path]),
+      el("small", { class: "muted", text: pwm.path }),
+    ),
+    range,
+    el("span", { class: "pct" }),
+    el("span", { class: "rpm" }),
+  );
+  range.addEventListener("input", () => {
+    line.querySelector(".pct").textContent = fmtPct(Number(range.value));
+    sendPwm(pwm.path, Number(range.value));
+  });
+  return line;
+}
+
+// Put nodes in a container in this order, moving only what is out of place,
+// and never a line being used (moving it would drop the focus or the drag).
+function placeLines(container, lines) {
+  lines.forEach((line, index) => {
+    if (container.children[index] === line) return;
+    if (line.contains(document.activeElement) || state.dragging.has(line.dataset.path)) return;
+    container.insertBefore(line, container.children[index] || null);
+  });
+}
+
 function renderFans() {
   const list = $("fan-list");
   const manual = state.status ? state.status.manual : false;
@@ -44,36 +86,19 @@ function renderFans() {
     if (device.pwms.length === 0) continue;
     let group = list.querySelector(`[data-hwmon="${device.hwmon}"]`);
     if (!group) {
-      group = el("div", { class: "fan-group", "data-hwmon": device.hwmon }, el("h3", { text: `${device.name || "?"} (${device.hwmon})` }));
+      group = el(
+        "div",
+        { class: "fan-group", "data-hwmon": device.hwmon },
+        el("h3", { text: `${device.name || "?"} (${device.hwmon})` }),
+        el("div", { class: "fan-main" }),
+        el("details", { class: "fan-others" }, el("summary"), el("p", { class: "muted small", text: t("fans.others_hint") }), el("div", { class: "fan-rest" })),
+      );
       list.append(group);
     }
+    const main = [];
+    const rest = [];
     for (const pwm of device.pwms) {
-      let line = group.querySelector(`[data-path="${pwm.path}"]`);
-      if (!line) {
-        const range = el("input", { type: "range", min: 0, max: 255, step: 1, "aria-label": pwm.path });
-        range.addEventListener("pointerdown", () => state.dragging.add(pwm.path));
-        range.addEventListener("pointerup", () => state.dragging.delete(pwm.path));
-        range.addEventListener("input", () => {
-          line.querySelector(".pct").textContent = fmtPct(Number(range.value));
-          sendPwm(pwm.path, Number(range.value));
-        });
-        line = el(
-          "div",
-          { class: "fan-line", "data-path": pwm.path },
-          el(
-            "div",
-            { class: "fan-name" },
-            el("strong", { text: shortPath(pwm.path) }),
-            el("span", { class: "badge" }),
-            labelInput(pwm.path, state.labels[pwm.path]),
-            el("small", { class: "muted", text: pwm.path }),
-          ),
-          range,
-          el("span", { class: "pct" }),
-          el("span", { class: "rpm" }),
-        );
-        group.append(line);
-      }
+      const line = group.querySelector(`[data-path="${CSS.escape(pwm.path)}"]`) || fanLine(pwm);
       const range = line.querySelector("input[type=range]");
       if (!state.dragging.has(pwm.path) && document.activeElement !== range && pwm.value !== null) {
         range.value = pwm.value;
@@ -84,7 +109,15 @@ function renderFans() {
       const badge = line.querySelector(".badge");
       badge.textContent = configured.has(pwm.path) ? t("fans.configured") : "";
       badge.hidden = !configured.has(pwm.path);
+      (fanInUse(pwm, configured) ? main : rest).push({ pwm, line });
     }
+    // The chosen fans first, each list in the order of the chip.
+    main.sort((a, b) => Number(configured.has(b.pwm.path)) - Number(configured.has(a.pwm.path)));
+    placeLines(group.querySelector(".fan-main"), main.map((item) => item.line));
+    placeLines(group.querySelector(".fan-rest"), rest.map((item) => item.line));
+    const others = group.querySelector(".fan-others");
+    others.hidden = rest.length === 0;
+    others.querySelector("summary").textContent = t("fans.others", { count: rest.length });
   }
   if (!list.children.length) list.replaceChildren(el("p", { class: "muted", text: t("banner.no_pwm") }));
 }

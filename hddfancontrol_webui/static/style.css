@@ -620,6 +620,27 @@ button.link {
   display: none !important;
 }
 
+/* Folded parts: help texts, unused fans, SMART details. */
+details > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.9rem;
+  padding: 0.35rem 0;
+  list-style-position: inside;
+}
+
+details.help {
+  margin: 0.2rem 0 0.6rem;
+}
+
+details.help p {
+  margin-top: 0.3rem;
+}
+
+.fan-others {
+  margin-top: 0.6rem;
+}
+
 /* Fans */
 .fan-line {
   display: grid;

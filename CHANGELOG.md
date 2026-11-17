@@ -20,6 +20,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the target in the auto mode). Drives are named as on the overview, and
   fans that are not chosen, not named and never turned are hidden until
   switched on.
+- Fans: the chosen fans come first; outputs that are not chosen, have no
+  name and do not turn are folded under "Other outputs". The long
+  explanation is folded under "How it works".
 
 ### Fixed
 
