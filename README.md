@@ -88,6 +88,14 @@ The container runs privileged: it writes the PWM files of `/sys` and sends ATA c
 
 Download `hddfancontrol-webui-<version>-linux-<arch>.tar.gz` from the [latest release](https://github.com/anto294/hddfancontrol_webui/releases/latest) (`amd64` or `arm64`), then:
 
+To check that the tarball was built by this repository's release workflow from the tagged source (with the [GitHub CLI](https://cli.github.com/)):
+
+```bash
+gh attestation verify hddfancontrol-webui-*-linux-amd64.tar.gz --repo anto294/hddfancontrol_webui
+```
+
+Then:
+
 ```bash
 tar xzf hddfancontrol-webui-*-linux-amd64.tar.gz
 cd hddfancontrol-webui-*-linux-amd64

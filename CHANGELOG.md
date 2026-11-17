@@ -11,6 +11,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - The bare metal package needs aiohttp 3.14.4 or later, the first
   release without known security advisories.
+- The bare metal tarballs come with a signed provenance attestation:
+  `gh attestation verify <tarball> --repo anto294/hddfancontrol_webui`
+  checks that the release workflow built them from the tagged source.
 
 ### Changed
 
