@@ -264,6 +264,14 @@ a {
   align-self: center;
 }
 
+/* Login page: the theme switch and the language picker side by side. */
+.page-prefs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .card.login .lang-list {
   right: auto;
   left: 50%;
