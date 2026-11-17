@@ -19,6 +19,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   or `/dev/nvmeNnN` (or an interface name such as `ata`, for the fans):
   any `/dev` node was accepted and handed to smartctl, hdparm and hd-idle
   as root.
+- A fixed ceiling, whatever the settings say: a SATA/SAS drive at 65 °C,
+  or an NVMe drive at 80 °C, puts its fans at full speed in every mode,
+  manual control included, and raises the hot drive alert. Drive
+  temperatures in the settings go up to 80 °C (they took 120), and a
+  drive's own limits up to 70 °C unless it is NVMe; sensors keep 120.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

@@ -69,7 +69,12 @@ MAX_AVERAGE = 100
 MAX_SPIN_DOWN_S = 86400
 MAX_HISTORY_DAYS = 365
 MIN_TEMP = 0.0
+# Extra hwmon sensors (a CPU runs to 100 °C).
 MAX_TEMP = 120.0
+# Drive temperatures: no drive is meant to run hotter. The own limits of a
+# drive that is not NVMe stop lower: SATA/SAS drives are rated to 60-70 °C.
+MAX_DRIVE_TEMP = 80.0
+MAX_SATA_TEMP = 70.0
 
 
 # ---------------------------
@@ -228,8 +233,10 @@ class _Collector:
             return default
         return number
 
-    def number(self, data: Mapping[str, Any], key: str, default: float | None, prefix: str = "") -> float | None:
-        """Read a temperature in °C, or None when it is missing and may be."""
+    def number(
+        self, data: Mapping[str, Any], key: str, default: float | None, prefix: str = "", high: float = MAX_TEMP
+    ) -> float | None:
+        """Read a temperature in °C up to high, or None when it is missing and may be."""
         value = data.get(key, default)
         name = prefix + key
         if value is None:
@@ -244,8 +251,8 @@ class _Collector:
         except (ValueError, OverflowError):  # an int too large for a float
             self.add(name, "invalid_number")
             return default
-        if not MIN_TEMP <= number <= MAX_TEMP:
-            self.add(name, "out_of_range", min=MIN_TEMP, max=MAX_TEMP)
+        if not MIN_TEMP <= number <= high:
+            self.add(name, "out_of_range", min=MIN_TEMP, max=high)
             return default
         return number
 
@@ -399,8 +406,8 @@ def from_dict(data: Any) -> Settings:
         if start >= 0 and stop >= 0:
             pwms.append(Pwm(path, start, stop, chip, tuple(followed)))
 
-    temp_min = check.number(data, "drive_temp_min", defaults.drive_temp_min)
-    temp_max = check.number(data, "drive_temp_max", defaults.drive_temp_max)
+    temp_min = check.number(data, "drive_temp_min", defaults.drive_temp_min, high=MAX_DRIVE_TEMP)
+    temp_max = check.number(data, "drive_temp_max", defaults.drive_temp_max, high=MAX_DRIVE_TEMP)
     temps_ok = not check.has("drive_temp_min", "drive_temp_max")
     if temps_ok and temp_min is not None and temp_max is not None and temp_min >= temp_max:
         check.add("drive_temp_max", "range_order")
@@ -436,7 +443,7 @@ def from_dict(data: Any) -> Settings:
             if value >= 0:
                 spin_down_drives[drive] = value
 
-    target = check.number(data, "target_temp", defaults.target_temp)
+    target = check.number(data, "target_temp", defaults.target_temp, high=MAX_DRIVE_TEMP)
     if temps_ok and not check.has("target_temp") and target is not None and temp_max is not None and target >= temp_max:
         check.add("target_temp", "target_order")
 
@@ -496,8 +503,9 @@ def _drive_limits(
             check.add(name, "invalid_document")
             continue
         own: dict[str, float] = {}
+        high_of_drive = MAX_DRIVE_TEMP if "nvme" in str(drive).rsplit("/", 1)[-1] else MAX_SATA_TEMP
         for key in ("min", "target", "max"):
-            number = check.number(item, key, None, name + ".")
+            number = check.number(item, key, None, name + ".", high=high_of_drive)
             if number is not None:
                 own[key] = number
         if not own:

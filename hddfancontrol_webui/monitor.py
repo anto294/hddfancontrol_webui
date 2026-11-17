@@ -28,6 +28,7 @@ from .alerts import (
 )
 from .const import RECORD_PERIOD
 from .cron import parse
+from .fancontrol import drive_ceiling
 from .hardware import Hardware
 from .history import History
 from .settings import Settings
@@ -456,7 +457,8 @@ class Monitor:
                 kernel = name.split()[0]
                 key = f"hot:{kernel}"
                 drive = drives.get(kernel)
-                maximum = settings.limits_of(by_kernel.get(kernel, ""))[2]
+                # The ceiling of the fan controller holds whatever the settings say: the alert too.
+                maximum = min(settings.limits_of(by_kernel.get(kernel, ""))[2], drive_ceiling(kernel))
                 limit = maximum - (HOT_HYSTERESIS if key in active else 0.0)
                 if temp is not None and temp >= limit:
                     label = self._drive_name(drive.ids if drive else [], name)

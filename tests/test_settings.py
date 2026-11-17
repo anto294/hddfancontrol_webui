@@ -501,3 +501,15 @@ def test_other_dev_nodes_are_not_drives(path: str) -> None:
         "drives.0": "invalid_drive",
         "monitor_drives.0": "invalid_dev_path",
     }
+
+
+def test_drive_limits_stay_within_what_drives_bear() -> None:
+    """Drive temperatures stop at 80 °C, and the own limits of a SATA/SAS drive at 70; sensors keep their range."""
+    nvme, sata = "/dev/disk/by-id/nvme-Samsung_980_S64", "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
+    assert problems({"drive_temp_min": 30, "drive_temp_max": 81}) == {"drive_temp_max": "out_of_range"}
+    assert from_dict({"drive_temp_max": 80}).drive_temp_max == 80
+    doc = {"drives": [nvme, sata], "drive_limits": {nvme: {"max": 80}, sata: {"max": 71}}}
+    assert problems(doc) == {f"drive_limits.{sata}.max": "out_of_range"}
+    assert from_dict({**doc, "drive_limits": {nvme: {"max": 80}, sata: {"max": 70}}}).limits_of(sata)[2] == 70
+    hwmon = {"hwmons": [{"path": TEMP_A, "temp_min": 60, "temp_max": 95}]}
+    assert from_dict(hwmon).hwmons[0].temp_max == 95  # a CPU sensor, not a drive

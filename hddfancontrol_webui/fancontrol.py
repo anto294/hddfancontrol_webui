@@ -56,6 +56,11 @@ _LOGGER = logging.getLogger(__name__)
 
 PWM_MAX = 255
 ENABLE_MANUAL = 1
+# Full speed for a drive's fans from these temperatures, whatever the
+# settings: SATA/SAS drives are rated to 60-70 °C, NVMe drives run warmer
+# and throttle past 80 °C.
+DRIVE_CEILING = 65.0
+NVME_CEILING = 80.0
 # Changes at every boot: the state saved by PwmWriter holds for one boot only.
 BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
 
@@ -272,6 +277,19 @@ def _sensor_speed(latest: dict[str, Any] | None, hwmons: tuple[Hwmon, ...]) -> f
             continue
         speed = max(speed, min(1.0, max(0.0, (temp - hwmon.temp_min) / (hwmon.temp_max - hwmon.temp_min))))
     return speed
+
+
+# ---------------------------
+#   drive_ceiling
+# ---------------------------
+def drive_ceiling(kernel: str) -> float:
+    """The temperature at which a drive's fans go to full speed whatever the settings say: NVMe or not.
+
+    The settings may set a maximum too high for the drive (a typo, a
+    misread datasheet); this ceiling holds in every mode, manual control
+    included.
+    """
+    return NVME_CEILING if kernel.startswith("nvme") else DRIVE_CEILING
 
 
 # ---------------------------
@@ -611,7 +629,10 @@ class FanController:
             kernel = name.split()[0]
             if follows is None or kernel in follows or (covered is not None and kernel not in covered):
                 raw = self._temps.raw.get(name, temp)
-                entries.append((name, temp, raw, settings.limits_of(by_kernel.get(kernel, ""))))
+                low, target, high = settings.limits_of(by_kernel.get(kernel, ""))
+                # Full speed at the ceiling too, if the settings ask for more (the curve keeps its own range).
+                raw = raw if raw < drive_ceiling(kernel) else max(raw, high)
+                entries.append((name, temp, raw, (low, target, high)))
         return entries
 
     async def _run_control(self, settings: Settings) -> None:
@@ -752,7 +773,11 @@ class FanController:
         temps = temps_state.per_drive(latest, len(settings.hwmons))
         names = self._kernel_names()
         by_kernel = {names[d]: d for d in settings.drives if d in names}
-        hot = [temp for name, temp in temps.items() if temp >= settings.limits_of(by_kernel.get(name.split()[0], ""))[2]]
+        hot = [
+            temp
+            for name, temp in temps.items()
+            if temp >= min(settings.limits_of(by_kernel.get(name.split()[0], ""))[2], drive_ceiling(name.split()[0]))
+        ]
         if hot:
             return SAFETY_HOT, max(hot)
         age = _age_seconds(latest, now)

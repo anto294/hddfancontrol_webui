@@ -6,6 +6,7 @@ import asyncio
 import json
 import stat
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -688,3 +689,39 @@ def test_writer_survives_a_broken_state_file(fake_sys: Path, tmp_path: Path) -> 
     writer.write(PWM1, 60)
     writer.restore()
     assert read(fake_sys, "pwm1_enable") == "5"
+
+
+def test_drive_ceiling() -> None:
+    """65 °C for SATA/SAS drives, 80 °C for NVMe drives, whatever the settings say."""
+    assert fancontrol.drive_ceiling("sda") == 65 and fancontrol.drive_ceiling("nvme0n1") == 80
+
+
+async def test_the_ceiling_wins_over_the_settings_in_every_mode(fake_sys: Path, fast: None) -> None:
+    """A SATA drive at 65 °C puts its fans at full speed even with a maximum of 70 in the settings, manual control too."""
+    settings = from_dict(
+        {
+            "drives": ["/dev/sda"],
+            "pwms": [{"path": PWM1, "start": 200, "stop": 75}],
+            "drive_temp_min": 30,
+            "target_temp": 60,
+            "drive_temp_max": 70,
+            "min_fan_speed_prct": 0,
+            "interval_s": 1,
+        }
+    )
+    hot = sample({"sda": 65.0})
+    for mode in ("curve", "auto", "manual"):
+        fans = FanController(PwmWriter(fake_sys), lambda: hot, lambda text: None, lambda: {"/dev/sda": "sda"})
+        if mode == "manual":
+            fans.start_manual(settings)
+        else:
+            fans.start_control(replace(settings, control_mode=mode))
+        await steps(3)
+        assert fans.writer.values.get(PWM1) == 255, mode
+        await fans.stop()
+    warm = sample({"sda": 64.0})
+    fans = FanController(PwmWriter(fake_sys), lambda: warm, lambda text: None, lambda: {"/dev/sda": "sda"})
+    fans.start_control(replace(settings, control_mode="curve"))
+    await steps(3)
+    assert fans.writer.values.get(PWM1, 0) < 255  # below the ceiling the curve rules
+    await fans.stop()

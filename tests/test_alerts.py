@@ -148,6 +148,17 @@ def conditions_monitor(tmp_path: Path, fake_sys: Path, fake_dev: Path, **setting
     return monitor
 
 
+def test_conditions_hot_drive_at_the_ceiling(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ceiling of the fan controller raises drive_hot even under a higher maximum of the settings."""
+    monitor = conditions_monitor(tmp_path, fake_sys, fake_dev, drive_temp_min=30, drive_temp_max=50, target_temp=35)
+    monkeypatch.setattr("hddfancontrol_webui.monitor.FRESH_SAMPLE_SECONDS", 10**9)
+    monkeypatch.setattr("hddfancontrol_webui.fancontrol.DRIVE_CEILING", 39.0)  # the sample says 40
+    assert monitor.conditions({})["hot:sda"] == ("drive_hot", {"drive": "sda", "temp": "40", "max": "39"})
+    monitor.history.close()
+
+
 def test_conditions_hot_drive(tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A fresh sample at the maximum raises drive_hot; it ends only under the maximum minus the margin."""
     monitor = conditions_monitor(tmp_path, fake_sys, fake_dev, drive_temp_min=30, drive_temp_max=40, target_temp=35)
