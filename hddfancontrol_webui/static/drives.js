@@ -39,7 +39,7 @@ function smartCard(device, data) {
   const limit = data.temp_limit ?? null;
   const facts = el("div", { class: "facts" });
   const fact = (label, value, level = "") => facts.append(el("div", { class: `fact ${level}`.trim() }, el("span", { class: "muted small", text: label }), el("strong", { text: value })));
-  if (present(data.temperature)) fact(t("smart.temperature"), fmtTemp(data.temperature), tempLevel(data.temperature));
+  if (present(data.temperature)) fact(t("smart.temperature"), fmtTemp(data.temperature), tempLevel(data.temperature, (state.hardware.drives.find((dr) => dr.ids.includes(device)) || {}).name));
   if (present(data.temp_lifetime_max)) fact(t("smart.temp_lifetime_max_short"), fmtTemp(data.temp_lifetime_max), limit !== null && data.temp_lifetime_max > limit ? "warm" : "");
   if (limit !== null) fact(t("smart.temp_limit_short"), fmtTemp(limit));
   if (present(data.power_on_hours)) fact(t("smart.power_on_hours"), t("smart.years", { years: (data.power_on_hours / 8766).toFixed(1) }));
@@ -130,6 +130,7 @@ function driveIdentity(device, data) {
 }
 
 function renderSmart(data) {
+  state.smartData = data;
   const list = $("smart-list");
   const rank = ([device, info]) => [SMART_ORDER[info.status] ?? 2, smartTitle(device, info)];
   const entries = Object.entries(data).sort((a, b) => {

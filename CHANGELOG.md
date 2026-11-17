@@ -15,6 +15,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Limits per drive: each drive can have its own minimum, target and
   maximum temperature over the common ones; the hot drive alert uses the
   drive's own maximum.
+- Settings: "Fan groups" (the drives each fan follows) and "Limits per
+  drive", with the highest temperature the drive recommends as a hint to
+  apply in one click. The overview colors each drive against its own
+  limits and lists the speed of each fan.
 
 - A theme switch next to the language picker, on every page: automatic
   (as the system), light or dark, kept in the browser.

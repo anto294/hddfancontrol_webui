@@ -17,6 +17,8 @@ const state = {
   pending: new Map(),
   // Kernel name of a drive (sda) -> change of its temperature over TREND_SECONDS.
   trend: new Map(),
+  // The last SMART data, for the hints of the settings (recommended maximum).
+  smartData: null,
 };
 
 const POLL_STATUS_MS = 3000;
@@ -297,10 +299,21 @@ function renderBanners() {
   else if (status.fans.safety) box.append(banner("error", status.fans.safety_reason === "stale" ? t("banner.safety_stale") : t("banner.safety")));
 }
 
+// The minimum and maximum of a drive: its own (Limits per drive), or the common ones.
+// kernel is its kernel name (sda); without one, the common limits.
+function limitsOf(kernel) {
+  const settings = state.settings;
+  if (!settings) return { min: 30, max: 50 };
+  const drive = kernel ? state.hardware.drives.find((d) => d.name === kernel) : null;
+  const paths = drive ? [...drive.ids, `/dev/${drive.name}`] : [];
+  const id = Object.keys(settings.drive_limits || {}).find((key) => paths.includes(key));
+  const own = id ? settings.drive_limits[id] : {};
+  return { min: own.min ?? settings.drive_temp_min, max: own.max ?? settings.drive_temp_max };
+}
+
 // cool: below the minimum; mild and warm: the two halves of the range; hot: at the maximum.
-function tempLevel(value) {
-  const low = state.settings ? state.settings.drive_temp_min : 30;
-  const high = state.settings ? state.settings.drive_temp_max : 50;
+function tempLevel(value, kernel) {
+  const { min: low, max: high } = limitsOf(kernel);
   if (value < low) return "cool";
   if (value >= high) return "hot";
   return value < (low + high) / 2 ? "mild" : "warm";
@@ -377,7 +390,7 @@ function renderOverview() {
         continue;
       }
       values.push(value);
-      const level = tempLevel(value);
+      const level = tempLevel(value, name.split(" ")[0]);
       temps.append(el("div", { class: `meter drive ${level}` }, icon("drive"), label, bar((value - from) / (to - from), level), trendMark(name.split(" ")[0]), el("span", { class: "meter-value", text: fmtTemp(value) })));
     }
   } else {
@@ -385,7 +398,13 @@ function renderOverview() {
   }
   if (values.length) {
     const hottest = Math.max(...values);
-    setStat("stat-hottest", fmtTemp(hottest), tempLevel(hottest));
+    // The tile takes the worst level of any drive, each against its own limits.
+    const order = ["cool", "mild", "warm", "hot"];
+    const worst = Object.entries(status.latest.temps)
+      .filter(([, value]) => value !== null)
+      .map(([name, value]) => tempLevel(value, name.split(" ")[0]))
+      .reduce((a, b) => (order.indexOf(b) > order.indexOf(a) ? b : a), "cool");
+    setStat("stat-hottest", fmtTemp(hottest), worst);
   } else {
     setStat("stat-hottest", "–");
   }
@@ -430,9 +449,12 @@ function renderOverview() {
   control.replaceChildren();
   control.append(row(t("overview.mode"), t(`mode.${status.mode}`)));
   control.append(row(t("settings.control_mode"), t(`mode.${status.control_mode}`)));
-  if (status.fans.mode === "auto" && status.fans.auto.speed !== null) {
+  if ((status.fans.mode === "auto" || status.fans.mode === "curve") && status.fans.auto.speed !== null) {
     control.append(row(t("overview.hottest"), fmtTemp(status.fans.auto.hottest)));
-    control.append(row(t("overview.auto_speed"), `${Math.round(status.fans.auto.speed * 100)} %`));
+    // With fan groups each fan has its own speed.
+    for (const [path, speed] of Object.entries(status.fans.auto.speeds || {})) {
+      control.append(row(t("overview.fan_speed", { fan: pwmLabel(path) }), `${Math.round(speed * 100)} %`));
+    }
   }
   for (const [name, daemon] of Object.entries(status.daemons)) {
     const text = t(`daemon.${daemon.state}`) + (daemon.restarts ? ` · ${t("overview.restarts", { count: daemon.restarts })}` : "");

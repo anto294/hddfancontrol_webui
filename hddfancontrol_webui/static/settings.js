@@ -138,6 +138,18 @@ function renderSettings() {
     );
   }
 
+  renderGroups(settings);
+  renderLimits(settings);
+  // The hints of the limits need the SMART data, read once.
+  if (!state.smartData) {
+    api("GET", "/api/smart")
+      .then((data) => {
+        state.smartData = data;
+        renderLimits();
+      })
+      .catch(() => {});
+  }
+
   // Extra hwmon temperatures.
   const hwmons = $("hwmon-list");
   hwmons.replaceChildren(headRow("", t("settings.sensor"), t("settings.now"), t("settings.temp_min"), t("settings.temp_max")));
@@ -160,6 +172,85 @@ function renderSettings() {
       ),
     );
   }
+}
+
+// The drives ticked in the drive table now, as {kernel, id, name}.
+function chosenDrives() {
+  const chosen = [];
+  for (const line of $("drive-list").querySelectorAll("tr[data-drive]")) {
+    if (!line.querySelector("[name=drive_use]").checked) continue;
+    const drive = state.hardware.drives.find((d) => d.name === line.dataset.drive);
+    const id = line.querySelector("[name=drive_id]").value;
+    chosen.push({ kernel: line.dataset.drive, id, name: driveLabelById(id) || shortModel(drive ? drive.model : "") || line.dataset.drive });
+  }
+  return chosen;
+}
+
+// The kernel name of a drive of the settings (any of its stable names).
+function kernelOf(id) {
+  const drive = state.hardware.drives.find((d) => d.ids.includes(id) || `/dev/${d.name}` === id);
+  return drive ? drive.name : null;
+}
+
+// Fan groups: for each fan ticked, the drives it follows (none ticked = every drive).
+// The ticks typed so far survive a rebuild (a drive or fan ticked in the tables above).
+function renderGroups(settings) {
+  const box = $("group-list");
+  const typed = new Map([...box.querySelectorAll("[data-fan]")].map((group) => [group.dataset.fan, new Set([...group.querySelectorAll("input:checked")].map((i) => i.value))]));
+  const fresh = settings !== undefined;
+  box.replaceChildren();
+  const drives = chosenDrives();
+  const fans = [...$("pwm-list").querySelectorAll("tr[data-path]")].filter((line) => line.querySelector("[name=pwm_use]").checked).map((line) => line.dataset.path);
+  if (!fans.length || drives.length < 2) {
+    box.append(el("p", { class: "muted small", text: t("settings.groups_none") }));
+    return;
+  }
+  for (const path of fans) {
+    const saved = (state.settings ? state.settings.pwms : []).find((pwm) => pwm.path === path);
+    const ticked = !fresh && typed.has(path) ? typed.get(path) : new Set((saved ? saved.drives : []).map(kernelOf).filter(Boolean));
+    const group = el("fieldset", { class: "group", "data-fan": path }, el("legend", { text: pwmLabel(path) }));
+    for (const drive of drives) {
+      group.append(el("label", { class: "chip" }, el("input", { type: "checkbox", value: drive.kernel, checked: ticked.has(drive.kernel) }), ` ${drive.name} `, el("small", { class: "muted", text: drive.kernel })));
+    }
+    group.append(el("small", { class: "muted group-note", text: t("settings.groups_all") }));
+    box.append(group);
+  }
+}
+
+// Limits per drive: own minimum, target and maximum (empty = the common one),
+// with the highest temperature the drive itself recommends as a hint.
+function renderLimits(settings) {
+  const table = $("limit-list");
+  const typed = new Map([...table.querySelectorAll("tr[data-drive]")].map((line) => [line.dataset.drive, [...line.querySelectorAll("input")].map((i) => i.value)]));
+  const fresh = settings !== undefined;
+  const form = $("settings-form");
+  table.replaceChildren(headRow(t("settings.drive"), t("settings.limit_min"), t("settings.limit_target"), t("settings.limit_max"), t("settings.limit_drive")));
+  for (const drive of chosenDrives()) {
+    const hardware = state.hardware.drives.find((d) => d.name === drive.kernel);
+    const ids = hardware ? hardware.ids : [drive.id];
+    const ownKey = state.settings ? Object.keys(state.settings.drive_limits || {}).find((id) => ids.includes(id)) : undefined;
+    const own = ownKey ? state.settings.drive_limits[ownKey] : {};
+    const values = !fresh && typed.has(drive.kernel) ? typed.get(drive.kernel) : ["min", "target", "max"].map((k) => own[k] ?? "");
+    const smart = state.smartData ? Object.entries(state.smartData).find(([id]) => ids.includes(id)) : undefined;
+    const recommended = smart ? smart[1].temp_limit ?? null : null;
+    const max = numberInput("limit_max", values[2], { step: 0.5, min: 0, max: 120, placeholder: form.drive_temp_max.value, "aria-label": `${t("settings.limit_max")} · ${drive.name}` });
+    const hint =
+      recommended === null
+        ? el("span", { class: "muted", text: "–" })
+        : el("button", { type: "button", class: "link", text: t("settings.limit_use", { temp: fmtTemp(recommended) }), title: t("settings.limit_use_help"), onclick: () => (max.value = recommended) });
+    table.append(
+      el(
+        "tr",
+        { "data-drive": drive.kernel, "data-id": drive.id },
+        el("td", {}, el("strong", { text: drive.name }), " ", el("small", { class: "muted", text: drive.kernel })),
+        el("td", {}, numberInput("limit_min", values[0], { step: 0.5, min: 0, max: 120, placeholder: form.drive_temp_min.value, "aria-label": `${t("settings.limit_min")} · ${drive.name}` })),
+        el("td", {}, numberInput("limit_target", values[1], { step: 0.5, min: 0, max: 120, placeholder: form.target_temp.value, "aria-label": `${t("settings.limit_target")} · ${drive.name}` })),
+        el("td", {}, max),
+        el("td", {}, hint),
+      ),
+    );
+  }
+  if (!table.querySelector("tr[data-drive]")) table.replaceChildren(el("tr", {}, el("td", { class: "muted small", text: t("settings.limits_none") })));
 }
 
 function optionalNumber(value) {
@@ -196,11 +287,27 @@ function collectSettings() {
   doc.pwms = [];
   for (const line of $("pwm-list").querySelectorAll("tr[data-path]")) {
     if (!line.querySelector("[name=pwm_use]").checked) continue;
+    // The drives this fan follows, by the stable name chosen above; all ticked is the same as none.
+    const group = $("group-list").querySelector(`[data-fan="${CSS.escape(line.dataset.path)}"]`);
+    const ticked = group ? [...group.querySelectorAll("input:checked")].map((i) => i.value) : [];
+    const drives = chosenDrives();
+    const follows = ticked.length === drives.length ? [] : drives.filter((d) => ticked.includes(d.kernel)).map((d) => d.id);
     doc.pwms.push({
       path: line.dataset.path,
       start: optionalNumber(line.querySelector("[name=pwm_start]").value),
       stop: optionalNumber(line.querySelector("[name=pwm_stop]").value),
+      drives: follows,
     });
+  }
+
+  doc.drive_limits = {};
+  for (const line of $("limit-list").querySelectorAll("tr[data-drive]")) {
+    const own = {};
+    for (const key of ["min", "target", "max"]) {
+      const value = line.querySelector(`[name=limit_${key}]`).value;
+      if (value !== "") own[key] = Number(value);
+    }
+    if (Object.keys(own).length) doc.drive_limits[line.dataset.id] = own;
   }
 
   doc.hwmons = [];
@@ -351,3 +458,13 @@ async function importSettings(file) {
   result.className = "small ok";
   pollStatus();
 }
+
+// The groups and the limits follow the drives and fans ticked above.
+document.addEventListener("DOMContentLoaded", () => {
+  for (const id of ["drive-list", "pwm-list"]) {
+    $(id).addEventListener("change", () => {
+      renderGroups();
+      renderLimits();
+    });
+  }
+});

@@ -1529,3 +1529,47 @@ details.help p {
   margin: 0.8rem 0 0.3rem;
   font-size: 0.9rem;
 }
+
+/* Settings: fan groups and limits per drive. */
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem 0.6rem;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.group legend {
+  font-weight: 600;
+  padding: 0 0.3rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.group-note {
+  flex-basis: 100%;
+}
+
+/* A wide table scrolls by itself on a narrow screen instead of the page. */
+.table-scroll {
+  overflow-x: auto;
+}
