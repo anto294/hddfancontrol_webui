@@ -48,7 +48,17 @@ from .hardware import Hardware
 from .history import History
 from .labels import Labels
 from .monitor import Monitor
-from .privsep import WebUser, gateway_command, gateway_env, given_tls, prepare_web_dir, secure_socket, socket_dir, web_user
+from .privsep import (
+    WebUser,
+    gateway_command,
+    gateway_env,
+    given_tls,
+    prepare_web_dir,
+    secure_socket,
+    socket_dir,
+    tighten_config,
+    web_user,
+)
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsStore
 from .smart import read_smart, start_selftest
@@ -81,6 +91,8 @@ class Core:
 def build() -> Core:
     """Build the core and its gateway from the environment."""
     config_dir = Path(os.environ.get("CONFIG_DIR", str(DEFAULT_CONFIG_DIR)))
+    if config_dir.is_dir():
+        tighten_config(config_dir, logging.getLogger(__name__))
     load_modules = env_flag(os.environ, "LOAD_SENSOR_MODULES", True)
 
     logs = LogBuffer()

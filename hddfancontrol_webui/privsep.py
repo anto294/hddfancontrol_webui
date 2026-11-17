@@ -238,6 +238,37 @@ def _close_config(config_dir: Path, user: WebUser, log: logging.Logger) -> None:
 
 
 # ---------------------------
+#   tighten_config
+# ---------------------------
+def tighten_config(config_dir: Path, log: logging.Logger | None = None) -> None:
+    """Make root's files of /config readable by root only: 0600, folders 0700.
+
+    The core writes them with umask 077 now; older versions left the
+    history, the temperature log and the rest at 0644. The gateway's
+    folder (web/) and root's copy for its group (web-tls/) keep their
+    modes, and no link is followed.
+    """
+    log = log or _LOGGER
+    skip = {config_dir / WEB_DIR, config_dir / GIVEN_TLS_DIR}
+    changed = 0
+    for folder, dirs, files in os.walk(config_dir):
+        base = Path(folder)
+        dirs[:] = [d for d in dirs if base / d not in skip and not (base / d).is_symlink()]
+        entries = [(base / d, 0o700) for d in dirs] + [(base / f, 0o600) for f in files]
+        for path, wanted in entries:
+            try:
+                info = path.lstat()
+                if stat.S_ISLNK(info.st_mode) or not stat.S_IMODE(info.st_mode) & 0o077:
+                    continue
+                path.chmod(stat.S_IMODE(info.st_mode) & wanted)
+                changed += 1
+            except OSError as err:
+                log.warning("Cannot close %s to other users: %s", path, err)
+    if changed:
+        log.info("Closed %d files and folders of %s to other users", changed, config_dir)
+
+
+# ---------------------------
 #   _drop_old_copies
 # ---------------------------
 def _drop_old_copies(tls_dir: Path, log: logging.Logger) -> None:

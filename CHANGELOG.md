@@ -54,6 +54,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The systemd unit keeps only the capabilities the web UI needs
   (`CapabilityBoundingSet`), and adds `ProtectKernelLogs` and
   `ProtectClock`.
+- At start, the files of `/config` that older versions left readable by
+  every user (the history, the temperature log) become readable by root
+  only; the web server's folders keep their modes.
 - Saving settings with a drive name that leads to something other than a
   block device (a link to `/dev/null`, say) answers 400
   `not_block_device`; a name that leads nowhere (an unplugged drive) is

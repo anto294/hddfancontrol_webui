@@ -351,3 +351,30 @@ def test_the_gateway_has_no_writable_home(tmp_path: Path) -> None:
     """HOME is a folder that does not exist, and PYTHONPATH is not passed on."""
     env = gateway_env({"PYTHONPATH": "/x", "PATH": "/bin"}, tmp_path / "s", tmp_path / "web", "", "")
     assert env["HOME"] == "/nonexistent" and "PYTHONPATH" not in env
+
+
+def test_tighten_config_closes_what_older_versions_left_open(tmp_path: Path) -> None:
+    """Files and folders of /config made 0644/0755 by older versions become root's only; web/ and web-tls/ stay as they are."""
+    config = tmp_path / "config"
+    (config / "templog").mkdir(parents=True)
+    (config / "web").mkdir(mode=0o700)
+    (config / "web-tls").mkdir(mode=0o750)
+    for path in (config / "history.db", config / "history.db-wal", config / "templog" / "temps.jsonl"):
+        path.write_text("x")
+        path.chmod(0o644)
+    (config / "templog").chmod(0o755)
+    (config / "web" / "auth.json").write_text("{}")
+    (config / "web" / "auth.json").chmod(0o640)
+    (config / "web-tls" / "cert.pem").write_text("x")
+    (config / "web-tls" / "cert.pem").chmod(0o640)
+    outside = tmp_path / "outside"
+    outside.write_text("x")
+    outside.chmod(0o644)
+    (config / "link").symlink_to(outside)
+    privsep.tighten_config(config)
+    for path in (config / "history.db", config / "history.db-wal", config / "templog" / "temps.jsonl"):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600, path
+    assert stat.S_IMODE((config / "templog").stat().st_mode) == 0o700
+    assert stat.S_IMODE((config / "web" / "auth.json").stat().st_mode) == 0o640
+    assert stat.S_IMODE((config / "web-tls" / "cert.pem").stat().st_mode) == 0o640
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o644  # a link is never followed
