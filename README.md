@@ -12,8 +12,24 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 > [!NOTE]
 > The drive temperatures come from [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma, which measures the drives without waking them. This project runs it and hd-idle, keeps them running, drives the fans from what it measures (curve and auto modes, fan groups, limits per drive), and adds the web UI, manual control, the history, SMART data and alerts. It is not an official desbma project.
 
+<p align="center"><img src="img/screenshots/overview.png" alt="Overview: hottest drive, bay map, drive temperatures and fans"></p>
+
+## Quick start
+
+With Docker Compose (on TrueNAS SCALE, see [Installation](#truenas-scale)):
+
+```bash
+mkdir hddfancontrol && cd hddfancontrol
+curl -fsSLO https://raw.githubusercontent.com/anto294/hddfancontrol_webui/main/docker-compose.yml
+docker compose up -d
+docker compose logs | grep 'FIRST SETUP'
+```
+
+Open `https://<host>:28462` (the certificate is self-signed: accept it once), type the setup code from the last command, choose a username and a password, and follow the guided setup.
+
 ## Contents
 
+- [Quick start](#quick-start)
 - [What you can do with it](#what-you-can-do-with-it)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -35,19 +51,24 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 
 ## What you can do with it
 
-- **Keep the drives cool and the NAS quiet:** the fans follow the hottest drive, either along a curve between two temperatures, or in the auto mode, which keeps the drives at a target with as little fan speed as it needs.
-- **Fan groups and limits per drive:** each fan can follow only some drives (the case fans the hot enterprise drives, another fan the rest), and each drive can have its own minimum, target and maximum.
-- **Find out which fan is which:** in manual control, move the slider of any PWM output and watch the speed change; each output gets its previous setting back when you leave. The curve and auto modes drive only the fans you choose.
-- **Set it up without knowing how:** on the first start a guided setup asks one question at a time: which drives to keep cool, which fans cool them (an Identify button runs a fan at full speed for 10 seconds so you can hear which one it is), how cool to keep the drives, and whether idle drives may sleep.
-- **Set up the fans without a shell:** the PWM test finds the value at which each fan starts and stops, and copies them into the settings.
-- **Let the drives sleep:** hd-idle spins them down after an idle time, which you can set per drive. Nothing in the web UI wakes a sleeping drive.
-- **See what happened:** temperatures, fan speeds and PWM are kept in a small database, with charts from one hour to a year.
-- **Keep an eye on the drives:** SMART health, power-on hours, reallocated and pending sectors, CRC errors, NVMe wear; and what each drive is: brand and line, NAS or desktop, CMR or SMR, how it is connected (board SATA port, HBA, NVMe, USB, link speed) and the temperature it is made for.
-- **Keep a backup:** export the settings and the names to a file, and import them after a reinstall.
-- **Name things:** "Front fan", "Parity drive" instead of `pwm2` and `sdc`.
-- **Know when something is wrong:** a drive too hot, a fan that stopped, a SMART problem: a banner, a log line and, if you want, a message on your phone through ntfy, Gotify or a webhook.
-- **See it at a glance:** tiles with the hottest drive and the average fan speed, a colored bar per drive and per fan, fan icons that turn with the fans.
-- In English, Italian, Spanish, French, Chinese (simplified), Hindi and Arabic (right to left), following the browser or picked in the header, with a light and a dark theme, on a phone as well.
+- **Quiet fans, cool drives.** The fans follow the hottest drive, along a curve or in the auto mode, which keeps the drives at a target temperature with as little fan speed as it can. Each fan can follow its own drives, and each drive can have its own limits.
+- **Safety first.** A drive at its maximum, temperatures that stop coming in, or an error of the fan control put the fans at full speed. When the web UI stops, every fan gets its previous setting back.
+- **Easy setup.** A guided setup asks one question at a time. Manual control and an **Identify** button show which fan is which, and the PWM test finds the speed at which each fan starts and stops.
+- **Watch the drives.** SMART health, scheduled self-tests, what each drive is (NAS or desktop, CMR or SMR, how it is connected), and a map of the bays of the case with the drives in them.
+- **Know when something is wrong.** A hot drive, a stopped or worn fan, a SMART problem: a banner, a log line and, if you want, a message on your phone through ntfy, Gotify or a webhook.
+
+Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleeping drive), history charts from one hour to a year, names for fans and drives, settings backup, Prometheus metrics, a light and a dark theme, a phone layout, and seven languages (English, Italian, Spanish, French, Chinese, Hindi, Arabic).
+
+<table>
+  <tr>
+    <td><img src="img/screenshots/drives.png" alt="Drives tab: SMART cards"></td>
+    <td><img src="img/screenshots/history.png" alt="History tab: temperatures and fan speeds over a week"></td>
+  </tr>
+  <tr>
+    <td><img src="img/screenshots/fans.png" alt="Fans tab: PWM outputs with their names and speeds"></td>
+    <td align="center"><img src="img/screenshots/phone.png" alt="The overview on a phone" width="220"></td>
+  </tr>
+</table>
 
 ## Requirements
 
