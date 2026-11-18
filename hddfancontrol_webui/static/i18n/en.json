@@ -162,7 +162,7 @@
   "settings.drive": "Drive",
   "settings.drive_controls": "Fans",
   "settings.drive_monitor": "Monitored",
-  "settings.drive_name": "Name to use",
+  "settings.drive_name": "Stable name",
   "settings.spin_down_own": "Own spin down (s)",
   "settings.other_drives": "Other drives",
   "settings.other_drives_help": "Paths or interface names (ata, nvme), separated by spaces.",
