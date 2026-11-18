@@ -35,6 +35,7 @@ Open `https://<host>:28462` (the certificate is self-signed: accept it once), ty
 - [Installation](#installation)
 - [First setup](#first-setup)
 - [Fan control modes](#fan-control-modes)
+  - [Safety rules](#safety-rules)
 - [Spin down](#spin-down)
 - [History, SMART data and names](#history-smart-data-and-names)
 - [On a phone](#on-a-phone)
@@ -160,7 +161,15 @@ In every mode hddfancontrol only measures: it reads the drive temperatures witho
 - **Limits per drive:** each drive can have its own minimum, target and maximum, over the common ones. The **Drives** tab shows the highest temperature the drive itself recommends (some, such as a Seagate Exos, say 40 °C, well under their datasheet limit): it is a hint, not applied by itself.
 - **Extra sensors:** the temperature sensors of **Settings** count when they have a range: each asks for a speed in proportion between its minimum and maximum, and every fan runs at the higher of that and what its drives need.
 
-Safety rules, in every mode: a drive at its maximum puts its fans at full speed (in manual control, every fan, until you leave it), and so does a drive at 65 °C (80 °C for an NVMe drive) whatever its maximum in the settings; drive temperatures in the settings go up to 80 °C, and a drive's own limits up to 70 °C unless it is NVMe; temperatures that stop coming in, or hddfancontrol stopping, put every fan at full speed (in manual control, only when drives are chosen, so that you can find out which fan is which before choosing them); a drive whose temperature turns empty (asleep, or a failed probe during heavy I/O) keeps its last temperature for five checks. When control ends, every PWM output gets its previous mode back, or stays at full speed with `RESTORE_FAN_SETTINGS=false`.
+### Safety rules
+
+These hold in every mode, whatever the settings:
+
+- **A hot drive** puts its fans at full speed: at its maximum temperature, or at 65 °C (80 °C for an NVMe drive) even when its maximum is set higher. In manual control it puts every fan at full speed, until you leave manual control.
+- **Limits are capped.** Drive temperatures in the settings go up to 80 °C, and the limits of one drive up to 70 °C unless it is NVMe.
+- **No temperatures, full speed.** Temperatures that stop coming in, or hddfancontrol stopping, put every fan at full speed. In manual control this applies only when drives are chosen, so that you can find out which fan is which before choosing them.
+- **A missing reading is held.** A drive whose temperature turns empty (asleep, or a failed probe during heavy I/O) keeps its last temperature for five checks.
+- **The fans go back.** When control ends, every PWM output gets its previous mode back, or stays at full speed with `RESTORE_FAN_SETTINGS=false`.
 
 ## Spin down
 
