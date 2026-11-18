@@ -538,7 +538,261 @@ function renderCron() {
   for (const name of CRON_FIELDS) {
     $(`cron-${name}`).replaceChildren(...CRON_PRESETS[name].map(([value, key]) => el("option", { value, label: t(key) })));
     previewCron(name);
+    if (!$(`cron-builder-${name}`).hidden) renderComposer(name);
   }
+}
+
+// --- the composer of a schedule ------------------------------------------
+// A form that writes the cron expression of a field: how often, at what
+// time, on which days. It reads the expression back when it has one of the
+// shapes it writes; any other stays as typed until the composer is used.
+
+const WEEK = [1, 2, 3, 4, 5, 6, 0];
+const EVERY_MINUTES = [5, 10, 15, 20, 30];
+const EVERY_HOURS = [1, 2, 3, 4, 6, 8, 12];
+// What each field starts with when its expression has no simple shape.
+const COMPOSER_START = {
+  smart_schedule: { mode: "hours", every: 6, minute: 0 },
+  selftest_short: { mode: "days", time: "03:00", days: [0] },
+  selftest_long: { mode: "month", time: "03:00", monthDays: [1] },
+  notify_summary: { mode: "days", time: "09:00", days: WEEK },
+  notify_quiet: { mode: "window", from: 22, to: 7, days: WEEK },
+};
+
+function weekdayName(day) {
+  // 7 January 2024 was a Sunday (day 0 of cron).
+  return new Date(2024, 0, 7 + day).toLocaleDateString(I18N.lang, { weekday: "short" });
+}
+
+function pad2(number) {
+  return String(number).padStart(2, "0");
+}
+
+// [1, 2, 3, 5] -> "1-3,5"
+function cronList(numbers) {
+  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
+  const parts = [];
+  for (let i = 0; i < sorted.length; i += 1) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j += 1;
+    parts.push(j > i + 1 ? `${sorted[i]}-${sorted[j]}` : j === i + 1 ? `${sorted[i]},${sorted[j]}` : `${sorted[i]}`);
+    i = j;
+  }
+  return parts.join(",");
+}
+
+// "1-3,5" -> [1, 2, 3, 5]; "*" -> every number; null for any other shape.
+function cronNumbers(text, low, high) {
+  if (text === "*") return Array.from({ length: high - low + 1 }, (_, i) => low + i);
+  const out = [];
+  for (const part of text.split(",")) {
+    const match = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!match) return null;
+    const first = Number(match[1]);
+    const last = match[2] === undefined ? first : Number(match[2]);
+    if (first < low || last > high || first > last) return null;
+    for (let n = first; n <= last; n += 1) out.push(n);
+  }
+  return out;
+}
+
+function cronDays(text) {
+  const days = cronNumbers(text, 0, 7);
+  return days ? [...new Set(days.map((day) => day % 7))] : null;
+}
+
+// The state of the composer for an expression, or null when it has another shape.
+function parseSchedule(expr, name) {
+  if (!expr) return { mode: "never" };
+  const fields = expr.split(/\s+/);
+  if (fields.length !== 5) return null;
+  const [minute, hour, dom, month, dow] = fields;
+  if (month !== "*") return null;
+  if (name === "notify_quiet") {
+    const hours = minute === "*" && dom === "*" ? cronNumbers(hour, 0, 23) : null;
+    const days = cronDays(dow);
+    if (!hours || !days) return null;
+    if (hours.length === 24) return { mode: "window", from: 0, to: 0, days };
+    // One stretch of hours, which may go over midnight.
+    const starts = hours.filter((h) => !hours.includes((h + 23) % 24));
+    if (starts.length !== 1) return null;
+    return { mode: "window", from: starts[0], to: (starts[0] + hours.length) % 24, days };
+  }
+  let match = /^\*\/(\d+)$/.exec(minute);
+  if (match && hour === "*" && dom === "*" && dow === "*" && EVERY_MINUTES.includes(Number(match[1]))) return { mode: "minutes", every: Number(match[1]) };
+  if (!/^\d+$/.test(minute) || Number(minute) > 59) return null;
+  match = /^\*(?:\/(\d+))?$/.exec(hour);
+  if (match && dom === "*" && dow === "*") {
+    const every = Number(match[1] || 1);
+    return EVERY_HOURS.includes(every) ? { mode: "hours", every, minute: Number(minute) } : null;
+  }
+  if (!/^\d+$/.test(hour) || Number(hour) > 23) return null;
+  const time = `${pad2(hour)}:${pad2(minute)}`;
+  if (dom === "*") {
+    const days = cronDays(dow);
+    return days ? { mode: "days", time, days } : null;
+  }
+  const monthDays = dow === "*" ? cronNumbers(dom, 1, 31) : null;
+  return monthDays ? { mode: "month", time, monthDays } : null;
+}
+
+// The expression for a state of the composer, or null while it is not complete.
+function buildSchedule(state) {
+  const [hour, minute] = (state.time || "00:00").split(":").map(Number);
+  const dow = (days) => (days.length === 7 ? "*" : cronList(days));
+  switch (state.mode) {
+    case "never":
+      return "";
+    case "minutes":
+      return `*/${state.every} * * * *`;
+    case "hours":
+      return state.every === 1 ? `${state.minute} * * * *` : `${state.minute} */${state.every} * * *`;
+    case "days":
+      return state.days.length ? `${minute} ${hour} * * ${dow(state.days)}` : null;
+    case "month":
+      return state.monthDays.length ? `${minute} ${hour} ${cronList(state.monthDays)} * *` : null;
+    case "window": {
+      if (!state.days.length) return null;
+      const hours = [];
+      for (let h = state.from; hours.length === 0 || h !== state.to; h = (h + 1) % 24) hours.push(h);
+      // In the order of the clock from the start: 22-23,0-6 for a night.
+      const runs = [];
+      for (const h of hours) {
+        const last = runs[runs.length - 1];
+        if (last && h === last[1] + 1) last[1] = h;
+        else runs.push([h, h]);
+      }
+      const text = runs.map(([first, end]) => (first === end ? `${first}` : `${first}-${end}`)).join(",");
+      return `* ${hours.length === 24 ? "*" : text} * * ${dow(state.days)}`;
+    }
+    default:
+      return null;
+  }
+}
+
+const composers = {};
+
+function selectOf(values, current, label, onchange) {
+  const select = el("select", { "aria-label": label, onchange: () => onchange(Number(select.value)) }, ...values.map(([value, text]) => el("option", { value, text, selected: value === current })));
+  return select;
+}
+
+function weekChips(state, apply) {
+  return el(
+    "div",
+    { class: "cron-line" },
+    el("span", { class: "muted small", text: t("cron.days") }),
+    ...WEEK.map((day) => {
+      const box = el("input", { type: "checkbox", checked: state.days.includes(day) });
+      box.addEventListener("change", () => {
+        state.days = box.checked ? [...state.days, day] : state.days.filter((d) => d !== day);
+        apply();
+      });
+      return el("label", { class: "chip" }, box, weekdayName(day));
+    }),
+  );
+}
+
+function timeInput(state, apply) {
+  const input = el("input", { type: "time", step: 60, value: state.time, "aria-label": t("cron.at") });
+  input.addEventListener("change", () => {
+    if (!input.value) return;
+    state.time = input.value;
+    apply();
+  });
+  return input;
+}
+
+// Build the controls of a field's composer from its state.
+function renderComposer(name) {
+  const box = $(`cron-builder-${name}`);
+  const input = $("settings-form")[name];
+  const parsed = parseSchedule(input.value.trim(), name);
+  const state = parsed && parsed.mode !== "never" ? parsed : { ...COMPOSER_START[name], ...(parsed ? { mode: "never" } : {}) };
+  composers[name] = state;
+  const apply = () => {
+    const expr = buildSchedule(state);
+    if (expr === null || expr === input.value.trim()) return;
+    input.value = expr;
+    previewCron(name);
+  };
+  const modes = name === "notify_quiet" ? ["never", "window"] : ["never", "minutes", "hours", "days", "month"];
+  const mode = el("select", { "aria-label": t("cron.repeat") }, ...modes.map((value) => el("option", { value, text: t(`cron.mode_${value}`), selected: value === state.mode })));
+  mode.addEventListener("change", () => {
+    // Keep what was chosen in the other modes; fill what this one lacks.
+    Object.assign(state, { ...COMPOSER_START[name], ...state, mode: mode.value });
+    state.every = state.mode === "minutes" ? (EVERY_MINUTES.includes(state.every) ? state.every : 15) : EVERY_HOURS.includes(state.every) ? state.every : 6;
+    state.minute ??= 0;
+    state.time ??= "03:00";
+    state.days ??= WEEK;
+    state.monthDays ??= [1];
+    state.from ??= 22;
+    state.to ??= 7;
+    apply();
+    renderComposerBody(name, state, apply);
+  });
+  box.replaceChildren(
+    el("div", { class: "cron-line" }, el("span", { class: "muted small", text: t("cron.repeat") }), mode),
+    el("div", { class: "cron-body" }),
+    parsed ? "" : el("p", { class: "muted small", text: t("cron.custom") }),
+  );
+  renderComposerBody(name, state, apply);
+}
+
+function renderComposerBody(name, state, apply) {
+  const body = $(`cron-builder-${name}`).querySelector(".cron-body");
+  const set = (key) => (value) => {
+    state[key] = value;
+    apply();
+  };
+  const line = (...children) => el("div", { class: "cron-line" }, ...children);
+  const word = (key) => el("span", { class: "muted small", text: t(key) });
+  const hours = Array.from({ length: 24 }, (_, h) => [h, `${pad2(h)}:00`]);
+  switch (state.mode) {
+    case "minutes":
+      body.replaceChildren(line(word("cron.every"), selectOf(EVERY_MINUTES.map((n) => [n, String(n)]), state.every, t("cron.every"), set("every")), word("cron.minutes_unit")));
+      break;
+    case "hours":
+      body.replaceChildren(
+        line(
+          word("cron.every"),
+          selectOf(EVERY_HOURS.map((n) => [n, String(n)]), state.every, t("cron.every"), set("every")),
+          word("cron.hours_unit"),
+          word("cron.at_minute"),
+          selectOf(Array.from({ length: 12 }, (_, i) => [i * 5, pad2(i * 5)]), state.minute - (state.minute % 5), t("cron.at_minute"), set("minute")),
+        ),
+      );
+      break;
+    case "days":
+      body.replaceChildren(line(word("cron.at"), timeInput(state, apply)), weekChips(state, apply));
+      break;
+    case "month": {
+      const days = el("input", { type: "text", class: "cron-month-days", value: state.monthDays.join(", "), inputmode: "numeric", "aria-label": t("cron.month_days") });
+      days.addEventListener("input", () => {
+        const numbers = days.value.split(/[\s,;]+/).filter(Boolean).map(Number);
+        if (numbers.every((n) => Number.isInteger(n) && n >= 1 && n <= 31)) {
+          state.monthDays = numbers;
+          apply();
+        }
+      });
+      body.replaceChildren(line(word("cron.month_days"), days), line(word("cron.at"), timeInput(state, apply)));
+      break;
+    }
+    case "window":
+      body.replaceChildren(line(word("cron.from"), selectOf(hours, state.from, t("cron.from"), set("from")), word("cron.to"), selectOf(hours, state.to, t("cron.to"), set("to"))), weekChips(state, apply));
+      break;
+    default:
+      body.replaceChildren();
+  }
+}
+
+function toggleComposer(name) {
+  const box = $(`cron-builder-${name}`);
+  const button = document.querySelector(`[data-cron-field="${name}"] .cron-compose`);
+  box.hidden = !box.hidden;
+  button.setAttribute("aria-expanded", String(!box.hidden));
+  box.closest(".field").classList.toggle("composing", !box.hidden);
+  if (!box.hidden) renderComposer(name);
 }
 
 // The groups and the limits follow the drives and fans ticked above.
@@ -556,7 +810,10 @@ document.addEventListener("DOMContentLoaded", () => {
     $("settings-form")[name].addEventListener("input", () => {
       clearTimeout(cronTimers[name]);
       cronTimers[name] = setTimeout(() => previewCron(name), CRON_DELAY_MS);
+      // An expression typed by hand shows in the open composer.
+      if (!$(`cron-builder-${name}`).hidden) renderComposer(name);
     });
+    document.querySelector(`[data-cron-field="${name}"] .cron-compose`).addEventListener("click", () => toggleComposer(name));
   }
   for (const id of ["drive-list", "pwm-list"]) {
     $(id).addEventListener("change", () => {

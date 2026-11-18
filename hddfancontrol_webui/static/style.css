@@ -1646,6 +1646,76 @@ input.cron,
   overflow-wrap: anywhere;
 }
 
+/* Room for the expression and its button; an open composer takes the whole row. */
+.fields.schedules {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.field.composing {
+  grid-column: 1 / -1;
+}
+
+.field.composing .cron-row,
+.field.composing .cron-builder {
+  max-width: 640px;
+}
+
+.field > .field-title {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.cron-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.cron-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cron-row .cron-compose {
+  flex: none;
+}
+
+/* The composer of a schedule, under its field. */
+.cron-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.cron-builder p {
+  margin: 0;
+}
+
+.cron-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cron-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cron-line select,
+.cron-line input[type="time"] {
+  width: auto;
+}
+
+.cron-month-days {
+  width: 8rem;
+}
+
 /* Bay map: one tile per bay, in the columns of the case. */
 .bays {
   display: grid;

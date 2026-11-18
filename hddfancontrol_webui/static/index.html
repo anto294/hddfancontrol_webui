@@ -304,37 +304,67 @@
           <h2 data-icon="calendar" data-i18n="settings.schedules"></h2>
           <p class="muted small" data-i18n="settings.schedules_help"></p>
           <p class="muted small"><code class="cron-syntax" data-i18n="settings.cron_syntax"></code></p>
-          <div class="fields">
-            <label class="field"><span data-i18n="settings.smart_schedule"></span>
-              <input type="text" name="smart_schedule" class="cron" list="cron-smart_schedule" autocomplete="off" spellcheck="false" autocapitalize="off">
+          <div class="fields schedules">
+            <div class="field" data-cron-field="smart_schedule">
+              <label class="field-title" for="cron-input-smart_schedule" data-i18n="settings.smart_schedule"></label>
+              <div class="cron-row">
+                <input type="text" id="cron-input-smart_schedule" name="smart_schedule" class="cron" list="cron-smart_schedule" autocomplete="off" spellcheck="false" autocapitalize="off">
+                <button type="button" class="secondary cron-compose" data-icon="calendar" data-i18n="cron.compose" aria-expanded="false" aria-controls="cron-builder-smart_schedule"></button>
+              </div>
               <datalist id="cron-smart_schedule"></datalist>
+              <div class="cron-builder" id="cron-builder-smart_schedule" hidden></div>
               <small class="cron-preview" data-cron-preview="smart_schedule"></small>
               <small class="muted" data-i18n="settings.smart_schedule_help"></small>
-              <small class="error" data-error="smart_schedule"></small></label>
-            <label class="field"><span data-i18n="settings.selftest_short"></span>
-              <input type="text" name="selftest_short" class="cron" list="cron-selftest_short" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <small class="error" data-error="smart_schedule"></small>
+            </div>
+            <div class="field" data-cron-field="selftest_short">
+              <label class="field-title" for="cron-input-selftest_short" data-i18n="settings.selftest_short"></label>
+              <div class="cron-row">
+                <input type="text" id="cron-input-selftest_short" name="selftest_short" class="cron" list="cron-selftest_short" autocomplete="off" spellcheck="false" autocapitalize="off">
+                <button type="button" class="secondary cron-compose" data-icon="calendar" data-i18n="cron.compose" aria-expanded="false" aria-controls="cron-builder-selftest_short"></button>
+              </div>
               <datalist id="cron-selftest_short"></datalist>
+              <div class="cron-builder" id="cron-builder-selftest_short" hidden></div>
               <small class="cron-preview" data-cron-preview="selftest_short"></small>
               <small class="muted" data-i18n="settings.selftest_short_help"></small>
-              <small class="error" data-error="selftest_short"></small></label>
-            <label class="field"><span data-i18n="settings.selftest_long"></span>
-              <input type="text" name="selftest_long" class="cron" list="cron-selftest_long" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <small class="error" data-error="selftest_short"></small>
+            </div>
+            <div class="field" data-cron-field="selftest_long">
+              <label class="field-title" for="cron-input-selftest_long" data-i18n="settings.selftest_long"></label>
+              <div class="cron-row">
+                <input type="text" id="cron-input-selftest_long" name="selftest_long" class="cron" list="cron-selftest_long" autocomplete="off" spellcheck="false" autocapitalize="off">
+                <button type="button" class="secondary cron-compose" data-icon="calendar" data-i18n="cron.compose" aria-expanded="false" aria-controls="cron-builder-selftest_long"></button>
+              </div>
               <datalist id="cron-selftest_long"></datalist>
+              <div class="cron-builder" id="cron-builder-selftest_long" hidden></div>
               <small class="cron-preview" data-cron-preview="selftest_long"></small>
               <small class="muted" data-i18n="settings.selftest_long_help"></small>
-              <small class="error" data-error="selftest_long"></small></label>
-            <label class="field"><span data-i18n="settings.notify_summary"></span>
-              <input type="text" name="notify_summary" class="cron" list="cron-notify_summary" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <small class="error" data-error="selftest_long"></small>
+            </div>
+            <div class="field" data-cron-field="notify_summary">
+              <label class="field-title" for="cron-input-notify_summary" data-i18n="settings.notify_summary"></label>
+              <div class="cron-row">
+                <input type="text" id="cron-input-notify_summary" name="notify_summary" class="cron" list="cron-notify_summary" autocomplete="off" spellcheck="false" autocapitalize="off">
+                <button type="button" class="secondary cron-compose" data-icon="calendar" data-i18n="cron.compose" aria-expanded="false" aria-controls="cron-builder-notify_summary"></button>
+              </div>
               <datalist id="cron-notify_summary"></datalist>
+              <div class="cron-builder" id="cron-builder-notify_summary" hidden></div>
               <small class="cron-preview" data-cron-preview="notify_summary"></small>
               <small class="muted" data-i18n="settings.notify_summary_help"></small>
-              <small class="error" data-error="notify_summary"></small></label>
-            <label class="field"><span data-i18n="settings.notify_quiet"></span>
-              <input type="text" name="notify_quiet" class="cron" list="cron-notify_quiet" autocomplete="off" spellcheck="false" autocapitalize="off">
+              <small class="error" data-error="notify_summary"></small>
+            </div>
+            <div class="field" data-cron-field="notify_quiet">
+              <label class="field-title" for="cron-input-notify_quiet" data-i18n="settings.notify_quiet"></label>
+              <div class="cron-row">
+                <input type="text" id="cron-input-notify_quiet" name="notify_quiet" class="cron" list="cron-notify_quiet" autocomplete="off" spellcheck="false" autocapitalize="off">
+                <button type="button" class="secondary cron-compose" data-icon="calendar" data-i18n="cron.compose" aria-expanded="false" aria-controls="cron-builder-notify_quiet"></button>
+              </div>
               <datalist id="cron-notify_quiet"></datalist>
+              <div class="cron-builder" id="cron-builder-notify_quiet" hidden></div>
               <small class="cron-preview" data-cron-preview="notify_quiet"></small>
               <small class="muted" data-i18n="settings.notify_quiet_help"></small>
-              <small class="error" data-error="notify_quiet"></small></label>
+              <small class="error" data-error="notify_quiet"></small>
+            </div>
           </div>
         </article>
 

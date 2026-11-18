@@ -21,6 +21,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   overview: the share of busy time of every processor, the load average
   and the package temperature (`coretemp`, `k10temp`, `zenpower` or the
   `cpu_thermal` of ARM boards).
+- **A composer for the schedules.** Next to each cron field of
+  **Settings → Schedules**, **Compose** opens a small form that writes
+  the expression: every few minutes or hours, at a time on chosen days
+  of the week or of the month, or, for the quiet hours, from one hour
+  to another on chosen days. It reads back the expressions it can write;
+  any other stays as typed until the form is used.
 
 ### Changed
 
