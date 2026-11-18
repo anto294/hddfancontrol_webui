@@ -14,6 +14,7 @@ import contextlib
 import os
 import re
 import stat
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,33 @@ _TEMP = re.compile(r"^temp(\d+)_input$")
 _HWMON = re.compile(r"^hwmon\d+$")
 _ATA_PORT = re.compile(r"^ata\d+$")
 _PCI_ADDRESS = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$")
+# The hwmon drivers of processors, and the input of each that stands for the
+# whole package (the first input when none of them is there).
+_CPU_CHIPS = {
+    "coretemp": ("Package id 0", "Package id 1", "Package id 2", "Package id 3"),
+    "k10temp": ("Tdie", "Tctl"),
+    "zenpower": ("Tdie", "Tctl"),
+    "cpu_thermal": (),
+    "cpu-thermal": (),
+    "soc_thermal": (),
+}
+
+
+# ---------------------------
+#   DriveIo
+# ---------------------------
+@dataclass
+class DriveIo:
+    """The I/O counters of a drive since boot, from /sys/class/block/NAME/stat.
+
+    They are kernel counters: reading them never reaches the drive. The page
+    turns two readings into a rate with the clock of the snapshot.
+    """
+
+    busy_ms: int
+    read_sectors: int
+    write_sectors: int
+    in_flight: int
 
 
 # ---------------------------
@@ -48,6 +76,26 @@ class Drive:
     bus: str = ""
     controller: str = ""
     link: str = ""
+    io: DriveIo | None = None
+
+
+# ---------------------------
+#   Cpu
+# ---------------------------
+@dataclass
+class Cpu:
+    """The processors of the host: time counters, load average and temperature.
+
+    busy and total are the jiffies of /proc/stat since boot (all processors);
+    the page turns two readings into a percentage.
+    """
+
+    count: int = 0
+    busy: int | None = None
+    total: int | None = None
+    load: list[float] = field(default_factory=list)
+    temp: float | None = None
+    temp_path: str = ""
 
 
 # ---------------------------
@@ -127,10 +175,11 @@ def _natural_key(text: str) -> list[Any]:
 class Hardware:
     """Read the drives and the hwmon devices of the host."""
 
-    def __init__(self, dev_root: Path = Path("/dev"), sys_root: Path = Path("/sys")) -> None:
+    def __init__(self, dev_root: Path = Path("/dev"), sys_root: Path = Path("/sys"), proc_root: Path = Path("/proc")) -> None:
         """Read from these trees: the real ones, or a copy in the tests."""
         self._dev = dev_root
         self._sys = sys_root
+        self._proc = proc_root
 
     def drives(self) -> list[Drive]:
         """List the whole drives that have a name in /dev/disk/by-id."""
@@ -169,7 +218,25 @@ class Hardware:
             bus=bus,
             controller=controller,
             link=link,
+            io=self._io(block),
         )
+
+    @staticmethod
+    def _io(block: Path) -> DriveIo | None:
+        """Read the I/O counters of a drive, or None when sysfs has none.
+
+        The fields of the stat file: sectors read is the third, sectors written
+        the seventh, requests in flight the ninth and the time with I/O under
+        way (ms) the tenth.
+        """
+        text = _read(block / "stat")
+        try:
+            fields = [int(value) for value in (text or "").split()]
+        except ValueError:
+            return None
+        if len(fields) < 10:
+            return None
+        return DriveIo(busy_ms=fields[9], read_sectors=fields[2], write_sectors=fields[6], in_flight=fields[8])
 
     @staticmethod
     def _connection(block: Path, kernel_name: str) -> tuple[str, str, str]:
@@ -324,13 +391,64 @@ class Hardware:
             return False
         return bool(_IS_DRIVE_NODE(mode))
 
+    def cpu(self, hwmons: list[HwmonDevice] | None = None) -> Cpu:
+        """Read the processors: /proc/stat, /proc/loadavg and the package temperature of their hwmon chip."""
+        cpu = Cpu()
+        stat_text = _read(self._proc / "stat") or ""
+        for line in stat_text.splitlines():
+            name, _, rest = line.partition(" ")
+            if name == "cpu":
+                try:
+                    ticks = [int(value) for value in rest.split()]
+                except ValueError:
+                    continue
+                # user nice system idle iowait irq softirq steal; guest time is already in user.
+                ticks = ticks[:8]
+                if len(ticks) >= 4:
+                    idle = ticks[3] + (ticks[4] if len(ticks) > 4 else 0)
+                    cpu.total = sum(ticks)
+                    cpu.busy = cpu.total - idle
+            elif name.startswith("cpu") and name[3:].isdigit():
+                cpu.count += 1
+        load_text = _read(self._proc / "loadavg") or ""
+        with contextlib.suppress(ValueError):
+            cpu.load = [float(value) for value in load_text.split()[:3]]
+        cpu.temp, cpu.temp_path = self._cpu_temp(self.hwmons() if hwmons is None else hwmons)
+        return cpu
+
+    @staticmethod
+    def _cpu_temp(hwmons: list[HwmonDevice]) -> tuple[float | None, str]:
+        """The hottest package temperature of the processor chips, and its path."""
+        found: list[TempInput] = []
+        for device in hwmons:
+            preferred = _CPU_CHIPS.get(device.name)
+            if preferred is None:
+                continue
+            readable = [temp for temp in device.temps if temp.celsius is not None]
+            packages = [temp for temp in readable if temp.label in preferred]
+            if device.name in ("k10temp", "zenpower") and packages:
+                # Tdie, when there, has no offset; Tctl may have one.
+                packages = [min(packages, key=lambda temp: preferred.index(temp.label))]
+            found += packages or readable[:1]
+        if not found:
+            return None, ""
+        hottest = max(found, key=lambda temp: temp.celsius or 0.0)
+        return hottest.celsius, hottest.path
+
     def pwm_paths(self) -> set[str]:
         """Return the paths of every PWM output, to check what a client asks to test."""
         return {pwm.path for device in self.hwmons() for pwm in device.pwms}
 
     def snapshot(self) -> dict[str, Any]:
-        """Return drives and hwmon devices as JSON-ready data."""
+        """Return drives, hwmon devices and processors as JSON-ready data.
+
+        clock (seconds, monotonic) dates the counters, so the page can turn two
+        snapshots into rates whatever the delay of the network.
+        """
+        hwmons = self.hwmons()
         return {
+            "clock": time.monotonic(),
             "drives": [asdict(d) for d in self.drives()],
-            "hwmons": [asdict(h) for h in self.hwmons()],
+            "hwmons": [asdict(h) for h in hwmons],
+            "cpu": asdict(self.cpu(hwmons)),
         }

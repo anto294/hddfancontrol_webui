@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from hddfancontrol_webui.hardware import Hardware
+from hddfancontrol_webui.hardware import DriveIo, Hardware, HwmonDevice, TempInput
 
 
 def test_drives(fake_sys: Path, fake_dev: Path) -> None:
@@ -130,3 +130,63 @@ def test_kernel_names(fake_sys: Path, fake_dev: Path) -> None:
     assert names["/dev/sda"] == "sda" and names["/dev/disk/by-id/nvme-eui.002538"] == "nvme0n1"
     assert not any("part" in key for key in names)
     assert Hardware(fake_dev / "none", fake_sys).kernel_names() == {}
+
+
+def test_drive_io(fake_sys: Path, fake_dev: Path) -> None:
+    """The I/O counters of a drive come from its stat file; a missing or bad file gives none."""
+    block = fake_sys / "class" / "block"
+    (block / "sda" / "stat").write_text("  4012 10 821344 900 2210 5 409600 3100 2 15230 4000 0 0 0 0 0 0\n")
+    drives = {d.name: d for d in Hardware(fake_dev, fake_sys).drives()}
+    assert drives["sda"].io == DriveIo(busy_ms=15230, read_sectors=821344, write_sectors=409600, in_flight=2)
+    assert drives["nvme0n1"].io is None
+    (block / "sda" / "stat").write_text("1 2 3\n")
+    assert Hardware(fake_dev, fake_sys).drives()[1].io is None
+    (block / "sda" / "stat").write_text("a b c d e f g h i j\n")
+    assert Hardware(fake_dev, fake_sys).drives()[1].io is None
+
+
+def test_cpu(fake_sys: Path, fake_dev: Path, tmp_path: Path) -> None:
+    """Time counters and processors from /proc/stat, the load average, the hottest package."""
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    (proc / "stat").write_text(
+        "cpu  100 5 50 800 20 3 2 0 7 0\ncpu0 50 2 25 400 10 1 1 0 0 0\ncpu1 50 3 25 400 10 2 1 0 0 0\nintr 1 2 3\n"
+    )
+    (proc / "loadavg").write_text("0.52 0.40 0.31 2/301 4242\n")
+    cpu = Hardware(fake_dev, fake_sys, proc).cpu()
+    assert (cpu.count, cpu.total, cpu.busy, cpu.load) == (2, 980, 160, [0.52, 0.40, 0.31])
+    # The fake host has a fan chip and acpitz only: no processor temperature.
+    assert (cpu.temp, cpu.temp_path) == (None, "")
+    snapshot = Hardware(fake_dev, fake_sys, proc).snapshot()
+    assert snapshot["cpu"]["busy"] == 160 and isinstance(snapshot["clock"], float)
+
+    empty = Hardware(fake_dev, fake_sys, tmp_path / "none").cpu()
+    assert (empty.count, empty.total, empty.busy, empty.load) == (0, None, None, [])
+    (proc / "stat").write_text("cpu  1 x 3\n")
+    (proc / "loadavg").write_text("busy\n")
+    bad = Hardware(fake_dev, fake_sys, proc).cpu()
+    assert (bad.total, bad.load) == (None, [])
+
+
+def test_cpu_temperature() -> None:
+    """The package input of each processor chip, the hottest of them; Tdie before Tctl."""
+
+    def chip(name: str, *temps: tuple[str, float | None]) -> HwmonDevice:
+        number = len(name)
+        inputs = [
+            TempInput(f"/sys/class/hwmon/hwmon{number}/temp{i}_input", label, value)
+            for i, (label, value) in enumerate(temps, 1)
+        ]
+        return HwmonDevice(hwmon=f"hwmon{number}", name=name, temps=inputs)
+
+    pick = Hardware._cpu_temp
+    intel = chip("coretemp", ("Core 0", 70.0), ("Package id 0", 55.0))
+    assert pick([intel]) == (55.0, "/sys/class/hwmon/hwmon8/temp2_input")
+    two = chip("coretemp", ("Package id 0", 51.0), ("Package id 1", 58.0))
+    assert pick([two])[0] == 58.0
+    amd = chip("k10temp", ("Tctl", 72.0), ("Tdie", 62.0), ("Tccd1", 64.0))
+    assert pick([amd])[0] == 62.0
+    assert pick([chip("k10temp", ("Tctl", 48.0), ("Tccd1", 50.0))])[0] == 48.0
+    assert pick([chip("cpu_thermal", ("temp1", 47.2))])[0] == 47.2
+    assert pick([chip("coretemp", ("Core 0", None), ("Core 1", 44.0))])[0] == 44.0
+    assert pick([chip("acpitz", ("temp1", 30.0)), chip("nct6798", ("CPUTIN", 40.0))]) == (None, "")
