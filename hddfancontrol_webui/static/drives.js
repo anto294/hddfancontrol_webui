@@ -236,7 +236,7 @@ function hddArt() {
 
 // A chip: a black package with the dot of pin 1.
 function chip(x, y, width, height, extra = "") {
-  const group = svg("g", { class: `chip ${extra}`.trim() });
+  const group = svg("g", { class: `pkg ${extra}`.trim() });
   group.append(svg("rect", { x, y, width, height, rx: 0.8 }), svg("circle", { class: "pin1", cx: x + 1.8, cy: y + 1.8, r: 0.6 }));
   return group;
 }

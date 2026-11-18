@@ -1941,7 +1941,7 @@ input.cron,
 }
 
 .drive-art.flash .pcb,
-.drive-art .chip rect,
+.drive-art .pkg rect,
 .drive-art .port {
   fill: var(--surface-2);
 }
@@ -1957,12 +1957,12 @@ input.cron,
 }
 
 .drive-art.flash .screw,
-.drive-art .chip .pin1 {
+.drive-art .pkg .pin1 {
   fill: var(--muted);
   stroke: none;
 }
 
-.drive-art .chip.controller rect {
+.drive-art .pkg.controller rect {
   fill: var(--border);
 }
 
