@@ -21,8 +21,12 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - [Fan control modes](#fan-control-modes)
 - [Spin down](#spin-down)
 - [History, SMART data and names](#history-smart-data-and-names)
+- [On a phone](#on-a-phone)
+- [Prometheus and Grafana](#prometheus-and-grafana)
 - [Alerts](#alerts)
+  - [Schedules](#schedules)
 - [Security](#security)
+  - [HTTPS](#https)
 - [Environment variables](#environment-variables)
 - [Resource use](#resource-use)
 - [Troubleshooting](#troubleshooting)
@@ -90,18 +94,16 @@ The container runs privileged: it writes the PWM files of `/sys` and sends ATA c
 
 Download `hddfancontrol-webui-<version>-linux-<arch>.tar.gz` from the [latest release](https://github.com/anto294/hddfancontrol_webui/releases/latest) (`amd64` or `arm64`), then:
 
-To check that the tarball was built by this repository's release workflow from the tagged source (with the [GitHub CLI](https://cli.github.com/)):
-
-```bash
-gh attestation verify hddfancontrol-webui-*-linux-amd64.tar.gz --repo anto294/hddfancontrol_webui
-```
-
-Then:
-
 ```bash
 tar xzf hddfancontrol-webui-*-linux-amd64.tar.gz
 cd hddfancontrol-webui-*-linux-amd64
 sudo ./install.sh
+```
+
+To check first that the tarball was built by this repository's release workflow from the tagged source (with the [GitHub CLI](https://cli.github.com/)):
+
+```bash
+gh attestation verify hddfancontrol-webui-*-linux-amd64.tar.gz --repo anto294/hddfancontrol_webui
 ```
 
 The tarball carries static builds of hddfancontrol 2, hd-idle and sdparm, so the version of your distribution does not matter (Debian still ships hddfancontrol 1, whose options differ). `install.sh` puts everything in `/opt/hddfancontrol-webui`, the settings in `/etc/hddfancontrol-webui/env`, the data in `/var/lib/hddfancontrol-webui`, and starts the `hddfancontrol-webui` service. Run it again from a newer tarball to update.
@@ -183,17 +185,17 @@ The web UI watches for:
 - drive temperatures that stop coming in, or an error of the fan control itself, which put every fan at full speed;
 - a chosen fan whose chip is not found any more (see [Troubleshooting](#troubleshooting)).
 
-Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back), is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address.
+Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back), is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address. The address depends on the format:
+
+- **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
+- **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
+- **json**: any webhook that takes a POST with `{"title", "message", "level"}` (`level` is `alert` or `ok`).
 
 An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come on a schedule: highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state since the one before. The quiet hours and the summary are set in **Settings → Schedules**.
 
 ### Schedules
 
 Every schedule (SMART reads, self-tests, summary, quiet hours) is a cron expression as in crontab: `minute hour day month weekday`, with `*`, ranges (`1-5`), lists (`1,15`), steps (`*/6`), names (`mon`, `jan`) and the macros `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`. Each field offers a few ready-made ones and shows its next runs as you type; **Compose** next to it writes the expression from a small form (how often, at what time, on which days, or from one hour to another for the quiet hours). When both the day of the month and the weekday are given, either one is enough, as in cron. For the quiet hours every minute the expression matches is quiet: `* 22-23,0-6 * * *` is every night from 22 to 7. An empty field means never. The times are those of the server: set `TZ` on the container (TrueNAS apps run in UTC otherwise).
-
-- **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
-- **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
-- **json**: any webhook that takes a POST with `{"title", "message", "level"}` (`level` is `alert` or `ok`).
 
 ## Security
 
@@ -296,7 +298,7 @@ To try the web UI without touching the fans, point `HDDFANCONTROL_BIN` and `HDID
 
 ## Credits and license
 
-- [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma (GPL-3.0) measures the drives and drives the fans.
+- [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma (GPL-3.0) measures the drive temperatures without waking the drives.
 - [hd-idle](https://github.com/adelolmo/hd-idle) by adelolmo (GPL-3.0) spins the drives down.
 - [sdparm](https://sg.danny.cz/sg/sdparm.html) by Douglas Gilbert (BSD) reads the state of SAS drives.
 
