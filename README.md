@@ -82,7 +82,7 @@ Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleep
 
 | Fan chip (module) | Mainboard | System | Result |
 |---|---|---|---|
-| nct6798 (`nct6775`) | — | TrueNAS SCALE, Docker | Works |
+| nct6798 (`nct6775`) | ASRock B550M PG Riptide | TrueNAS SCALE, Docker | Works |
 
 Tried it on other hardware? Please send a [hardware report](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_report.yml), whether it works or not.
 
