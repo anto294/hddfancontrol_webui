@@ -192,6 +192,7 @@
   "settings.spin_down_command_help": "ata per i dischi SATA, scsi per i dischi SAS e alcuni box USB.",
   "settings.hwmons": "Altri sensori di temperatura",
   "settings.hwmons_help": "Fa girare le ventole anche in base a questi sensori: in proporzione tra il minimo e il massimo, alla massima velocità oltre il massimo. Senza un intervallo, in modalità curva lo sceglie hddfancontrol, mentre la modalità auto ignora il sensore. Evita i sensori della CPU, salvo CPU a basso consumo.",
+  "settings.hwmons_chosen": "{count} in uso",
   "settings.sensor": "Sensore",
   "settings.now": "Adesso",
   "settings.temp_min": "Min (°C)",

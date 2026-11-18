@@ -174,6 +174,7 @@ function renderSettings() {
     );
   }
   labelCells($("hwmon-list"));
+  $("hwmon-chosen").textContent = chosen.size ? t("settings.hwmons_chosen", { count: chosen.size }) : "";
   renderCron();
 }
 
@@ -349,6 +350,8 @@ function showProblems(problems) {
     const text = t(`error.${problem.code}`, problem.params || {});
     if (target) target.textContent = target.textContent ? `${target.textContent} ${text}` : `${problem.field}: ${text}`;
   }
+  // A problem in a closed section opens it, so the field at fault is in sight.
+  if (problems.some((problem) => problem.field.startsWith("hwmons"))) $("hwmon-fold").open = true;
 }
 
 async function loadSettings() {

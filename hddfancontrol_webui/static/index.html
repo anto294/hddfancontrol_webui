@@ -253,9 +253,15 @@
         </article>
 
         <article class="card">
-          <h2 data-icon="chip" data-i18n="settings.hwmons"></h2>
-          <p class="muted small" data-i18n="settings.hwmons_help"></p>
-          <table class="list form-table" id="hwmon-list"></table>
+          <!-- Closed at first: a board can have dozens of inputs. -->
+          <details class="card-fold" id="hwmon-fold">
+            <summary>
+              <h2 data-icon="chip" data-i18n="settings.hwmons"></h2>
+              <span class="muted small" id="hwmon-chosen"></span>
+            </summary>
+            <p class="muted small" data-i18n="settings.hwmons_help"></p>
+            <div class="table-scroll"><table class="list form-table" id="hwmon-list"></table></div>
+          </details>
           <p class="error" data-error="hwmons"></p>
         </article>
 

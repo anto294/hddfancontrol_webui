@@ -22,6 +22,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   and the package temperature (`coretemp`, `k10temp`, `zenpower` or the
   `cpu_thermal` of ARM boards).
 
+### Changed
+
+- **Other temperature sensors** in **Settings** start folded, with the
+  number in use next to the title: a board can have dozens of inputs. A
+  problem with one of them opens the section.
+
 ## [0.9.0] - 2026-11-17
 
 ### Changed

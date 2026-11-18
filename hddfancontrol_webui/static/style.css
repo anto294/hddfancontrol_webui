@@ -708,6 +708,45 @@ details > summary {
   list-style-position: inside;
 }
 
+/* A card whose content folds under its title (Other temperature sensors). */
+details.card-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  list-style: none;
+  color: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+
+details.card-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.card-fold > summary h2 {
+  margin: 0;
+}
+
+details.card-fold > summary::after {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: auto;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+}
+
+details.card-fold[open] > summary::after {
+  transform: rotate(45deg);
+}
+
+details.card-fold[open] > summary {
+  margin-bottom: 0.6rem;
+}
+
 details.help {
   margin: 0.2rem 0 0.6rem;
 }
