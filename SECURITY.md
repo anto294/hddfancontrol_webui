@@ -1,0 +1,26 @@
+# Security
+
+## Reporting a vulnerability
+
+Please do not open a public issue for a vulnerability. Report it privately on GitHub: **Security → Report a vulnerability** in this repository. If that is not possible, open an issue that only asks for a private contact, without details.
+
+Fixes go into the latest release; older releases do not get updates.
+
+## How the web UI is protected
+
+The container runs privileged, because the fans and the drives need it, so the web UI is built to keep the network away from root:
+
+- **Two processes.** The core, which drives the fans and the drives, runs as root and listens on no port: only on a Unix socket that the gateway's user alone can open, and it checks that user on every connection. The **gateway**, which holds the port, HTTPS, the login and the pages, runs as the unprivileged user `hddfancontrol-webui` (`WEBUI_USER`), and passes on to the core only the requests of a logged-in user. A flaw reached before the login stays in a process that cannot touch the fans, the drives or the rest of `/config`. The gateway gets only the environment variables it needs (not `NOTIFY_URL`, for example).
+- **No open first start.** Without credentials nothing answers but the setup page, and creating them needs the one-time code that the gateway writes in the container's log (a new one at every start): someone who only reaches the port cannot claim a new installation. Credentials can be changed, never removed. `WEBUI_USERNAME` and `WEBUI_PASSWORD` win over the stored ones and cannot be changed from the web UI.
+- **Private networks only, by default.** The port answers loopback, private, link-local and carrier-grade NAT addresses (LAN, VPNs such as Tailscale) and refuses the rest with a bare 403; `WEBUI_ALLOW` sets other networks (`WEBUI_ALLOW=192.168.1.0/24`, or `all`). A LAN with IPv6 also gives its hosts global addresses, which are Internet addresses and so not allowed by default: if the page answers *Forbidden* from your LAN, the log names the network to add (`WEBUI_ALLOW=private 2a02:…::/64`: `private` keeps the private networks), or open the web UI by its IPv4 address. Behind a reverse proxy, every client has the address of the proxy.
+- **Names of the LAN only, by default.** The web UI answers only when the browser uses an IP address, `localhost`, a name without dots (`truenas`) or a name of the LAN, of a router or of a VPN (`.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.fritz.box`, `.home`, `.ts.net`): an Internet name pointed at your NAS by someone else (DNS rebinding) gets a bare 403, so a web page of theirs cannot use your browser to reach the web UI. **Behind a reverse proxy with a public domain, set `WEBUI_HOSTS`** to that name (`WEBUI_HOSTS=nas.example.com`, `*.example.com` for its subdomains, `any` to turn the check off), or the page answers *Forbidden*; the log names the value to set. `/healthz` answers any name.
+- **Login.** Credentials are a scrypt hash in `/config/web/auth.json`, readable by the gateway's user only. A login gives an HttpOnly, SameSite=Strict session cookie (Secure over HTTPS), which ends after 12 hours without use, 7 days after the login, or when the container restarts; changing the password ends every other session. Scripts can use HTTP Basic authentication. A wrong password or setup code waits one second; a client that sends 10 in 15 minutes (an IPv4 address, or a whole IPv6 /64) is refused for a while, and after 100 from all clients together the password checks of the clients that sent a wrong one are slowed down, one at a time, by 2 seconds and up to 30; nobody is refused for it, a client without a wrong password is not slowed down, and open sessions go on.
+- **Every change** needs a header that other sites cannot send and a matching origin, and is written to the audit log (`[audit]`, with user and address); logins, wrong passwords and refused addresses go to the log as `[gateway]`. Every value is checked before it reaches a command line or a file: only the names of whole drives (`/dev/disk/by-id/…`, `/dev/disk/by-path/…`, `/dev/sdX`, `/dev/nvmeNnN`), only `pwmN` files of `/sys/class/hwmon` that exist on the host for the fans, manual control and the PWM test.
+- **Headers:** a strict Content Security Policy (no inline script or style), no framing, no sniffing, no referrer, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` same-origin, a `Permissions-Policy` that turns off camera, microphone and the like, and no server version.
+- **Container:** the compose file runs it with a read-only root, `no-new-privileges`, a process limit, a small `/tmp` without exec, and a memory limit. Everything the core writes in `/config` is mode 0600.
+
+HTTPS, the self-signed certificate and `FORCE_HTTPS` are described in the [README](README.md#https).
+
+## Known issue
+
+The image uses Alpine's aiohttp (3.13.5 in Alpine 3.24), which several published advisories affect; they are fixed in aiohttp 3.14.4, and the image will move to it as soon as Alpine ships it. Until then, keep the port to your LAN (the default) and do not publish it to the Internet. The bare metal package already needs 3.14.4.
