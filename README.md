@@ -47,7 +47,7 @@ Open `https://<host>:28462` (the certificate is self-signed: accept it once), ty
 - [Environment variables](#environment-variables)
 - [Resource use](#resource-use)
 - [Troubleshooting](#troubleshooting)
-- [Development](#development)
+- [Contributing](#contributing)
 - [Credits and license](#credits-and-license)
 
 ## What you can do with it
@@ -338,17 +338,9 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 
 **A drive never sleeps.** Something reads or writes it: a pool scrub, SMART tests, an app. The web UI itself reads temperatures only through hddfancontrol, which leaves sleeping drives alone, and SMART data only with `-n standby`.
 
-## Development
+## Contributing
 
-```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e . pytest pytest-aiohttp pytest-asyncio pytest-cov black flake8 ruff mypy bandit
-python -m pytest --cov
-black . && ruff check hddfancontrol_webui --select E,F,B,ASYNC,S,I --ignore E501 && mypy
-docker build -t hddfancontrol_webui:dev .
-```
-
-To try the web UI without touching the fans, point `HDDFANCONTROL_BIN` and `HDIDLE_BIN` at scripts that only sleep, and set `CONFIG_DIR` and `LOAD_SENSOR_MODULES=false`. See [CLAUDE.md](CLAUDE.md) for the architecture.
+Bug reports, hardware reports and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, the checks and the conventions. Vulnerabilities go through [SECURITY.md](SECURITY.md).
 
 ## Credits and license
 
