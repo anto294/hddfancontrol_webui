@@ -92,9 +92,9 @@ Tried it on other hardware? Please send a [hardware report](https://github.com/a
 
 1. Create a dataset for the settings, for example `apps/hddfancontrol`.
 2. Go to **Apps → Discover Apps → ⋮ → Install via YAML**, name the app `hddfancontrol`, and paste [docker-compose.yml](docker-compose.yml) with the `./config` volume changed to your dataset (`/mnt/tank/apps/hddfancontrol:/config`).
-3. Open `http://<truenas>:28462`: the first visit asks for the **setup code** written in the logs of the app (**Apps → hddfancontrol → Logs**, a line with `FIRST SETUP`), then for a username and a password.
+3. Open `https://<truenas>:28462` and accept the self-signed certificate. The first visit asks for the **setup code**, which is in the logs of the app (**Apps → hddfancontrol → Logs**, the line with `FIRST SETUP`), then for a username and a password.
 
-Keep `stop_grace_period: 60s` of the example: when the app stops, the web UI gives the fans back to the chip first, then stops the daemons and its web server, which can take more than Docker's default 10 seconds. An app installed from an older YAML lacks it: **Apps → hddfancontrol → Edit**, add the line under `init: false`, and save.
+Keep the `stop_grace_period: 60s` of the example. When the app stops, the web UI first gives the fans back to the chip, then stops the daemons and its web server, and that can take longer than Docker's default of 10 seconds. If your app was installed from an older YAML without it, go to **Apps → hddfancontrol → Edit**, add the line under `init: false`, and save.
 
 If the web UI says it cannot load a kernel module (for example `nct6775`), TrueNAS has the module but the container cannot load it. Load it on the host once:
 
@@ -119,7 +119,7 @@ The image is `ghcr.io/anto294/hddfancontrol_webui`, with these tags:
 | `X.Y` / `vX.Y.Z` | A given release |
 | `edge` | The `main` branch, built at every change |
 
-The container runs privileged: it writes the PWM files of `/sys` and sends ATA commands to the drives. Without `privileged`, Docker mounts `/sys` read only: the web UI then works read only, shows a warning, and starts neither hddfancontrol nor hd-idle. The root file system can be read only; everything it keeps is in `/config`.
+The container runs privileged, because it writes the PWM files of `/sys` and sends ATA commands to the drives. Without `privileged`, Docker mounts `/sys` read only: the web UI then shows a warning, works read only, and starts neither hddfancontrol nor hd-idle. The root file system can be read only, since everything the app keeps is in `/config`.
 
 ### Bare metal
 
@@ -151,7 +151,7 @@ On the first start, with no drive and no fan chosen, the web UI opens the **guid
 
 1. **Security:** the first visit asks for the setup code of the container's log and creates the username and password (or set `WEBUI_USERNAME` and `WEBUI_PASSWORD`). Change them later in the **Security** tab.
 2. **Fans:** check that the **Fans** tab lists your fan chip and its PWM outputs. If it does not, see [Troubleshooting](#troubleshooting).
-3. **PWM test:** in **PWM test**, tick the outputs with a fan and start the test. Each fan stops and starts several times, for a few minutes per fan, then **Use these values in the settings** copies what it found. Meanwhile hddfancontrol keeps measuring the chosen drives: the test stops by itself, and the fans go back under control, when a drive reaches its maximum or the temperatures stop coming in, and the test of one fan stops after 10 minutes.
+3. **PWM test:** in **PWM test**, tick the outputs with a fan and start the test. Each fan stops and starts several times, for a few minutes per fan; then **Use these values in the settings** copies what the test found. The drives stay safe meanwhile: if one reaches its maximum, or the temperatures stop coming in, the test stops and the fans go back under control. The test of one fan never lasts more than 10 minutes.
 4. **Settings:** tick the drives and the fans, choose a mode and its temperatures, and **Save and apply**.
 
 ## Fan control modes
@@ -164,10 +164,10 @@ On the first start, with no drive and no fan chosen, the web UI opens the **guid
 
 In every mode hddfancontrol only measures: it reads the drive temperatures without waking sleeping drives, and the web UI writes the PWM files.
 
-- **Curve:** as hddfancontrol does it, plus a margin against pumping: a drive asks for more speed as soon as it warms, but for less only once it is 2 °C cooler, and a fan slows down by at most 10 % per check. **Average** (`AVERAGE`) averages the last samples of each drive first.
+- **Curve:** the same curve as hddfancontrol, with a margin so that the fans do not keep speeding up and slowing down: a drive asks for more speed as soon as it warms, but for less only once it is 2 °C cooler, and a fan slows down by at most 10 % per check. **Average** (`AVERAGE`) averages the last samples of each drive first.
 - **Auto:** a PI controller (feedback control, not machine learning). It speeds up at once when the drives warm, and slows down at most 10 % per check, so a short dip does not stop the fans.
 - **Fan groups:** in **Settings**, each fan can follow only some drives; by default it follows all of them. A fan whose drives are all gone from the host follows every drive.
-- **Limits per drive:** each drive can have its own minimum, target and maximum, over the common ones. The **Drives** tab shows the highest temperature the drive itself recommends (some, such as a Seagate Exos, say 40 °C, well under their datasheet limit): it is a hint, not applied by itself.
+- **Limits per drive:** each drive can have its own minimum, target and maximum instead of the common ones. The **Drives** tab shows the highest temperature the drive itself recommends. It is only a hint and is never applied by itself: some drives, such as the Seagate Exos, report 40 °C, well under the limit of their datasheet.
 - **Extra sensors:** the temperature sensors of **Settings** count when they have a range: each asks for a speed in proportion between its minimum and maximum, and every fan runs at the higher of that and what its drives need.
 
 ### Safety rules
@@ -182,15 +182,15 @@ These hold in every mode, whatever the settings:
 
 ## Spin down
 
-hd-idle spins the chosen drives down after an idle time: one for every drive, and, in the drive list of **Settings**, one per drive, where 0 keeps that drive spinning. Drives that are not chosen are never spun down. Use `scsi` as the command type for SAS drives and for USB enclosures that do not pass ATA commands.
+hd-idle spins the chosen drives down after an idle time. One time applies to every drive, and the drive list of **Settings** can set another per drive, where 0 keeps that drive spinning. Drives that are not chosen are never spun down. Use `scsi` as the command type for SAS drives and for USB enclosures that do not pass ATA commands.
 
 ## History, SMART data and names
 
 - **History:** every 30 seconds the web UI stores the drive temperatures that hddfancontrol measured (each drive under its `/dev/disk/by-id` name, since `sda` can be another drive after a reboot), and the PWM and speed of every fan, in `/config/history.db` (SQLite). It keeps 30 days by default; longer windows are averaged, so a chart never has more than 600 points per line.
-- **Logs:** besides the lines of hddfancontrol, hd-idle and the web UI, `docker logs` and the **Log** tab show one `[temps]` line with the drives that drive the fans (and the hottest one), the chosen fans with their PWM and speed, and the drives that are only monitored, with their last SMART temperature. It is written when a value changes by a degree or a percent, and at least every 10 minutes.
-- **SMART self-tests:** with **Short/Long SMART self-test** in **Settings → Schedules** (cron expressions, such as `0 3 * * sun`), the web UI starts the tests on every monitored drive, never on a sleeping one (it tries again for 3 hours); the long test goes first, and no other test starts on that drive for a day. The drive runs it by itself and the next SMART read shows the result. A failed test is a SMART warning. TrueNAS can schedule them too: use one or the other.
-- **SMART:** `smartctl -a -n standby` reads the drives marked as monitored in **Settings** (by default, the drives that drive the fans) every 6 hours by default, and when you press **Read SMART now**. A drive asleep at that time is not woken and keeps its last data.
-- **Bay map:** in **Drives → Bay map**, draw the bays of the case (rows and columns as seen from the front) and put each drive in its bay; the overview then shows the drives as in the case, with their temperature and any SMART problem, so the drive to pull is found at once. Each bay draws its drive: a hard drive's platter turns while it spins and its head moves while it reads or writes, an SSD's electrons run between controller and flash, and an activity light follows the real I/O (from the kernel's counters, which never wake a drive). Kept in `/config/bays.json`.
+- **Logs:** besides the lines of hddfancontrol, hd-idle and the web UI, `docker logs` and the **Log** tab show a `[temps]` line: the drives the fans follow (and the hottest one), the chosen fans with their PWM and speed, and the drives that are only monitored, with their last SMART temperature. The line is written when a value changes by a degree or a percent, and at least every 10 minutes.
+- **SMART:** `smartctl -a -n standby` reads the drives marked as monitored in **Settings** (by default, the drives the fans follow) every 6 hours by default, and when you press **Read SMART now**. A drive that is asleep is not woken and keeps its last data.
+- **SMART self-tests:** set **Short/Long SMART self-test** in **Settings → Schedules** (cron expressions, such as `0 3 * * sun`) and the web UI starts the tests on every monitored drive. It never starts one on a sleeping drive (it tries again for 3 hours), runs the long test first, and starts no other test on that drive for a day. The drive runs the test by itself, and the next SMART read shows the result; a failed test is a SMART warning. TrueNAS can schedule self-tests too: use one or the other, not both.
+- **Bay map:** in **Drives → Bay map**, draw the bays of the case (rows and columns as seen from the front) and put each drive in its bay. The overview then shows the drives as they sit in the case, with their temperature and any SMART problem, so you find the drive to pull at once. Each bay draws its drive at work: the platter of a hard drive turns while it spins and its head moves while it reads or writes, and an activity light follows the real I/O, taken from the kernel's counters, which never wake a drive. Kept in `/config/bays.json`.
 - **Processor:** the **Control** card of the overview shows the share of busy time of the processors, the load average and the package temperature.
 - **Names:** give a fan or a drive a name in the **Fans** tab or the drive list of **Settings**. Names are kept in `/config/labels.json`, and changing one does not restart fan control. Drives are named by their `/dev/disk/by-id` path, which does not change between boots.
 
@@ -216,21 +216,21 @@ scrape_configs:
 
 The web UI watches for:
 
-- a drive that drives the fans at or above the maximum temperature (the alert ends 2 °C under it);
+- a drive the fans follow at or above its maximum temperature (the alert ends 2 °C under it);
 - a chosen fan that stops: 0 RPM for 2 minutes while its PWM value is well over its stop value (only fans that were seen turning, so a connector without a speed sensor never counts);
 - SMART saying that a monitored drive is failing, or reporting a problem (an attribute under its threshold only in the past is shown on the drive card, not raised);
 - a monitored drive that is not on the host any more, or whose SMART data cannot be read;
-- a chosen fan that turns 15 % slower than it used to at the same PWM (its baseline is the first week of its own history, taken once that history is two weeks old; `HISTORY_DAYS` must be 14 or more): worn bearings show this way before the fan stops;
+- a chosen fan that turns 15 % slower than it used to at the same PWM, which is how worn bearings show before the fan stops (the baseline is the first week of the fan's history, taken once that history is two weeks old, so `HISTORY_DAYS` must be 14 or more);
 - drive temperatures that stop coming in, or an error of the fan control itself, which put every fan at full speed;
 - a chosen fan whose chip is not found any more (see [Troubleshooting](#troubleshooting)).
 
-Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back), is logged (`[alerts]` in `docker logs`) and, when an address is set in **Settings → Notifications** or with `NOTIFY_URL`, is sent there, and so is its end. **Send a test message** checks the address. The address depends on the format:
+Each alert shows as a banner (**Noted, hide** hides it until it gets worse or comes back) and is logged (`[alerts]` in `docker logs`). When an address is set in **Settings → Notifications** or with `NOTIFY_URL`, the alert and its end are also sent there; **Send a test message** checks the address. The address depends on the format:
 
 - **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
 - **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
 - **json**: any webhook that takes a POST with `{"title", "message", "level"}` (`level` is `alert` or `ok`).
 
-An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come on a schedule: highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state since the one before. The quiet hours and the summary are set in **Settings → Schedules**.
+An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come on a schedule, with the highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state since the previous summary. The quiet hours and the summary are set in **Settings → Schedules**.
 
 ### Schedules
 
@@ -335,7 +335,7 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 
 ## Troubleshooting
 
-**The Fans tab shows no PWM output.** The kernel module of the fan chip is not loaded. The web UI shows which one it found and could not load; on TrueNAS, load it on the host as shown in [Installation](#truenas-scale). If `dmesg` then shows a resource conflict with ACPI, the chip also needs the kernel option `acpi_enforce_resources=lax`; on TrueNAS SCALE, run `midclt call system.advanced.update '{"kernel_extra_options": "acpi_enforce_resources=lax"}'` in the shell and reboot.
+**The Fans tab shows no PWM output.** The kernel module of the fan chip is not loaded. The web UI names the module it found and could not load; on TrueNAS, load it on the host as shown in [Installation](#truenas-scale). If `dmesg` then shows a resource conflict with ACPI, the chip also needs the kernel option `acpi_enforce_resources=lax`; on TrueNAS SCALE, run `midclt call system.advanced.update '{"kernel_extra_options": "acpi_enforce_resources=lax"}'` in the shell and reboot.
 
 **The log says the gateway could write `/config`.** The folder of the settings must be writable by root only, since the core trusts what it finds there. The web UI gives it to root and removes the write permission of group and others by itself; when the host refuses (an ACL), the login data go to a temporary folder until the next start, so every start asks for the setup code again. Fix the permissions of the dataset (owner root, no write for others) and restart.
 
@@ -343,7 +343,7 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 
 **A fan does not react to its slider.** The header may be in DC mode, or the BIOS may hold it at a fixed speed. Set the header to PWM mode in the BIOS.
 
-**The hwmon number of the fan chip changed after a reboot or a system update.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`, and a new kernel (a TrueNAS update) can load the modules in another order. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656` for example), finds it again under the new number at start, corrects the settings and the fan's name, and says so in the log. The chip is recorded the first time 0.2.0 or later starts with the fans chosen, so update the app before you update the system. If the chip is not there at all (its module is not loaded, or a new kernel names it differently), those fans are not controlled, never another chip's outputs, and a banner and an alert say which ones: load the module, or choose the fans again in Settings.
+**The hwmon number of the fan chip changed after a reboot or a system update.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`, for example after a TrueNAS update loads the modules in another order. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656`, for example): at start it finds the chip under its new number, corrects the settings and the fan's name, and says so in the log. If the chip is not there at all (its module is not loaded, or a new kernel names it differently), those fans are not controlled, and never another chip's outputs in their place; a banner and an alert name them. Load the module, or choose the fans again in **Settings**.
 
 **A drive never sleeps.** Something reads or writes it: a pool scrub, SMART tests, an app. The web UI itself reads temperatures only through hddfancontrol, which leaves sleeping drives alone, and SMART data only with `-n standby`.
 
