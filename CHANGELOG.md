@@ -9,6 +9,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- **The bays show their drives moving.** Each bay of the overview draws
+  its drive: a hard drive whose platter turns while it spins (still in
+  standby) and whose head moves while it reads or writes, an SSD or an
+  NVMe stick whose electrons run between controller and flash. An
+  activity light flickers with the real I/O of the drive, read from the
+  kernel's counters (`/sys/class/block/*/stat`), which never wakes a
+  drive; the tooltip gives the share of busy time and the read and write
+  rates. Nothing moves for those who asked their system for less motion.
 - **Processor use, load and temperature** in the **Control** card of the
   overview: the share of busy time of every processor, the load average
   and the package temperature (`coretemp`, `k10temp`, `zenpower` or the

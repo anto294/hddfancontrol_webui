@@ -84,6 +84,7 @@
   "bays.saved": "Salvata.",
   "bays.empty": "Alloggiamento {number}",
   "bays.missing": "Non trovato",
+  "bays.io": "Attività {busy} % · lettura {read} · scrittura {write}",
   "smart.title": "Dati SMART",
   "smart.intro": "Letti con smartctl -n standby: un disco in standby non viene svegliato e mantiene gli ultimi dati.",
   "smart.none": "Ancora nessun dato SMART. Vengono letti solo i dischi segnati come monitorati nelle impostazioni.",

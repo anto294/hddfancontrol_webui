@@ -84,6 +84,7 @@
   "bays.saved": "Saved.",
   "bays.empty": "Bay {number}",
   "bays.missing": "Not found",
+  "bays.io": "Busy {busy} % · read {read} · write {write}",
   "smart.title": "SMART data",
   "smart.intro": "Read with smartctl -n standby: a sleeping drive is not woken, and keeps its last data.",
   "smart.none": "No SMART data yet. Only the drives marked as monitored in Settings are read.",

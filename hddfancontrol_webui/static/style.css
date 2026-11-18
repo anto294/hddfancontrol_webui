@@ -1731,6 +1731,435 @@ input.cron,
   outline-color: var(--danger);
 }
 
+/* A drawing of the drive next to the text of its bay (drives.js driveArt). */
+.bay.has-art {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  column-gap: 0.7rem;
+  align-items: center;
+}
+
+.bay.has-art > .drive-art {
+  grid-row: 1 / span 4;
+}
+
+.drive-art {
+  width: 3rem;
+  height: auto;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
+}
+
+.drive-art .case {
+  fill: var(--surface);
+}
+
+/* The hard drive in the colors of the page: gray parts, the moving ones in the accent. */
+.drive-art.hdd {
+  stroke-width: 0.8;
+}
+
+.drive-art .disc,
+.drive-art .clamp,
+.drive-art .arm-hole {
+  fill: var(--surface-2);
+}
+
+.drive-art .hub,
+.drive-art .arm-body,
+.drive-art .bearing {
+  fill: var(--surface);
+}
+
+.drive-art .track {
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.drive-art .sheen {
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  opacity: 0.7;
+}
+
+.drive-art .screw,
+.drive-art .spindle,
+.drive-art .bearing-cap,
+.drive-art .ramp {
+  fill: var(--muted);
+  stroke: none;
+}
+
+.drive-art .magnet,
+.drive-art .coil-gap {
+  fill: var(--border);
+  stroke: none;
+}
+
+.drive-art .coil {
+  fill: var(--surface-2);
+}
+
+.drive-art .flex {
+  stroke: var(--border);
+  stroke-width: 1.4;
+}
+
+.drive-art .arm-body,
+.drive-art .bearing {
+  stroke: var(--text);
+}
+
+.drive-art .slider {
+  fill: var(--accent);
+  stroke: none;
+}
+
+.drive-art .platter,
+.drive-art .arm,
+.drive-art .electron {
+  transform-box: view-box;
+}
+
+.drive-art .platter {
+  transform-origin: 28px 30px;
+}
+
+/* The head sits over the platter while the drive spins, on its ramp in standby. */
+.drive-art .arm {
+  transform-origin: 46px 62px;
+  transition: transform 0.8s ease-in-out;
+}
+
+.drive-art.parked .arm {
+  transform: rotate(-25deg);
+}
+
+.drive-art.parked,
+.bay.gone .drive-art {
+  opacity: 0.6;
+}
+
+.drive-art.spinning .platter {
+  animation: spin 0.9s linear infinite;
+}
+
+/* The head goes from track to track while the drive reads or writes. */
+@keyframes seek {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+
+  18% {
+    transform: rotate(5deg);
+  }
+
+  33% {
+    transform: rotate(-1deg);
+  }
+
+  52% {
+    transform: rotate(6deg);
+  }
+
+  70% {
+    transform: rotate(-10deg);
+  }
+
+  86% {
+    transform: rotate(2deg);
+  }
+}
+
+.drive-art.spinning.io-low .arm,
+.drive-art.spinning.io-mid .arm,
+.drive-art.spinning.io-high .arm {
+  animation-name: seek;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.drive-art.io-low .arm {
+  animation-duration: 3s;
+}
+
+.drive-art.io-mid .arm {
+  animation-duration: 1.5s;
+}
+
+.drive-art.io-high .arm {
+  animation-duration: 0.7s;
+}
+
+/* Flash drives: a board with chips, and electrons on the traces while it works. */
+.drive-art.flash {
+  stroke-width: 0.7;
+}
+
+.drive-art.flash .pcb,
+.drive-art .chip rect,
+.drive-art .port {
+  fill: var(--surface-2);
+}
+
+.drive-art.nvme .pcb,
+.drive-art.flash .frame {
+  fill: var(--surface);
+}
+
+.drive-art.flash .cut {
+  fill: var(--surface-2);
+  stroke: none;
+}
+
+.drive-art.flash .screw,
+.drive-art .chip .pin1 {
+  fill: var(--muted);
+  stroke: none;
+}
+
+.drive-art .chip.controller rect {
+  fill: var(--border);
+}
+
+.drive-art .traces {
+  stroke: var(--border);
+}
+
+.drive-art .gold {
+  fill: var(--muted);
+  stroke: none;
+  opacity: 0.7;
+}
+
+.drive-art.flash:not(.io-idle) .nand rect {
+  stroke: var(--accent);
+}
+
+.drive-art .electron {
+  opacity: 0;
+}
+
+.drive-art .electron .glow {
+  fill: var(--accent);
+  stroke: none;
+  opacity: 0.3;
+}
+
+.drive-art .electron .core {
+  fill: var(--accent);
+  stroke: none;
+}
+
+.drive-art.flash:not(.io-idle) .electron {
+  opacity: 1;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+/* From the controller (28, 58) to the NAND packages and the cache, and back. */
+.drive-art.nvme:not(.io-idle) .electron.e1 {
+  animation-name: nvme-1;
+}
+
+.drive-art.nvme:not(.io-idle) .electron.e2 {
+  animation-name: nvme-2;
+}
+
+.drive-art.nvme:not(.io-idle) .electron.e3 {
+  animation-name: nvme-3;
+}
+
+.drive-art.ssd:not(.io-idle) .electron.e1 {
+  animation-name: ssd-1;
+}
+
+.drive-art.ssd:not(.io-idle) .electron.e2 {
+  animation-name: ssd-2;
+}
+
+.drive-art.ssd:not(.io-idle) .electron.e3 {
+  animation-name: ssd-3;
+}
+
+@keyframes nvme-1 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  30% {
+    transform: translate(-4px, -43px);
+  }
+
+  60% {
+    transform: translate(4px, -43px);
+  }
+}
+
+@keyframes nvme-2 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  35% {
+    transform: translate(-3px, -26px);
+  }
+
+  70% {
+    transform: translate(0px, -12.5px);
+  }
+}
+
+@keyframes nvme-3 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  25% {
+    transform: translate(0px, -12.5px);
+  }
+
+  55% {
+    transform: translate(4px, -26px);
+  }
+}
+
+@keyframes ssd-1 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  30% {
+    transform: translate(-10px, -43px);
+  }
+
+  60% {
+    transform: translate(-10px, -26px);
+  }
+}
+
+@keyframes ssd-2 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  30% {
+    transform: translate(10px, -43px);
+  }
+
+  65% {
+    transform: translate(0px, -12.5px);
+  }
+}
+
+@keyframes ssd-3 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  35% {
+    transform: translate(10px, -26px);
+  }
+
+  70% {
+    transform: translate(-10px, -26px);
+  }
+}
+
+.drive-art.io-low .electron {
+  animation-duration: 3.2s;
+}
+
+.drive-art.io-mid .electron {
+  animation-duration: 1.6s;
+}
+
+.drive-art.io-high .electron {
+  animation-duration: 0.8s;
+}
+
+.drive-art.flash:not(.io-idle) .electron.e2 {
+  animation-delay: -0.5s;
+}
+
+.drive-art.flash:not(.io-idle) .electron.e3 {
+  animation-delay: -1.1s;
+}
+
+.drive-art.io-low .electron.e3 {
+  opacity: 0;
+}
+
+/* The activity light flickers faster the busier the drive. */
+@keyframes flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  30% {
+    opacity: 0.2;
+  }
+
+  45% {
+    opacity: 1;
+  }
+
+  70% {
+    opacity: 0.35;
+  }
+}
+
+.drive-art .led {
+  fill: var(--border);
+  stroke: none;
+}
+
+.drive-art:not(.io-idle) .led {
+  fill: var(--ok);
+  animation-name: flicker;
+  animation-timing-function: steps(1);
+  animation-iteration-count: infinite;
+}
+
+.drive-art.io-low .led {
+  animation-duration: 1.4s;
+}
+
+.drive-art.io-mid .led {
+  animation-duration: 0.6s;
+}
+
+.drive-art.io-high .led {
+  animation-duration: 0.25s;
+}
+
+/* Less motion: still drawings, the light on while the drive works. */
+@media (prefers-reduced-motion: reduce) {
+  .drive-art .platter,
+  .drive-art .arm,
+  .drive-art .electron,
+  .drive-art .led {
+    animation: none !important;
+    transition: none;
+  }
+
+  .drive-art .electron {
+    opacity: 0 !important;
+  }
+}
+
 /* The processor time in the control table: a short bar before the number. */
 .cpu-usage {
   display: inline-flex;
@@ -1753,6 +2182,14 @@ input.cron,
     font-size: 0.8rem;
   }
 
+  .bay.has-art {
+    grid-template-columns: 1.8rem minmax(0, 1fr);
+    column-gap: 0.35rem;
+  }
+
+  .drive-art {
+    width: 1.8rem;
+  }
 }
 
 /* Phones: one column, smaller margins, a header that fits, wide tables that scroll by themselves. */
