@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-18
+
 ### Fixed
 
 - **A bay holding a drive that is only monitored no longer says "Not
@@ -585,7 +587,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.0...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.1...main
+[0.10.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.7.1...v0.8.0
