@@ -54,7 +54,7 @@ async function logout() {
 // ---------------------------------------------------------------------------
 
 function formatLog(line) {
-  const time = new Date(line.time).toLocaleTimeString(I18N.lang);
+  const time = new Date(line.time).toLocaleTimeString(I18N.locale);
   return `${time} [${line.source}] ${line.text}\n`;
 }
 

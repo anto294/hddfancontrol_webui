@@ -6,6 +6,8 @@ import json
 import re
 from pathlib import Path
 
+from hddfancontrol_webui.settings import NOTIFY_LANGUAGES
+
 STATIC = Path(__file__).parent.parent / "hddfancontrol_webui" / "static"
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
@@ -17,11 +19,19 @@ def load(lang: str) -> dict[str, str]:
 
 
 def test_languages_match() -> None:
-    """Italian has the same keys and placeholders as English."""
-    en, it = load("en"), load("it")
-    assert set(en) == set(it)
-    for key, text in en.items():
-        assert set(PLACEHOLDER.findall(text)) == set(PLACEHOLDER.findall(it[key])), key
+    """Every language has the same keys and placeholders as English, and is offered everywhere."""
+    en = load("en")
+    languages = sorted(path.stem for path in (STATIC / "i18n").glob("*.json"))
+    assert tuple(sorted(NOTIFY_LANGUAGES)) == tuple(languages)
+    picker = (STATIC / "i18n.js").read_text()
+    page = (STATIC / "index.html").read_text()
+    for lang in languages:
+        other = load(lang)
+        assert set(other) == set(en), lang
+        for key, text in en.items():
+            assert set(PLACEHOLDER.findall(text)) == set(PLACEHOLDER.findall(other[key])), (lang, key)
+        assert f'"{lang}"' in picker.split("const LANGUAGES = ")[1].split("\n")[0], lang
+        assert f'<option value="{lang}">' in page, lang
 
 
 def test_keys_used_exist() -> None:

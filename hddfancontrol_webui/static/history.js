@@ -143,13 +143,13 @@ function drawChart(container, data, series, options) {
   const long = data.end - data.start > 2 * 86400;
   const timeText = (ts, withDate) => {
     const date = new Date(ts * 1000);
-    const time = date.toLocaleTimeString(I18N.lang, { hour: "2-digit", minute: "2-digit" });
-    return withDate ? `${date.toLocaleDateString(I18N.lang, { day: "2-digit", month: "2-digit" })} ${time}` : time;
+    const time = date.toLocaleTimeString(I18N.locale, { hour: "2-digit", minute: "2-digit" });
+    return withDate ? `${date.toLocaleDateString(I18N.locale, { day: "2-digit", month: "2-digit" })} ${time}` : time;
   };
   for (let i = 0; i <= 4; i += 1) {
     const ts = data.start + ((data.end - data.start) * i) / 4;
     const date = new Date(ts * 1000);
-    const text = long ? date.toLocaleDateString(I18N.lang, { day: "2-digit", month: "2-digit" }) : timeText(ts, false);
+    const text = long ? date.toLocaleDateString(I18N.locale, { day: "2-digit", month: "2-digit" }) : timeText(ts, false);
     chart.append(svgText({ x: x(ts), y: height - 8, class: "axis", "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" }, text));
   }
   for (const ref of refs) {

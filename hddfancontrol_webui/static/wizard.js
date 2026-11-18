@@ -312,7 +312,7 @@ function stepTemps(body) {
         { class: "preset" },
         radio,
         el("strong", { text: t(`wizard.preset_${name}`) }),
-        el("span", { class: "preset-range", text: `${preset.min} – ${preset.max} °C` }),
+        el("span", { class: "preset-range", text: ltr(`${preset.min} – ${preset.max} °C`) }),
         el("small", { class: "muted", text: t(`wizard.preset_${name}_text`, { min: preset.min, max: preset.max }) }),
       ),
     );
@@ -359,7 +359,7 @@ function stepSummary(body) {
   const drives = state.hardware.drives.filter((d) => wizard.drives.has(wizardDriveId(d)));
   table.append(row(t("wizard.summary_drives"), drives.map((d) => driveLabelById(wizardDriveId(d)) || `${d.model} (${d.name})`).join(", ")));
   table.append(row(t("wizard.summary_fans"), [...wizard.pwms].map(pwmLabel).join(", ")));
-  table.append(row(t("wizard.summary_temps"), `${t(`wizard.preset_${wizard.preset}`)} · ${preset.min} – ${preset.max} °C`));
+  table.append(row(t("wizard.summary_temps"), `${t(`wizard.preset_${wizard.preset}`)} · ${ltr(`${preset.min} – ${preset.max} °C`)}`));
   table.append(row(t("wizard.summary_spindown"), t(`wizard.spindown_${wizard.spinDown}`)));
   const result = el("p", { class: "error" });
   body.append(table, result, wizardNav(true, t("wizard.save"), () => saveWizard(result)));

@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- **Five more languages:** Spanish, French, Chinese (simplified), Hindi
+  and Arabic, for the web UI and for the alerts (`NOTIFY_LANGUAGE`). The
+  page follows the browser or the language picked in the header; in
+  Arabic it reads from right to left.
 - **The bays show their drives moving.** Each bay of the overview draws
   its drive: a hard drive whose platter turns while it spins (still in
   standby) and whose head moves while it reads or writes, an SSD or an

@@ -100,16 +100,22 @@ function $(id) {
   return document.getElementById(id);
 }
 
+// A number with its unit as one left-to-right piece: in a right-to-left page
+// (Arabic) "48.3 °C" would otherwise show as "°C 48.3". Nothing changes elsewhere.
+function ltr(text) {
+  return document.documentElement.dir === "rtl" ? `\u2066${text}\u2069` : text;
+}
+
 function fmtTemp(value) {
-  return value === null || value === undefined ? "–" : `${Number(value).toFixed(1)} °C`;
+  return value === null || value === undefined ? "–" : ltr(`${Number(value).toFixed(1)} °C`);
 }
 
 function fmtPct(pwm) {
-  return pwm === null || pwm === undefined ? "–" : `${Math.round((pwm * 100) / 255)} %`;
+  return pwm === null || pwm === undefined ? "–" : ltr(`${Math.round((pwm * 100) / 255)} %`);
 }
 
 function fmtRpm(rpm) {
-  return rpm === null || rpm === undefined ? "–" : `${rpm} RPM`;
+  return rpm === null || rpm === undefined ? "–" : ltr(`${rpm} RPM`);
 }
 
 function fmtBytes(bytes) {
@@ -121,13 +127,13 @@ function fmtBytes(bytes) {
     value /= 1000;
     unit += 1;
   }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+  return ltr(`${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`);
 }
 
 function fmtTime(value) {
   if (!value) return "–";
   const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
-  return date.toLocaleString(I18N.lang);
+  return date.toLocaleString(I18N.locale);
 }
 
 function shortPath(path) {
@@ -456,7 +462,7 @@ function renderOverview() {
     control.append(row(t("overview.hottest"), fmtTemp(status.fans.auto.hottest)));
     // With fan groups each fan has its own speed.
     for (const [path, speed] of Object.entries(status.fans.auto.speeds || {})) {
-      control.append(row(t("overview.fan_speed", { fan: pwmLabel(path) }), `${Math.round(speed * 100)} %`));
+      control.append(row(t("overview.fan_speed", { fan: pwmLabel(path) }), ltr(`${Math.round(speed * 100)} %`)));
     }
   }
   for (const [name, daemon] of Object.entries(status.daemons)) {
@@ -467,7 +473,7 @@ function renderOverview() {
   if (cpu) {
     if (state.cpuUsage !== null) {
       const usage = state.cpuUsage;
-      control.append(row(t("overview.cpu_usage"), el("span", { class: "cpu-usage" }, bar(usage, usage < 0.5 ? "cool" : usage < 0.85 ? "warm" : "hot"), `${Math.round(usage * 100)} %`)));
+      control.append(row(t("overview.cpu_usage"), el("span", { class: "cpu-usage" }, bar(usage, usage < 0.5 ? "cool" : usage < 0.85 ? "warm" : "hot"), ltr(`${Math.round(usage * 100)} %`))));
     }
     if (cpu.load.length === 3) {
       const text = cpu.load.map((value) => value.toFixed(2)).join(" · ") + (cpu.count ? ` (${t("overview.cpu_count", { count: cpu.count })})` : "");

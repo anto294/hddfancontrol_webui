@@ -3,10 +3,14 @@
 // Translations: flat keys ("tab.overview") in static/i18n/<lang>.json.
 // English is always loaded first, so a missing key in another language
 // falls back to English instead of showing the key.
-const I18N = { strings: {}, lang: "en" };
-const LANGUAGES = ["en", "it"];
+const I18N = { strings: {}, lang: "en", locale: "en" };
+const LANGUAGES = ["en", "it", "es", "fr", "zh", "hi", "ar"];
 // Each language is named in itself, so anyone finds their own.
-const LANGUAGE_NAMES = { en: "English", it: "Italiano" };
+const LANGUAGE_NAMES = { en: "English", it: "Italiano", es: "Español", fr: "Français", zh: "中文", hi: "हिन्दी", ar: "العربية" };
+// Written from right to left: the page turns around.
+const RTL_LANGUAGES = ["ar"];
+// Dates and numbers: Latin digits everywhere, as the values of the page use them.
+const LOCALES = { zh: "zh-CN", hi: "hi-IN-u-nu-latn", ar: "ar-u-nu-latn" };
 const LANGUAGE_KEY = "lang";
 
 // The language chosen in this browser, or "" to follow the browser. Storage
@@ -29,7 +33,8 @@ function saveLanguage(code) {
 }
 
 // Flags drawn as SVG, the same on every system (Windows shows no flag emoji).
-// English gets the British flag; "automatic" a globe.
+// English gets the British flag, Spanish the Spanish one, Hindi the Indian
+// one; Arabic, spoken in many countries, a letter of its own; "automatic" a globe.
 const FLAGS = {
   "": { viewBox: "0 0 24 24", parts: [["circle", { cx: 12, cy: 12, r: 9, class: "globe" }], ["path", { d: "M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18", class: "globe" }]] },
   en: {
@@ -50,6 +55,45 @@ const FLAGS = {
       ["rect", { x: 2, width: 1, height: 2, fill: "#CE2B37" }],
     ],
   },
+  es: {
+    viewBox: "0 0 3 2",
+    parts: [
+      ["rect", { width: 3, height: 2, fill: "#AA151B" }],
+      ["rect", { y: 0.5, width: 3, height: 1, fill: "#F1BF00" }],
+    ],
+  },
+  fr: {
+    viewBox: "0 0 3 2",
+    parts: [
+      ["rect", { width: 1, height: 2, fill: "#002395" }],
+      ["rect", { x: 1, width: 1, height: 2, fill: "#fff" }],
+      ["rect", { x: 2, width: 1, height: 2, fill: "#ED2939" }],
+    ],
+  },
+  zh: {
+    viewBox: "0 0 30 20",
+    parts: [
+      ["rect", { width: 30, height: 20, fill: "#EE1C25" }],
+      ["path", { d: "M5.00,2.00 L5.67,4.07 L7.85,4.07 L6.09,5.35 L6.76,7.43 L5.00,6.15 L3.24,7.43 L3.91,5.35 L2.15,4.07 L4.33,4.07Z M9.14,2.51 L9.62,1.97 L9.25,1.34 L9.91,1.63 L10.39,1.08 L10.33,1.80 L11.00,2.09 L10.29,2.25 L10.22,2.97 L9.85,2.35Z M11.01,4.14 L11.66,3.82 L11.56,3.10 L12.07,3.62 L12.72,3.30 L12.38,3.95 L12.88,4.47 L12.17,4.34 L11.83,4.99 L11.73,4.27Z M11.04,6.73 L11.76,6.70 L11.96,6.00 L12.21,6.68 L12.94,6.66 L12.37,7.10 L12.62,7.79 L12.01,7.38 L11.44,7.83 L11.64,7.13Z M9.22,8.38 L9.90,8.63 L10.35,8.06 L10.32,8.79 L11.00,9.05 L10.30,9.24 L10.26,9.96 L9.87,9.36 L9.16,9.55 L9.62,8.98Z", fill: "#FFFF00" }],
+    ],
+  },
+  hi: {
+    viewBox: "0 0 27 18",
+    parts: [
+      ["rect", { width: 27, height: 6, fill: "#FF9933" }],
+      ["rect", { y: 6, width: 27, height: 6, fill: "#fff" }],
+      ["rect", { y: 12, width: 27, height: 6, fill: "#138808" }],
+      ["circle", { cx: 13.5, cy: 9, r: 2.4, fill: "none", stroke: "#000080", "stroke-width": 0.5 }],
+      ["circle", { cx: 13.5, cy: 9, r: 0.5, fill: "#000080" }],
+    ],
+  },
+  ar: {
+    viewBox: "0 0 30 20",
+    parts: [
+      ["rect", { width: 30, height: 20, fill: "#1f7a4d" }],
+      ["text", { x: 15, y: 15, "text-anchor": "middle", "font-size": 15, fill: "#fff", text: "ع" }],
+    ],
+  },
 };
 
 function flag(code) {
@@ -62,7 +106,10 @@ function flag(code) {
   node.setAttribute("aria-hidden", "true");
   for (const [tag, attrs] of spec.parts) {
     const part = document.createElementNS(NS, tag);
-    for (const [key, value] of Object.entries(attrs)) part.setAttribute(key, String(value));
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "text") part.textContent = value;
+      else part.setAttribute(key, String(value));
+    }
     node.append(part);
   }
   return node;
@@ -206,7 +253,9 @@ async function loadI18n() {
   const en = await load("en");
   I18N.strings = lang === "en" ? en : Object.assign({}, en, await load(lang));
   I18N.lang = lang;
+  I18N.locale = LOCALES[lang] || lang;
   document.documentElement.lang = lang;
+  document.documentElement.dir = RTL_LANGUAGES.includes(lang) ? "rtl" : "ltr";
   applyI18n(document);
   setupLanguagePicker();
   setupThemeToggle();

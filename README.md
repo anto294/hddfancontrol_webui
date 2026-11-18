@@ -43,7 +43,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 - **Name things:** "Front fan", "Parity drive" instead of `pwm2` and `sdc`.
 - **Know when something is wrong:** a drive too hot, a fan that stopped, a SMART problem: a banner, a log line and, if you want, a message on your phone through ntfy, Gotify or a webhook.
 - **See it at a glance:** tiles with the hottest drive and the average fan speed, a colored bar per drive and per fan, fan icons that turn with the fans.
-- In English and Italian (it follows the browser, or pick one in the header), with a light and a dark theme, on a phone as well.
+- In English, Italian, Spanish, French, Chinese (simplified), Hindi and Arabic (right to left), following the browser or picked in the header, with a light and a dark theme, on a phone as well.
 
 ## Requirements
 
@@ -256,7 +256,7 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `SMART_SCHEDULE` | `0 */6 * * *` | When SMART is read (cron, see [Schedules](#schedules)); empty reads only on demand. The older `SMART_INTERVAL_H` (hours) still works |
 | `NOTIFY_URL` | — | Where alerts are sent (see [Alerts](#alerts)); empty, none |
 | `NOTIFY_FORMAT` | `ntfy` | `ntfy`, `gotify` or `json` |
-| `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en` or `it` |
+| `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en`, `it`, `es`, `fr`, `zh`, `hi` or `ar` |
 | `NOTIFY_REPEAT_H` | `0` | Send again an alert still on (and not taken note of) every this many hours; `0` sends it once |
 | `NOTIFY_QUIET` | — | Quiet hours, the minutes a cron expression matches, such as `* 22-23,0-6 * * *`: only urgent alerts go out, the rest when they end |
 | `NOTIFY_SUMMARY` | — | When a summary is sent (cron), such as `0 9 * * mon` |

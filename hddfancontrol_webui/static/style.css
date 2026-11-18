@@ -165,7 +165,7 @@ a {
 }
 
 .brand .open-wizard {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* Theme switch (i18n.js): automatic, light or dark. */
@@ -227,7 +227,7 @@ a {
 
 .lang-list {
   position: absolute;
-  right: 0;
+  inset-inline-end: 0;
   top: calc(100% + 4px);
   z-index: 20;
   min-width: 11rem;
@@ -273,7 +273,7 @@ a {
 }
 
 .card.login .lang-list {
-  right: auto;
+  inset-inline-end: auto;
   left: 50%;
   transform: translateX(-50%);
   top: auto;
@@ -484,7 +484,7 @@ table.list {
 
 .list td,
 .list th {
-  text-align: left;
+  text-align: start;
   padding: 0.35rem 0.4rem;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
@@ -732,7 +732,7 @@ details.card-fold > summary::after {
   content: "";
   width: 0.5rem;
   height: 0.5rem;
-  margin-left: auto;
+  margin-inline-start: auto;
   border-right: 2px solid var(--accent);
   border-bottom: 2px solid var(--accent);
   transform: rotate(-45deg);
@@ -741,6 +741,10 @@ details.card-fold > summary::after {
 
 details.card-fold[open] > summary::after {
   transform: rotate(45deg);
+}
+
+[dir="rtl"] details.card-fold:not([open]) > summary::after {
+  transform: rotate(135deg);
 }
 
 details.card-fold[open] > summary {
@@ -794,7 +798,7 @@ details.help p {
 
 .fan-line .pct,
 .fan-line .rpm {
-  text-align: right;
+  text-align: end;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1245,7 +1249,7 @@ details.help p {
 }
 
 .meter-value {
-  text-align: right;
+  text-align: end;
   font-variant-numeric: tabular-nums;
   display: flex;
   flex-direction: column;
@@ -1385,7 +1389,7 @@ details.help p {
 }
 
 .wizard-list {
-  padding-left: 1.2rem;
+  padding-inline-start: 1.2rem;
 }
 
 .wizard-list li {
@@ -1473,7 +1477,7 @@ details.help p {
 }
 
 .wizard-nav .link {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 @media (max-width: 640px) {
@@ -1778,14 +1782,14 @@ input.cron,
   min-width: 0;
   padding: 0.5rem 0.6rem;
   border: 1px solid var(--border);
-  border-left: 4px solid var(--border);
+  border-inline-start: 4px solid var(--border);
   border-radius: 8px;
   background: var(--surface-2);
 }
 
 .bay.cool,
 .bay.mild {
-  border-left-color: var(--ok);
+  border-inline-start-color: var(--ok);
 }
 
 .bay strong,
@@ -1809,11 +1813,11 @@ input.cron,
 }
 
 .bay.warm {
-  border-left-color: var(--warn);
+  border-inline-start-color: var(--warn);
 }
 
 .bay.hot {
-  border-left-color: var(--danger);
+  border-inline-start-color: var(--danger);
 }
 
 .bay.hot .bay-temp {
@@ -1822,11 +1826,11 @@ input.cron,
 
 .bay.asleep,
 .bay.empty {
-  border-left-color: var(--border);
+  border-inline-start-color: var(--border);
 }
 
 .bay.gone {
-  border-left-color: var(--danger);
+  border-inline-start-color: var(--danger);
   border-style: dashed;
 }
 
@@ -2438,4 +2442,21 @@ input.cron,
 
 .pill {
   white-space: nowrap;
+}
+
+/* Right to left (Arabic): bars fill from the right and the arrows of Back and
+   Next turn around; cron expressions and paths stay left to right. Charts keep
+   time running to the right, as Arabic charts do. */
+[dir="rtl"] svg.bar,
+[dir="rtl"] .icon-arrow_left,
+[dir="rtl"] .icon-arrow_right {
+  transform: scaleX(-1);
+}
+
+[dir="rtl"] input.cron,
+[dir="rtl"] .cron-syntax,
+[dir="rtl"] input[type="url"],
+[dir="rtl"] #history-hours {
+  direction: ltr;
+  text-align: right;
 }

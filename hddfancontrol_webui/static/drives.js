@@ -43,7 +43,7 @@ function smartCard(device, data) {
   if (present(data.temp_lifetime_max)) fact(t("smart.temp_lifetime_max_short"), fmtTemp(data.temp_lifetime_max), limit !== null && data.temp_lifetime_max > limit ? "warm" : "");
   if (limit !== null) fact(t("smart.temp_limit_short"), fmtTemp(limit));
   if (present(data.power_on_hours)) fact(t("smart.power_on_hours"), t("smart.years", { years: (data.power_on_hours / 8766).toFixed(1) }));
-  if (present(data.percentage_used)) fact(t("smart.percentage_used"), `${data.percentage_used} %`, data.percentage_used >= 90 ? "hot" : "");
+  if (present(data.percentage_used)) fact(t("smart.percentage_used"), ltr(`${data.percentage_used} %`), data.percentage_used >= 90 ? "hot" : "");
   for (const key of SMART_ERRORS) {
     if (data[key]) fact(t(`smart.${key}`), String(data[key]), "hot");
   }
@@ -66,7 +66,7 @@ function smartCard(device, data) {
   const fields = [
     ["family", data.family],
     ["connection", connectionText(drive, data)],
-    ["rpm", data.rpm ? `${data.rpm} RPM` : null],
+    ["rpm", data.rpm ? ltr(`${data.rpm} RPM`) : null],
     ["form_factor", data.form_factor],
     ["temp_limit", limit === null ? null : fmtTemp(limit)],
     ["temp_lifetime_max", present(data.temp_lifetime_max) ? fmtTemp(data.temp_lifetime_max) : null],
@@ -77,8 +77,8 @@ function smartCard(device, data) {
     ["start_stop_count", data.start_stop_count],
     ["load_cycle_count", data.load_cycle_count],
     ...SMART_ERRORS.map((key) => [key, data[key]]),
-    ["available_spare", present(data.available_spare) ? `${data.available_spare} %` : null],
-    ["selftest_last", test ? [test.type, test.result, present(test.hours) ? `${test.hours} h` : ""].filter(Boolean).join(" · ") : null],
+    ["available_spare", present(data.available_spare) ? ltr(`${data.available_spare} %`) : null],
+    ["selftest_last", test ? [test.type, test.result, present(test.hours) ? ltr(`${test.hours} h`) : ""].filter(Boolean).join(" · ") : null],
     ["unsafe_shutdowns", data.unsafe_shutdowns],
   ];
   for (const [key, value] of fields) {
@@ -195,7 +195,7 @@ function ioLevel(io) {
 }
 
 function fmtRate(bytes) {
-  return bytes < 1 ? "0 B/s" : `${fmtBytes(bytes)}/s`;
+  return bytes < 1 ? ltr("0 B/s") : ltr(`${fmtBytes(bytes)}/s`);
 }
 
 // A hard drive seen from above with its cover off, on a 56 × 80 grid: case and

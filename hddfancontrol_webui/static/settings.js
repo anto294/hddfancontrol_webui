@@ -507,7 +507,7 @@ const cronTimers = {};
 function cronWall(text, timeOnly = false) {
   const date = new Date(text);
   const time = { hour: "2-digit", minute: "2-digit" };
-  return timeOnly ? date.toLocaleTimeString(I18N.lang, time) : date.toLocaleString(I18N.lang, { weekday: "short", day: "numeric", month: "short", ...time });
+  return timeOnly ? date.toLocaleTimeString(I18N.locale, time) : date.toLocaleString(I18N.locale, { weekday: "short", day: "numeric", month: "short", ...time });
 }
 
 async function previewCron(name) {
@@ -561,7 +561,7 @@ const COMPOSER_START = {
 
 function weekdayName(day) {
   // 7 January 2024 was a Sunday (day 0 of cron).
-  return new Date(2024, 0, 7 + day).toLocaleDateString(I18N.lang, { weekday: "short" });
+  return new Date(2024, 0, 7 + day).toLocaleDateString(I18N.locale, { weekday: "short" });
 }
 
 function pad2(number) {
