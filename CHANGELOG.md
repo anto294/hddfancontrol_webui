@@ -7,6 +7,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- **A bay holding a drive that is only monitored no longer says "Not
+  found".** Such a drive is not measured by hddfancontrol, so the bay map
+  took it for a drive gone from the host, with the red frame. It now
+  shows the last SMART temperature once the SMART data are loaded (or
+  "—"), and "Not found" only for a drive that is not on the host.
+
 ## [0.10.0] - 2026-11-18
 
 ### Added

@@ -177,7 +177,14 @@ function bayDrive(id) {
   const drive = state.hardware.drives.find((d) => d.ids.includes(id) || `/dev/${d.name}` === id);
   const temps = state.status && state.status.latest ? state.status.latest.temps : {};
   const entry = drive ? Object.entries(temps).find(([name]) => name.split(" ")[0] === drive.name) : undefined;
-  return { drive, logName: entry ? entry[0] : drive ? drive.name : "", temp: entry ? entry[1] : undefined };
+  let temp = entry ? entry[1] : undefined;
+  // A drive that is only monitored is not in hddfancontrol's log: its last SMART temperature, if any.
+  if (drive && !entry) {
+    const smart = state.smartData ? [id, ...drive.ids].map((path) => state.smartData[path]).find(Boolean) : undefined;
+    if (smart && smart.asleep) temp = null;
+    else if (smart && typeof smart.temperature === "number") temp = smart.temperature;
+  }
+  return { drive, logName: entry ? entry[0] : drive ? drive.name : "", temp };
 }
 
 // How busy a drive was between the last two hardware snapshots: idle, low, mid
@@ -318,7 +325,7 @@ function renderBays() {
     const kind = driveKind(drive);
     const tile = old.get(`${index}:${id}|${kind}`) || bayTile(index, id, kind);
     const smart = state.smartData && state.smartData[id] ? state.smartData[id].status : "";
-    const level = temp === undefined ? "gone" : temp === null ? "asleep" : tempLevel(temp, drive.name);
+    const level = !drive ? "gone" : temp === null ? "asleep" : temp === undefined ? "" : tempLevel(temp, drive.name);
     const io = drive ? state.io.get(drive.name) : undefined;
     const activity = ioLevel(io);
     const className = `bay${kind === "none" ? "" : " has-art"} ${level}${smart === "failing" || smart === "warning" ? ` smart-${smart}` : ""}`;
@@ -326,7 +333,7 @@ function renderBays() {
     tile.title = io ? `${id}\n${t("bays.io", { busy: Math.round(io.busy * 100), read: fmtRate(io.read), write: fmtRate(io.write) })}` : id;
     tile.querySelector(".bay-name").textContent = drive ? driveTitle(logName).name : shortPath(id);
     tile.querySelector(".bay-kernel").textContent = drive ? drive.name : "";
-    tile.querySelector(".bay-temp").textContent = temp === undefined ? t("bays.missing") : temp === null ? t("state.asleep") : fmtTemp(temp);
+    tile.querySelector(".bay-temp").textContent = !drive ? t("bays.missing") : temp === null ? t("state.asleep") : temp === undefined ? "—" : fmtTemp(temp);
     const art = tile.querySelector(".drive-art");
     if (art) {
       // The platters turn while the drive is awake: it has a temperature, or it works.
