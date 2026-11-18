@@ -150,6 +150,7 @@ hd-idle spins the chosen drives down after an idle time: one for every drive, an
 - **SMART self-tests:** with **Short/Long SMART self-test** in **Settings → Schedules** (cron expressions, such as `0 3 * * sun`), the web UI starts the tests on every monitored drive, never on a sleeping one (it tries again for 3 hours); the long test goes first, and no other test starts on that drive for a day. The drive runs it by itself and the next SMART read shows the result. A failed test is a SMART warning. TrueNAS can schedule them too: use one or the other.
 - **SMART:** `smartctl -a -n standby` reads the drives marked as monitored in **Settings** (by default, the drives that drive the fans) every 6 hours by default, and when you press **Read SMART now**. A drive asleep at that time is not woken and keeps its last data.
 - **Bay map:** in **Drives → Bay map**, draw the bays of the case (rows and columns as seen from the front) and put each drive in its bay; the overview then shows the drives as in the case, with their temperature and any SMART problem, so the drive to pull is found at once. Kept in `/config/bays.json`.
+- **Processor:** the **Control** card of the overview shows the share of busy time of the processors, the load average and the package temperature.
 - **Names:** give a fan or a drive a name in the **Fans** tab or the drive list of **Settings**. Names are kept in `/config/labels.json`, and changing one does not restart fan control. Drives are named by their `/dev/disk/by-id` path, which does not change between boots.
 
 ## On a phone

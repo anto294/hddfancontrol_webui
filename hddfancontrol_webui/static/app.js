@@ -21,6 +21,12 @@ const state = {
   smartData: null,
   // Where each drive sits in the case (drives.js).
   bays: null,
+  // Rates from the last two hardware snapshots: per kernel name {busy (0-1),
+  // read and write (bytes/s)}, and the share of time the processors were busy.
+  io: new Map(),
+  cpuUsage: null,
+  // The counters of the snapshot the rates were taken from.
+  counters: null,
 };
 
 const POLL_STATUS_MS = 3000;
@@ -33,6 +39,9 @@ const POLL_HISTORY_MS = 60000;
 const TREND_SECONDS = 600;
 const TREND_MIN_DELTA = 1;
 const LOG_MAX_LINES = 2000;
+// Two hardware snapshots closer than this give no rate: too few ms to mean anything.
+const RATE_MIN_SECONDS = 1;
+const SECTOR_BYTES = 512;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -454,6 +463,18 @@ function renderOverview() {
     const text = t(`daemon.${daemon.state}`) + (daemon.restarts ? ` · ${t("overview.restarts", { count: daemon.restarts })}` : "");
     control.append(row(name, text));
   }
+  const cpu = state.hardware.cpu;
+  if (cpu) {
+    if (state.cpuUsage !== null) {
+      const usage = state.cpuUsage;
+      control.append(row(t("overview.cpu_usage"), el("span", { class: "cpu-usage" }, bar(usage, usage < 0.5 ? "cool" : usage < 0.85 ? "warm" : "hot"), `${Math.round(usage * 100)} %`)));
+    }
+    if (cpu.load.length === 3) {
+      const text = cpu.load.map((value) => value.toFixed(2)).join(" · ") + (cpu.count ? ` (${t("overview.cpu_count", { count: cpu.count })})` : "");
+      control.append(row(t("overview.cpu_load"), text));
+    }
+    if (cpu.temp !== null) control.append(row(t("overview.cpu_temp"), el("span", { title: cpu.temp_path, text: fmtTemp(cpu.temp) })));
+  }
 }
 
 // An arrow when a drive got warmer or cooler by TREND_MIN_DELTA in TREND_SECONDS.
@@ -509,9 +530,44 @@ async function pollStatus() {
   }
 }
 
+// Turn the counters of this snapshot and of the one before into rates.
+// Counters that went back (a drive replaced under the same name) give none.
+function updateRates(hardware) {
+  const before = state.counters;
+  const now = {
+    clock: hardware.clock,
+    drives: new Map((hardware.drives || []).filter((d) => d.io).map((d) => [d.name, d.io])),
+    cpu: hardware.cpu,
+  };
+  if (before && now.clock - before.clock < RATE_MIN_SECONDS) return;
+  state.counters = now;
+  if (!before) return;
+  const seconds = now.clock - before.clock;
+  const io = new Map();
+  for (const [name, counters] of now.drives) {
+    const old = before.drives.get(name);
+    if (!old) continue;
+    const busy = counters.busy_ms - old.busy_ms;
+    const read = counters.read_sectors - old.read_sectors;
+    const write = counters.write_sectors - old.write_sectors;
+    if (busy < 0 || read < 0 || write < 0) continue;
+    io.set(name, {
+      busy: Math.min(1, busy / (seconds * 1000)),
+      read: (read * SECTOR_BYTES) / seconds,
+      write: (write * SECTOR_BYTES) / seconds,
+    });
+  }
+  state.io = io;
+  const cpu = now.cpu;
+  const old = before.cpu;
+  const total = cpu && old && cpu.total !== null && old.total !== null ? cpu.total - old.total : 0;
+  state.cpuUsage = total > 0 ? Math.max(0, Math.min(1, (cpu.busy - old.busy) / total)) : null;
+}
+
 async function pollHardware() {
   try {
     state.hardware = await api("GET", "/api/hardware");
+    updateRates(state.hardware);
     renderOverview();
     renderFans();
     renderPwmTestList();

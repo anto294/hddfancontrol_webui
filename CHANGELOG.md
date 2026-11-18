@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Processor use, load and temperature** in the **Control** card of the
+  overview: the share of busy time of every processor, the load average
+  and the package temperature (`coretemp`, `k10temp`, `zenpower` or the
+  `cpu_thermal` of ARM boards).
+
 ## [0.9.0] - 2026-11-17
 
 ### Changed

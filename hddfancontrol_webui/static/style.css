@@ -1731,6 +1731,17 @@ input.cron,
   outline-color: var(--danger);
 }
 
+/* The processor time in the control table: a short bar before the number. */
+.cpu-usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cpu-usage .bar {
+  width: 5rem;
+}
+
 /* Many columns on a phone: the tiles get smaller, the names shorter. */
 @media (max-width: 640px) {
   .bays {
@@ -1741,6 +1752,7 @@ input.cron,
     padding: 0.35rem 0.4rem;
     font-size: 0.8rem;
   }
+
 }
 
 /* Phones: one column, smaller margins, a header that fits, wide tables that scroll by themselves. */
