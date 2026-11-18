@@ -5,6 +5,8 @@
 [![GitHub release](https://img.shields.io/github/v/release/anto294/hddfancontrol_webui?style=plastic)](https://github.com/anto294/hddfancontrol_webui/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/anto294/hddfancontrol_webui/ci.yml?style=plastic&label=CI)](https://github.com/anto294/hddfancontrol_webui/actions/workflows/ci.yml)
 [![Docker image](https://img.shields.io/badge/ghcr.io-hddfancontrol__webui-2f8cff?style=plastic&logo=docker&logoColor=white)](https://github.com/anto294/hddfancontrol_webui/pkgs/container/hddfancontrol_webui)
+[![Downloads](https://img.shields.io/github/downloads/anto294/hddfancontrol_webui/total?style=plastic&label=downloads)](https://github.com/anto294/hddfancontrol_webui/releases)
+[![Pulls](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fanto294%2Fhddfancontrol_webui%2Fbadges%2Fpulls.json&style=plastic)](https://github.com/anto294/hddfancontrol_webui/pkgs/container/hddfancontrol_webui)
 [![License](https://img.shields.io/github/license/anto294/hddfancontrol_webui?style=plastic)](LICENSE)
 
 Control the case fans of a NAS from the temperature of its hard drives, and spin the drives down when they are idle, from a web page. Built around [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma and [hd-idle](https://github.com/adelolmo/hd-idle) by adelolmo, for **TrueNAS SCALE** first, and for any Linux system with Docker or systemd.

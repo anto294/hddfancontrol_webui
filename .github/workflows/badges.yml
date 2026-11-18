@@ -1,0 +1,65 @@
+name: Badges
+
+on:
+  schedule:
+    # Daily: GitHub offers no API for the download count of a container
+    # image, and shields.io cannot read it either.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  pulls:
+    name: Count the pulls of the image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: badges
+      FILE: pulls.json
+    steps:
+      - name: Write pulls.json to the badges branch
+        run: |
+          set -euo pipefail
+          page="https://github.com/$REPO/pkgs/container/${REPO#*/}"
+          # The package page shows "Total downloads" followed by <h3 title="N">.
+          count=$(curl -fsSL "$page" | grep -A2 'Total downloads' | sed -n 's/.*<h3 title="\([0-9]*\)".*/\1/p' | head -n1)
+          if [ -z "$count" ]; then
+            echo "::error::No download count found on $page"
+            exit 1
+          fi
+          echo "Pulls: $count"
+          if [ "$count" -ge 1000000 ]; then
+            message="$(awk -v n="$count" 'BEGIN { printf "%.1fM", n / 1000000 }')"
+          elif [ "$count" -ge 1000 ]; then
+            message="$(awk -v n="$count" 'BEGIN { printf "%.1fk", n / 1000 }')"
+          else
+            message="$count"
+          fi
+          json=$(jq -cn --arg m "$message" '{schemaVersion: 1, label: "pulls", message: $m, color: "2f8cff", namedLogo: "docker", logoColor: "white"}')
+          content=$(printf '%s\n' "$json" | base64 -w0)
+
+          # The branch holds only this file, apart from the code: create it with a first commit without parents.
+          if ! gh api "repos/$REPO/git/ref/heads/$BRANCH" --silent 2>/dev/null; then
+            blob=$(gh api "repos/$REPO/git/blobs" -f content="$content" -f encoding=base64 --jq .sha)
+            tree=$(gh api "repos/$REPO/git/trees" -f "tree[][path]=$FILE" -f "tree[][mode]=100644" -f "tree[][type]=blob" -f "tree[][sha]=$blob" --jq .sha)
+            commit=$(gh api "repos/$REPO/git/commits" -f message="Badge data" -f tree="$tree" --jq .sha)
+            gh api "repos/$REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$commit" --silent
+            exit 0
+          fi
+          sha=$(gh api "repos/$REPO/contents/$FILE?ref=$BRANCH" --jq .sha)
+          old=$(gh api "repos/$REPO/contents/$FILE?ref=$BRANCH" --jq .content | base64 -d)
+          if [ "$old" = "$json" ]; then
+            echo "Unchanged"
+            exit 0
+          fi
+          gh api -X PUT "repos/$REPO/contents/$FILE" -f message="Update the pull count to $count" \
+            -f content="$content" -f sha="$sha" -f branch="$BRANCH" --silent
