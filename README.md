@@ -32,6 +32,7 @@ Open `https://<host>:28462` (the certificate is self-signed: accept it once), ty
 - [Quick start](#quick-start)
 - [What you can do with it](#what-you-can-do-with-it)
 - [Requirements](#requirements)
+  - [Tested hardware](#tested-hardware)
 - [Installation](#installation)
 - [First setup](#first-setup)
 - [Fan control modes](#fan-control-modes)
@@ -76,6 +77,14 @@ Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleep
 - A mainboard whose fan headers are PWM-controlled through a Linux hwmon driver (`nct6775`, `it87`, …). Most consumer and many server boards work; if a BIOS fan mode exists, the fans must not be locked at full speed.
 - **Docker:** any x86_64 or arm64 host. TrueNAS SCALE 24.10 or later runs it as a Custom App.
 - **Bare metal:** Linux with systemd and Python 3.11 or later (Debian 12, Ubuntu 24.04, Proxmox VE 8, OpenMediaVault 7, Fedora, Arch, …), plus `smartmontools` and `hdparm`.
+
+### Tested hardware
+
+| Fan chip (module) | Mainboard | System | Result |
+|---|---|---|---|
+| nct6798 (`nct6775`) | — | TrueNAS SCALE, Docker | Works |
+
+Tried it on other hardware? Please send a [hardware report](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_report.yml), whether it works or not.
 
 ## Installation
 

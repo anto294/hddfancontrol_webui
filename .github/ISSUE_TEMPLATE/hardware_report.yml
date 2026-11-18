@@ -1,0 +1,50 @@
+name: Hardware report
+description: Tell which mainboard and fan chip work (or do not) with the web UI
+labels: ["hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Your report goes into the list of tested hardware in the README.
+
+  - type: input
+    id: mainboard
+    attributes:
+      label: Mainboard
+      placeholder: ASRock B550M Pro4
+    validations:
+      required: true
+
+  - type: input
+    id: chip
+    attributes:
+      label: Fan chip and kernel module
+      description: The chip is shown in the Fans tab; the module in the sensor message or by `lsmod`.
+      placeholder: nct6798, module nct6775
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: System and how you run it
+      placeholder: TrueNAS SCALE 25.10 (Custom App), Debian 13 (bare metal), ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: Does fan control work?
+      options:
+        - Yes, every fan header
+        - Some headers only
+        - No
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Headers that do not react, BIOS settings you had to change, kernel options (acpi_enforce_resources=lax), a module you had to load by hand, ...
