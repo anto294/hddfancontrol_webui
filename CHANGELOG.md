@@ -35,6 +35,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   do **Limits per drive** (with the number of drives that have their
   own), **Advanced** (with the interval and the days of history) and
   **Backup**. A problem with a field of a folded section opens it.
+- **Texts of the web UI** are shorter or more precise: the option to
+  give the fans back their settings says that it acts when the web UI
+  exits, the drives tile counts the drives awake (SSDs too), and the
+  read-only banner, the manual control help and the backup help say the
+  same in fewer words.
 
 ## [0.9.0] - 2026-11-17
 
