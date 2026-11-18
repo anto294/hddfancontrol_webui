@@ -178,13 +178,17 @@ function bayDrive(id) {
   const temps = state.status && state.status.latest ? state.status.latest.temps : {};
   const entry = drive ? Object.entries(temps).find(([name]) => name.split(" ")[0] === drive.name) : undefined;
   let temp = entry ? entry[1] : undefined;
+  let fromSmart = false;
   // A drive that is only monitored is not in hddfancontrol's log: its last SMART temperature, if any.
   if (drive && !entry) {
     const smart = state.smartData ? [id, ...drive.ids].map((path) => state.smartData[path]).find(Boolean) : undefined;
     if (smart && smart.asleep) temp = null;
-    else if (smart && typeof smart.temperature === "number") temp = smart.temperature;
+    else if (smart && typeof smart.temperature === "number") {
+      temp = smart.temperature;
+      fromSmart = true;
+    }
   }
-  return { drive, logName: entry ? entry[0] : drive ? drive.name : "", temp };
+  return { drive, logName: entry ? entry[0] : drive ? drive.name : "", temp, fromSmart };
 }
 
 // How busy a drive was between the last two hardware snapshots: idle, low, mid
@@ -321,11 +325,12 @@ function renderBays() {
     if (!id) {
       return old.get(`${index}:|none`) || el("div", { class: "bay empty", "data-key": `${index}:`, "data-kind": "none", title: t("bays.empty", { number: index + 1 }) }, el("span", { class: "bay-number muted", text: String(index + 1) }), el("span", { class: "muted", text: "—" }));
     }
-    const { drive, logName, temp } = bayDrive(id);
+    const { drive, logName, temp, fromSmart } = bayDrive(id);
     const kind = driveKind(drive);
     const tile = old.get(`${index}:${id}|${kind}`) || bayTile(index, id, kind);
     const smart = state.smartData && state.smartData[id] ? state.smartData[id].status : "";
-    const level = !drive ? "gone" : temp === null ? "asleep" : temp === undefined ? "" : tempLevel(temp, drive.name);
+    // A SMART temperature has no color: the limits are those of the drives that drive the fans.
+    const level = !drive ? "gone" : temp === null ? "asleep" : temp === undefined || fromSmart ? "" : tempLevel(temp, drive.name);
     const io = drive ? state.io.get(drive.name) : undefined;
     const activity = ioLevel(io);
     const className = `bay${kind === "none" ? "" : " has-art"} ${level}${smart === "failing" || smart === "warning" ? ` smart-${smart}` : ""}`;
@@ -333,7 +338,7 @@ function renderBays() {
     tile.title = io ? `${id}\n${t("bays.io", { busy: Math.round(io.busy * 100), read: fmtRate(io.read), write: fmtRate(io.write) })}` : id;
     tile.querySelector(".bay-name").textContent = drive ? driveTitle(logName).name : shortPath(id);
     tile.querySelector(".bay-kernel").textContent = drive ? drive.name : "";
-    tile.querySelector(".bay-temp").textContent = !drive ? t("bays.missing") : temp === null ? t("state.asleep") : temp === undefined ? "—" : fmtTemp(temp);
+    tile.querySelector(".bay-temp").textContent = !drive ? t("bays.missing") : temp === null ? t("state.asleep") : temp === undefined ? "—" : fromSmart ? `${fmtTemp(temp)} · SMART` : fmtTemp(temp);
     const art = tile.querySelector(".drive-art");
     if (art) {
       // The platters turn while the drive is awake: it has a temperature, or it works.
@@ -389,6 +394,15 @@ async function loadBays() {
     state.bays = await api("GET", "/api/bays");
   } catch {
     state.bays = { rows: 0, cols: 0, slots: [] };
+  }
+  // The last SMART data the server keeps (nothing is read from the drives):
+  // the bays show the temperature of drives that are only monitored, and SMART problems.
+  if (state.bays.slots.some(Boolean) && !state.smartData) {
+    try {
+      state.smartData = await api("GET", "/api/smart");
+    } catch {
+      // The bays show without it.
+    }
   }
   $("bay-rows").value = state.bays.rows || "";
   $("bay-cols").value = state.bays.cols || "";
