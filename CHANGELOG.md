@@ -25,8 +25,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Changed
 
 - **Other temperature sensors** in **Settings** start folded, with the
-  number in use next to the title: a board can have dozens of inputs. A
-  problem with one of them opens the section.
+  number in use next to the title: a board can have dozens of inputs. So
+  do **Limits per drive** (with the number of drives that have their
+  own), **Advanced** (with the interval and the days of history) and
+  **Backup**. A problem with a field of a folded section opens it.
 
 ## [0.9.0] - 2026-11-17
 

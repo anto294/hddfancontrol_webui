@@ -175,6 +175,9 @@ function renderSettings() {
   }
   labelCells($("hwmon-list"));
   $("hwmon-chosen").textContent = chosen.size ? t("settings.hwmons_chosen", { count: chosen.size }) : "";
+  const own = Object.keys(settings.drive_limits || {}).length;
+  $("limit-chosen").textContent = own ? t("settings.limits_chosen", { count: own }) : "";
+  $("advanced-summary").textContent = t("settings.advanced_summary", { interval: settings.interval_s, days: settings.history_days });
   renderCron();
 }
 
@@ -350,8 +353,14 @@ function showProblems(problems) {
     const text = t(`error.${problem.code}`, problem.params || {});
     if (target) target.textContent = target.textContent ? `${target.textContent} ${text}` : `${problem.field}: ${text}`;
   }
-  // A problem in a closed section opens it, so the field at fault is in sight.
-  if (problems.some((problem) => problem.field.startsWith("hwmons"))) $("hwmon-fold").open = true;
+  openFoldsWithErrors();
+}
+
+// A problem in a folded section opens it, so the field at fault is in sight.
+function openFoldsWithErrors() {
+  for (const fold of document.querySelectorAll("#settings-form details.card-fold")) {
+    if ([...fold.querySelectorAll("[data-error]")].some((node) => node.textContent)) fold.open = true;
+  }
 }
 
 async function loadSettings() {
@@ -534,6 +543,15 @@ function renderCron() {
 
 // The groups and the limits follow the drives and fans ticked above.
 document.addEventListener("DOMContentLoaded", () => {
+  // The browser cannot show a field it refuses (a number out of range) in a folded section.
+  $("settings-form").addEventListener(
+    "invalid",
+    (event) => {
+      const fold = event.target.closest("details");
+      if (fold) fold.open = true;
+    },
+    true,
+  );
   for (const name of CRON_FIELDS) {
     $("settings-form")[name].addEventListener("input", () => {
       clearTimeout(cronTimers[name]);

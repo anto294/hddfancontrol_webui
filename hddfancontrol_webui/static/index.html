@@ -233,10 +233,15 @@
         </article>
 
         <article class="card">
-          <h2 data-icon="thermometer" data-i18n="settings.limits"></h2>
-          <p class="muted small" data-i18n="settings.limits_help"></p>
-          <div class="table-scroll"><table class="list form-table" id="limit-list"></table></div>
-          <p class="error" data-error="drive_limits"></p>
+          <details class="card-fold" id="limit-fold">
+            <summary>
+              <h2 data-icon="thermometer" data-i18n="settings.limits"></h2>
+              <span class="muted small" id="limit-chosen"></span>
+            </summary>
+            <p class="muted small" data-i18n="settings.limits_help"></p>
+            <div class="table-scroll"><table class="list form-table" id="limit-list"></table></div>
+            <p class="error" data-error="drive_limits"></p>
+          </details>
         </article>
 
         <article class="card">
@@ -261,8 +266,8 @@
             </summary>
             <p class="muted small" data-i18n="settings.hwmons_help"></p>
             <div class="table-scroll"><table class="list form-table" id="hwmon-list"></table></div>
+            <p class="error" data-error="hwmons"></p>
           </details>
-          <p class="error" data-error="hwmons"></p>
         </article>
 
         <article class="card">
@@ -334,35 +339,44 @@
         </article>
 
         <article class="card">
-          <h2 data-icon="settings" data-i18n="settings.advanced"></h2>
-          <div class="fields">
-            <label class="field"><span data-i18n="settings.interval_s"></span>
-              <input type="number" name="interval_s" min="1" max="3600">
-              <small class="error" data-error="interval_s"></small></label>
-            <label class="field"><span data-i18n="settings.average"></span>
-              <input type="number" name="average" min="1" max="100">
-              <small class="error" data-error="average"></small></label>
-            <label class="field"><span data-i18n="settings.history_days"></span>
-              <input type="number" name="history_days" min="1" max="365">
-              <small class="error" data-error="history_days"></small></label>
-            <label class="field"><span data-i18n="settings.verbosity"></span>
-              <select name="verbosity">
-                <option>TRACE</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option>
-              </select></label>
-          </div>
-          <label class="check"><input type="checkbox" name="restore_fan_settings">
-            <span data-i18n="settings.restore_fan_settings"></span></label>
+          <details class="card-fold" id="advanced-fold">
+            <summary>
+              <h2 data-icon="settings" data-i18n="settings.advanced"></h2>
+              <span class="muted small" id="advanced-summary"></span>
+            </summary>
+            <div class="fields">
+              <label class="field"><span data-i18n="settings.interval_s"></span>
+                <input type="number" name="interval_s" min="1" max="3600">
+                <small class="error" data-error="interval_s"></small></label>
+              <label class="field"><span data-i18n="settings.average"></span>
+                <input type="number" name="average" min="1" max="100">
+                <small class="error" data-error="average"></small></label>
+              <label class="field"><span data-i18n="settings.history_days"></span>
+                <input type="number" name="history_days" min="1" max="365">
+                <small class="error" data-error="history_days"></small></label>
+              <label class="field"><span data-i18n="settings.verbosity"></span>
+                <select name="verbosity">
+                  <option>TRACE</option><option>DEBUG</option><option>INFO</option><option>WARN</option><option>ERROR</option>
+                </select></label>
+            </div>
+            <label class="check"><input type="checkbox" name="restore_fan_settings">
+              <span data-i18n="settings.restore_fan_settings"></span></label>
+          </details>
         </article>
 
         <article class="card">
-          <h2 data-icon="backup" data-i18n="settings.backup"></h2>
-          <p class="muted small" data-i18n="settings.backup_help"></p>
-          <div class="actions">
-            <button type="button" id="export-settings" class="secondary" data-icon="download" data-i18n="action.export"></button>
-            <button type="button" id="import-settings" class="secondary" data-icon="upload" data-i18n="action.import"></button>
-            <input type="file" id="import-file" accept="application/json,.json" hidden>
-            <span id="backup-result" class="small"></span>
-          </div>
+          <details class="card-fold" id="backup-fold">
+            <summary>
+              <h2 data-icon="backup" data-i18n="settings.backup"></h2>
+            </summary>
+            <p class="muted small" data-i18n="settings.backup_help"></p>
+            <div class="actions">
+              <button type="button" id="export-settings" class="secondary" data-icon="download" data-i18n="action.export"></button>
+              <button type="button" id="import-settings" class="secondary" data-icon="upload" data-i18n="action.import"></button>
+              <input type="file" id="import-file" accept="application/json,.json" hidden>
+              <span id="backup-result" class="small"></span>
+            </div>
+          </details>
         </article>
 
         <div class="actions sticky">
