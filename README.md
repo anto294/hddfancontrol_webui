@@ -251,7 +251,9 @@ If the certificate cannot be read or made, the web UI starts over plain HTTP (no
 
 ## Environment variables
 
-Everything but the first group can be set in the web UI, which then stores it in `/config/settings.json`. From then on the file wins; **Back to environment variables** deletes it.
+The variables of **Web UI and access**, the advanced ones and `TZ` are read only from the environment. The others can also be set in the web UI, which then stores them in `/config/settings.json`; from then on the file wins, and **Back to environment variables** deletes it.
+
+### Web UI and access
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -261,14 +263,14 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `WEBUI_HOST` | `0.0.0.0` | Address to listen on |
 | `WEBUI_ALLOW` | private networks | Networks allowed to connect, as CIDRs separated by commas or spaces; `private` stands for the default networks, `all` for every address; loopback is always allowed. See [Security](#security) |
 | `WEBUI_HOSTS` | names of the LAN | Host names the browser may use besides IP addresses and names of the LAN, by commas or spaces; `*.example.com` for subdomains, `any` for every name. Needed behind a reverse proxy with a public domain. See [Security](#security) |
-| `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; when it does not exist, or is root or in root's group, the web UI does not start (an error in the log) and the fans are still controlled |
 | `ENABLE_TLS` | `true` | Serve HTTPS (and plain HTTP) on `WEBUI_PORT`; `false` serves plain HTTP only; see [HTTPS](#https) |
 | `FORCE_HTTPS` | `false` | Redirect plain HTTP to HTTPS |
 | `TLS_CERT`, `TLS_KEY` | — | Certificate and key (PEM) to use; without them a self-signed pair is made in `/config/web/tls`. They are copied to `/config/web-tls` at start, so the gateway can read them |
-| `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
-| `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request with the client's address, in the gateway's lines (the page polls every few seconds) |
-| `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |
-| `HDDFANCONTROL_BIN`, `HDIDLE_BIN`, `SMARTCTL_BIN`, `SENSORS_DETECT_BIN`, `MODPROBE_BIN` | from `PATH` | Programs to use |
+
+### Fan control
+
+| Variable | Default | Meaning |
+|---|---|---|
 | `DRIVES` | — | Drives, separated by spaces: `/dev/disk/by-id/...` paths or interface names (`ata`) |
 | `MONITOR_DRIVES` | the `/dev` paths of `DRIVES` | Drives whose SMART data is read and shown, `/dev/disk/by-id/...` paths separated by spaces; set but empty, none |
 | `PWM` | — | Fans, as `PWM_PATH:START:STOP`, separated by spaces |
@@ -280,20 +282,43 @@ Everything but the first group can be set in the web UI, which then stores it in
 | `AVERAGE` | `1` | Number of samples of each drive to average |
 | `HWMONS` | — | Other temperature inputs, as `PATH[:MIN:MAX]`, separated by spaces |
 | `RESTORE_FAN_SETTINGS` | `true` | When the web UI stops, give the fans back their settings; `false` leaves them at full speed (a restart after a change always gives them back) |
-| `VERBOSITY` | `INFO` | `TRACE`, `DEBUG`, `INFO`, `WARN` or `ERROR` |
+| `VERBOSITY` | `INFO` | Log level of hddfancontrol: `TRACE`, `DEBUG`, `INFO`, `WARN` or `ERROR` |
+
+### Spin down
+
+| Variable | Default | Meaning |
+|---|---|---|
 | `SPIN_DOWN_TIME_S` | `600` | Idle time before spin down, seconds; `0` turns hd-idle off |
 | `SPIN_DOWN_COMMAND` | `ata` | `ata` or `scsi` |
+
+### History, SMART and alerts
+
+| Variable | Default | Meaning |
+|---|---|---|
 | `HISTORY_DAYS` | `30` | Days of history to keep |
 | `SMART_SCHEDULE` | `0 */6 * * *` | When SMART is read (cron, see [Schedules](#schedules)); empty reads only on demand. The older `SMART_INTERVAL_H` (hours) still works |
+| `SELFTEST_SHORT` | — | When a short SMART self-test starts (cron), such as `0 3 * * sun` |
+| `SELFTEST_LONG` | — | When a long SMART self-test starts (cron), such as `0 3 1 * *` |
 | `NOTIFY_URL` | — | Where alerts are sent (see [Alerts](#alerts)); empty, none |
 | `NOTIFY_FORMAT` | `ntfy` | `ntfy`, `gotify` or `json` |
 | `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en`, `it`, `es`, `fr`, `zh`, `hi` or `ar` |
 | `NOTIFY_REPEAT_H` | `0` | Send again an alert still on (and not taken note of) every this many hours; `0` sends it once |
 | `NOTIFY_QUIET` | — | Quiet hours, the minutes a cron expression matches, such as `* 22-23,0-6 * * *`: only urgent alerts go out, the rest when they end |
 | `NOTIFY_SUMMARY` | — | When a summary is sent (cron), such as `0 9 * * mon` |
-| `SELFTEST_SHORT` | — | When a short SMART self-test starts (cron), such as `0 3 * * sun` |
-| `SELFTEST_LONG` | — | When a long SMART self-test starts (cron), such as `0 3 1 * *` |
 | `TZ` | — | Time zone of the container (such as `Europe/Rome`), for the schedules |
+
+<details>
+<summary><b>Advanced</b>: the user of the web server, folders, programs, access log</summary>
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WEBUI_USER` | `hddfancontrol-webui` | User the gateway (the web server) runs as; when it does not exist, or is root or in root's group, the web UI does not start (an error in the log) and the fans are still controlled |
+| `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
+| `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request with the client's address, in the gateway's lines (the page polls every few seconds) |
+| `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |
+| `HDDFANCONTROL_BIN`, `HDIDLE_BIN`, `SMARTCTL_BIN`, `SENSORS_DETECT_BIN`, `MODPROBE_BIN` | from `PATH` | Programs to use |
+
+</details>
 
 ## Resource use
 
