@@ -160,6 +160,17 @@ def test_cpu(fake_sys: Path, fake_dev: Path, tmp_path: Path) -> None:
     snapshot = Hardware(fake_dev, fake_sys, proc).snapshot()
     assert snapshot["cpu"]["busy"] == 160 and isinstance(snapshot["clock"], float)
 
+    assert Hardware(fake_dev, fake_sys, proc).cpu_temp() is None
+    chip = fake_sys / "class" / "hwmon" / "hwmon7"
+    chip.mkdir()
+    (chip / "name").write_text("coretemp\n")
+    (chip / "temp1_label").write_text("Package id 0\n")
+    (chip / "temp1_input").write_text("52000\n")
+    (chip / "temp2_label").write_text("Core 0\n")
+    (chip / "temp2_input").write_text("70000\n")
+    assert Hardware(fake_dev, fake_sys, proc).cpu_temp() == 52.0
+    assert Hardware(fake_dev, tmp_path / "nothing", proc).cpu_temp() is None
+
     empty = Hardware(fake_dev, fake_sys, tmp_path / "none").cpu()
     assert (empty.count, empty.total, empty.busy, empty.load) == (0, None, None, [])
     (proc / "stat").write_text("cpu  1 x 3\n")

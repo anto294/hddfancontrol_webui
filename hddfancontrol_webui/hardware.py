@@ -432,6 +432,19 @@ class Hardware:
         cpu.temp, cpu.temp_path = self._cpu_temp(self.hwmons() if hwmons is None else hwmons)
         return cpu
 
+    def cpu_temp(self) -> float | None:
+        """The hottest package temperature of the processors, reading only their hwmon chips.
+
+        Light enough to be read every second (the CPU curve of a BMC, bmc.py).
+        """
+        base = self._sys / "class" / "hwmon"
+        try:
+            folders = [p for p in base.iterdir() if _HWMON.match(p.name)]
+        except OSError:
+            return None
+        chips = [self._hwmon(folder) for folder in folders if (_read(folder / "name") or "") in _CPU_CHIPS]
+        return self._cpu_temp(chips)[0]
+
     @staticmethod
     def _cpu_temp(hwmons: list[HwmonDevice]) -> tuple[float | None, str]:
         """The hottest package temperature of the processor chips, and its path."""
