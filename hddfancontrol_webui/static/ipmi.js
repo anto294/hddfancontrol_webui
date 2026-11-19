@@ -215,7 +215,7 @@ function renderIpmiPoints() {
     });
     table.append(row(input(0, low, high, 1), input(1, 0, 100, 1), remove));
   });
-  const add = el("button", { type: "button", class: "secondary", disabled: curve.length >= most, text: t("ipmi.add_point") });
+  const add = el("button", { type: "button", class: "secondary", disabled: curve.length >= most || !(curve[curve.length - 1][0] < high), text: t("ipmi.add_point") });
   add.addEventListener("click", () => {
     const [lastTemp, lastPct] = curve[curve.length - 1];
     curve.push([Math.min(high, lastTemp + 5), Math.min(100, lastPct + 10)]);
@@ -230,9 +230,10 @@ function renderIpmiPoints() {
 function renderIpmiChart() {
   const box = $("ipmi-chart");
   box.replaceChildren();
+  if (!ipmi.draft) return;
   const points = ipmiPoints();
   if (!points || curveProblem(points)) return;
-  const minSpeed = Math.max(0, Math.min(100, Number($("ipmi-min").value) || 0));
+  const minSpeed = Math.max(0, Math.min(100, Number(ipmi.draft.min_percent) || 0));
   const [from, to] = IPMI_CHART_TEMPS;
   const width = Math.max(box.clientWidth, 300);
   const height = 170;
@@ -315,8 +316,9 @@ async function saveIpmi() {
   const result = $("ipmi-result");
   result.textContent = "";
   $("ipmi-min-error").textContent = "";
-  const draft = { ...ipmi.draft, min_percent: Number($("ipmi-min").value) };
-  if (draft.profile !== "custom") draft.curve = ipmi.customCurve;
+  const draft = { ...ipmi.draft };
+  // Another profile keeps the user's points, unless they are being edited into a wrong curve.
+  if (draft.profile !== "custom") draft.curve = curveProblem(ipmi.customCurve) ? ipmi.data.config.curve : ipmi.customCurve;
   const problem = draft.profile === "custom" ? curveProblem(draft.curve) : "";
   if (problem) {
     result.textContent = problem;

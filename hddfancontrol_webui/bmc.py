@@ -225,7 +225,7 @@ def check_config(data: Any) -> BmcConfig:
     check = _Problems()
     defaults = BmcConfig()
     model = data.get("model", defaults.model)
-    if model != "" and model not in MODELS:
+    if not isinstance(model, str) or (model != "" and model not in MODELS):
         check.add("model", "invalid_choice", choices=", ".join(MODELS))
     control = data.get("control", defaults.control)
     if control not in CONTROLS:
@@ -533,6 +533,12 @@ class Bmc:
             raise BmcError(f"cannot run {self._program}: {err}") from err
         try:
             out, err_out = await asyncio.wait_for(process.communicate(), TIMEOUT_S)
+        except asyncio.CancelledError:
+            # The request may already be with the BMC: let it end, so that a
+            # command sent after this one (DELL_AUTO at close) lands last.
+            with contextlib.suppress(TimeoutError, ProcessLookupError):
+                await asyncio.wait_for(asyncio.shield(process.wait()), TIMEOUT_S)
+            raise
         except TimeoutError as err:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
@@ -594,11 +600,16 @@ class Bmc:
         next_poll = self._clock() + POLL_S
         while True:
             await asyncio.sleep(APPLY_S)
-            if self._clock() >= next_poll:
-                await self._poll()
-                next_poll = self._clock() + POLL_S
-            if self.vendor == DELL:
-                await self._apply()
+            try:
+                if self._clock() >= next_poll:
+                    await self._poll()
+                    next_poll = self._clock() + POLL_S
+                if self.vendor == DELL:
+                    await self._apply()
+            except Exception as err:  # any bug: the iDRAC gets its fans back, and the loop goes on
+                self._log(f"ERROR: unexpected error, the fans go back to the {self.name}: {err!r}")
+                if self.vendor == DELL:
+                    await self._auto()
 
     async def _poll(self) -> None:
         """Read the sensors; a failure is logged once and kept in the state."""
@@ -670,11 +681,15 @@ class Bmc:
         """Bring the fans to the speed asked, or back to the iDRAC when the rules say so."""
         with self._lock:
             desired = self._desired
-        cpu = self._cpu_level(await asyncio.to_thread(self._cpu_temp)) if self.drives_fans else None
+        if self.drives_fans:
+            cpu = self._cpu_level(await asyncio.to_thread(self._cpu_temp))
+        else:
+            # The iDRAC drives: a curve taken up again starts from the temperature of then.
+            cpu = self.state.cpu_temp = self.state.cpu_percent = None
         percent, reason = self._target(desired, cpu)
         if reason is not None and self.state.handback is None:
             self._log(f"The fans go back to the {self.name}: {reason}")
-        elif reason is None and self.state.handback is not None:
+        elif reason is None and self.state.handback is not None and percent is not None:
             self._log(f"The web UI drives the fans again ({self.state.handback} is over)")
         self.state.handback = reason
         try:

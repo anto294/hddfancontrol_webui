@@ -544,3 +544,66 @@ async def test_config_is_kept(tmp_path: Path) -> None:
     logged: list[str] = []
     assert Bmc(str(fake.program), fake.device, logged.append, config_dir=config_dir).config.control == "bmc"
     assert "cannot read" in logged[0]
+
+
+def test_config_of_the_wrong_type() -> None:
+    """A model, control or profile that is no string is a problem, never a crash."""
+    with pytest.raises(BmcConfigError) as refused:
+        check_config({"model": [], "control": {}, "profile": ["custom"]})
+    assert [p["field"] for p in refused.value.problems] == ["model", "control", "profile"]
+
+
+async def test_the_loop_survives_a_bug(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unexpected error in the loop gives the fans back to the iDRAC and the loop goes on."""
+    bmc, fake, logged = await started(tmp_path, WEBUI)
+    monkeypatch.setattr(bmc_module, "APPLY_S", 0.01)
+    bmc.write(100)
+    await bmc._apply()
+    assert bmc.state.manual
+    fake.take_calls()
+    failures = [0]
+
+    def broken(_desired: int | None, _cpu: float | None) -> tuple[int | None, str | None]:
+        failures[0] += 1
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(bmc, "_target", broken)
+    task = asyncio.create_task(bmc._loop())
+    for _ in range(100):
+        if failures[0] >= 2:
+            break
+        await asyncio.sleep(0.02)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert failures[0] >= 2 and not bmc.state.manual
+    assert "raw 0x30 0x30 0x01 0x01" in fake.take_calls() and "unexpected error" in logged[-1]
+    await bmc.close()
+
+
+async def test_a_cancelled_command_ends_first(tmp_path: Path) -> None:
+    """A command cancelled half way still ends before the next one, so the fans go back to the iDRAC last."""
+    bmc, fake, _ = make(tmp_path)
+    # Only the manual command is slow: without waiting for it, DELL_AUTO would land first.
+    fake.program.write_text(f'#!/bin/sh\ncase "$*" in *0x00) sleep 0.3 ;; esac\necho "$*" >> "{fake.calls}"\n')
+    task = asyncio.create_task(bmc._run(*bmc_module.DELL_MANUAL))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await bmc._run(*bmc_module.DELL_AUTO)
+    assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x00", "raw 0x30 0x30 0x01 0x01"]
+
+
+async def test_no_cpu_state_while_the_idrac_drives(tmp_path: Path) -> None:
+    """Back with the iDRAC, the CPU curve forgets its level, and no "drives again" line is logged."""
+    bmc, fake, logged = await started(tmp_path, WEBUI, cpu=[None])
+    (fake.folder / "sensor").write_text("Fan1 | 3600.000 | RPM | ok\n")
+    await bmc._poll()
+    await bmc._apply()
+    assert bmc.state.handback == "no_cpu_temp"
+    bmc.set_config({**WEBUI, "control": "bmc"})
+    bmc.state.cpu_percent = 80.0
+    await bmc._apply()
+    assert bmc.state.handback is None and bmc.state.cpu_percent is None
+    assert not any("drives the fans again" in line for line in logged)
+    await bmc.close()
