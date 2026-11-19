@@ -149,6 +149,13 @@ have (a Dell server) must be tried by others from an image, without reaching the
 of `edge` or of a release; and what they run must pass the same checks. Merging into
 `main` stays a separate decision. (2026-11-19)
 
+**`experimental` is `main` plus the hardware under test.** `main` is merged into
+`experimental` whenever it changes, never the other way until a feature has been
+confirmed on real hardware; then `experimental` is merged into `main` in one go. No
+rebase: both branches are published. Why: the testers of `:experimental` must get every
+fix and function of `main` too (the support request first of all), and a branch that
+drifts apart costs more to bring back the longer it waits. (2026-11-19)
+
 ## Support
 
 **Hardware we do not own is supported from what its owner sends, through a guided
