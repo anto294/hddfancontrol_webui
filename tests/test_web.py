@@ -537,6 +537,18 @@ async def test_support(make_client: ClientMaker) -> None:
     assert data["host"].startswith("== board")
     assert "[sensors] Loaded nct6775" in data["logs"] and "gateway" not in data["logs"]
     assert "[webui] Listening on <address> and <address>" in data["logs"]
+    assert data["bmc"] == ""  # no BMC on this host
+
+
+async def test_support_with_a_bmc(make_client: ClientMaker, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With a BMC the request fills the form's ipmitool field too, its firmware left as it is."""
+    bmc = Bmc(config_dir=tmp_path)
+    monkeypatch.setattr(bmc, "present", True)
+    monkeypatch.setattr(bmc, "vendor", "dell")
+    monkeypatch.setattr(bmc, "firmware", "2.83.83.83")
+    client = await make_client(bmc=bmc)
+    data = await (await client.get("/api/support")).json()
+    assert data["bmc"].startswith("== bmc, as the web UI sees it\niDRAC 2.83.83.83 on ?\n")
 
 
 def test_mask_addresses() -> None:

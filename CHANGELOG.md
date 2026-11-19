@@ -22,7 +22,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   temperature nears its limit, and when its sensors or the processor
   temperature cannot be read. HPE iLO stays read only: HPE offers no way
   to set a fan speed. The image now has `ipmitool`; `BMC=false` turns it
-  off.
+  off. The hardware support request carries what the web UI knows of the
+  BMC: model, firmware, configuration, who drives the fans, every sensor.
 - **Ask for support of your hardware from the web UI.** When fans,
   sensors or a server are not supported, **Fans → Hardware not
   supported?** (also a button in the "No PWM output" banner) prepares a

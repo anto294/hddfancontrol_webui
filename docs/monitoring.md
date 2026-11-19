@@ -118,9 +118,14 @@ button in the "No PWM output" banner):
   the last `SUPPORT_LOG_LINES` (30) log lines of `SUPPORT_SOURCES` (sensors,
   hddfancontrol, fan-control, webui; never the gateway's or the audit's, which name
   users and addresses). Addresses are masked anyway (`mask_addresses`).
+- EXPERIMENTAL ([bmc.md](bmc.md)): with a BMC, `Bmc.report()` fills the form's
+  `ipmitool` field (`bmc`): the BMC and its firmware, the server's product name (never
+  a serial number), the model in use and the one found, `bmc.json`, who drives the
+  fans now and why, and every sensor with its status and limit. It is not masked: it
+  holds no address, and an iDRAC firmware (`2.83.83.83`) would look like one.
 - The page shows it all first. **Open on GitHub** opens the form with its `system`,
-  `host` and `logs` fields filled in by their ids; past `SUPPORT_MAX_URL` (7500
-  characters) the link drops the oldest log lines, then the end of the host part, and
-  the page says so. **Copy** copies the whole report.
+  `host`, `bmc` and `logs` fields filled in by their ids; past `SUPPORT_MAX_URL` (7500
+  characters) the link drops the oldest log lines, then the end of the host part, then
+  the last BMC sensors, and the page says so. **Copy** copies the whole report.
 
 Nothing leaves the host until the user opens the link.

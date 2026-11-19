@@ -367,7 +367,8 @@ async def get_support(request: web.Request) -> web.Response:
     """What a hardware support request needs, for the issue form the page opens on GitHub.
 
     The fields are named as the form's (hardware_support.yml): system, host
-    (the same lines as the form's shell block) and logs. Nothing leaves the
+    (the same lines as the form's shell block), bmc (what the web UI knows of
+    the BMC, experimental) and logs. Nothing leaves the
     host here: the page shows it all, and the user decides to send it.
     """
     app = request.app
@@ -375,10 +376,15 @@ async def get_support(request: web.Request) -> web.Response:
     runs_in = "Docker image" if any(mark.exists() for mark in CONTAINER_MARKS) else "bare metal"
     lines = [line for line in app[SUPERVISOR].logs.since(0) if line["source"] in SUPPORT_SOURCES]
     logs = "\n".join(f"[{line['source']}] {line['text']}" for line in lines[-SUPPORT_LOG_LINES:])
+    bmc = app[BMC]
     return web.json_response(
         {
             "system": f"{runs_in} {VERSION}, kernel {os.uname().release}",
             "host": host,
+            # EXPERIMENTAL: the form's ipmitool field, empty without a BMC. Not
+            # masked: it has no address, and an iDRAC firmware (2.83.83.83)
+            # looks like one.
+            "bmc": bmc.report() if bmc is not None else "",
             "logs": mask_addresses(logs),
         }
     )

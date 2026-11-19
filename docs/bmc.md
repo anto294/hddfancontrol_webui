@@ -126,6 +126,11 @@ restarts it) or the server is power cycled. Keep the minimum speed reasonable.
 
 `BMC=false` turns the whole thing off; `IPMITOOL_BIN` names another `ipmitool`.
 
+Something wrong, or a server that is not in the list? **Fans → Hardware not
+supported? → Prepare a support request** opens the hardware support form with what the
+web UI knows of the BMC in its `ipmitool` field (`Bmc.report()`: model, firmware,
+`bmc.json`, who drives the fans, every sensor), next to the host report and the log.
+
 ### Third-party PCIe cards on a Dell
 
 A PCIe card that is not Dell's (an HBA, a NIC) often makes a 13th generation server

@@ -214,10 +214,13 @@ let support = null;
 
 function supportUrl(data) {
   const params = new URLSearchParams({ template: "hardware_support.yml", title: "[Hardware support] ", system: data.system, host: data.host, logs: data.logs });
+  // EXPERIMENTAL: what the web UI knows of the BMC goes in the form's ipmitool field.
+  if (data.bmc) params.set("bmc", data.bmc);
   return `${SUPPORT_FORM}?${params}`;
 }
 
 // The report cut until its link fits: the oldest log lines go first, then the end of the host part.
+// The BMC part goes last, and only its last sensors: it is what a server's request is about.
 function fitSupport(data) {
   const fitted = { ...data };
   let logs = fitted.logs.split("\n");
@@ -228,11 +231,17 @@ function fitSupport(data) {
   while (supportUrl(fitted).length > SUPPORT_MAX_URL && fitted.host.length > 200) {
     fitted.host = `${fitted.host.slice(0, Math.floor(fitted.host.length * 0.9))}\n…`;
   }
-  return { fitted, cut: fitted.logs !== data.logs || fitted.host !== data.host };
+  let bmc = (fitted.bmc || "").split("\n");
+  while (supportUrl(fitted).length > SUPPORT_MAX_URL && bmc.length > 6) {
+    bmc = bmc.slice(0, -1);
+    fitted.bmc = `${bmc.join("\n")}\n…`;
+  }
+  return { fitted, cut: fitted.logs !== data.logs || fitted.host !== data.host || fitted.bmc !== data.bmc };
 }
 
 function supportText(data) {
-  return `System: ${data.system}\n\n${data.host}\n\n== log\n${data.logs}`;
+  const bmc = data.bmc ? `\n\n${data.bmc}` : "";
+  return `System: ${data.system}\n\n${data.host}${bmc}\n\n== log\n${data.logs}`;
 }
 
 async function prepareSupport(fromBanner) {

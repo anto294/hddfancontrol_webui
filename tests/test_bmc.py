@@ -607,3 +607,40 @@ async def test_no_cpu_state_while_the_idrac_drives(tmp_path: Path) -> None:
     assert bmc.state.handback is None and bmc.state.cpu_percent is None
     assert not any("drives the fans again" in line for line in logged)
     await bmc.close()
+
+
+async def test_report_for_the_support_request(tmp_path: Path) -> None:
+    """The support request gets the BMC, the server, the configuration, who drives the fans and every sensor."""
+    bmc, _, _ = make(tmp_path)
+    assert bmc.report() == ""  # no BMC found yet
+    await bmc.start()
+    try:
+        lines = bmc.report().splitlines()
+        assert lines[:5] == [
+            "== bmc, as the web UI sees it",
+            "iDRAC 2.86 on PowerEdge R730xd",
+            "model: dell-r730xd (found: dell-r730xd), fans can be driven",
+            "bmc.json: control bmc, minimum 20 %, profile normal: 45 °C 0 %, 60 °C 25 %, 70 °C 50 %, 80 °C 100 %",
+            "now: the iDRAC drives the fans",
+        ]
+        assert "Inlet Temp       | 23       | degrees C | ok   | limit 42" in lines
+        assert "Fan1             | 3600     | RPM       | ok   | limit na" in lines
+        bmc.set_config(WEBUI)
+        await bmc._apply()
+        assert "now: the web UI drives the fans at 20 %" in bmc.report()
+        bmc.state.error = "boom"
+        bmc.state.manual = False
+        bmc.state.handback = "the sensors cannot be read"
+        assert "now: the iDRAC drives the fans (the sensors cannot be read)\nerror: boom" in bmc.report()
+    finally:
+        await bmc.close()
+
+
+async def test_report_of_a_read_only_bmc(tmp_path: Path) -> None:
+    """An iLO is reported read only, with its fan duties in percent and the readings it lacks as na."""
+    bmc, _, _ = make(tmp_path, HPE_INFO, HPE_SENSORS, fru="")
+    await bmc.start()
+    report = bmc.report()
+    await bmc.close()
+    assert report.splitlines()[1:3] == ["iLO on iLO 4", "model: hpe-other (found: hpe-other), fans read only"]
+    assert "Fan 2            | na       | percent   | na   | limit na" in report

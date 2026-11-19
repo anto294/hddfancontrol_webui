@@ -772,6 +772,39 @@ class Bmc:
             ],
         }
 
+    def report(self) -> str:
+        """What the hardware support request shows of the BMC ("" without one).
+
+        It fills the form's ipmitool field: the BMC and the server as found
+        (`mc info`, the product name of the FRU; never a serial number), the
+        model and the configuration in use, who drives the fans now, and every
+        sensor with its status and limit.
+        """
+        if not self.present:
+            return ""
+        cfg = self.config
+        lines = [
+            "== bmc, as the web UI sees it",
+            " ".join(part for part in (self.name, self.firmware, "on", self.product or "?") if part),
+            f"model: {self.model.id} (found: {self.detected}), fans {'can be driven' if self.can_drive else 'read only'}",
+            f"bmc.json: control {cfg.control}, minimum {cfg.min_percent} %, profile {cfg.profile}: "
+            + ", ".join(f"{temp:g} °C {percent:g} %" for temp, percent in cfg.points()),
+        ]
+        if self.state.manual:
+            lines.append(f"now: the web UI drives the fans at {self.state.percent} %")
+        else:
+            lines.append(
+                f"now: the {self.name} drives the fans" + (f" ({self.state.handback})" if self.state.handback else "")
+            )
+        if self.state.error:
+            lines.append(f"error: {self.state.error}")
+        units = {"temp": "degrees C", "fan": "RPM", "fan_pct": "percent"}
+        for r in self.state.readings:
+            value = "na" if r.value is None else f"{r.value:g}"
+            limit = "na" if r.limit is None else f"{r.limit:g}"
+            lines.append(f"{r.name:<16} | {value:<8} | {units.get(r.kind, r.kind):<9} | {r.status:<4} | limit {limit}")
+        return "\n".join(lines)
+
     def describe(self) -> dict[str, Any] | None:
         """The IPMI tab's data: the configuration, the model found, the catalogue; None without a BMC."""
         if not self.present:
