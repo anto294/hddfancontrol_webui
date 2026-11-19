@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-19
+
 ### Added
 
 - **Experimental: server fans through the BMC** (`experimental` branch,
@@ -37,6 +39,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   all first; **Open on GitHub** opens the issue form filled in, **Copy**
   copies it. It has no serial number, and addresses in the log are
   masked.
+
+### Changed
+
+- **For any Linux host.** The README now shows the way to install on
+  TrueNAS SCALE, Proxmox VE, Unraid, OpenMediaVault and any distribution
+  with systemd, and that the web UI must run on the host that has the
+  fans (not in a virtual machine or an unprivileged LXC container). Each
+  image tag on ghcr.io says what it is: a release, `edge` or
+  `experimental`.
 
 ## [0.10.1] - 2026-11-18
 
@@ -618,7 +629,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.1...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.0...main
+[0.11.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.8.0...v0.9.0
