@@ -18,17 +18,30 @@ import asyncio
 import csv
 import io
 import logging
+import os
+import re
 import socket
 import struct
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 
 from .bays import BayError, Bays
-from .const import HEADER_CLIENT, HEADER_USER, HISTORY_MAX_HOURS, SOURCE_AUDIT, SOURCE_SENSORS, VERSION
+from .const import (
+    HEADER_CLIENT,
+    HEADER_USER,
+    HISTORY_MAX_HOURS,
+    SOURCE_AUDIT,
+    SOURCE_FAN_CONTROL,
+    SOURCE_HDDFANCONTROL,
+    SOURCE_SENSORS,
+    SOURCE_WEBUI,
+    VERSION,
+)
 from .cron import CronError, parse, windows
 from .hardware import Hardware
 from .history import History
@@ -43,6 +56,18 @@ from .supervisor import Busy, ReadOnly, Supervisor
 from .templog import TempLog
 
 _LOGGER = logging.getLogger(__name__)
+
+# The hardware support request (GET /api/support): the log lines it carries,
+# of the sources that tell about the hardware (never the gateway's or the
+# audit's, which name users and addresses), and how many of them.
+SUPPORT_SOURCES = (SOURCE_SENSORS, SOURCE_HDDFANCONTROL, SOURCE_FAN_CONTROL, SOURCE_WEBUI)
+SUPPORT_LOG_LINES = 30
+# Addresses are masked all the same: IPv4, and a run of hex digits and
+# colons that has "::" or three colons or more (a time such as 10:17:02 has two).
+_SUPPORT_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+_SUPPORT_IPV6 = re.compile(r"[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:]*")
+# Files that only exist inside a container.
+CONTAINER_MARKS = (Path("/.dockerenv"), Path("/run/.containerenv"))
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 SensorScan = Callable[[], Awaitable[SensorReport]]
@@ -314,6 +339,43 @@ async def put_labels(request: web.Request) -> web.Response:
         _LOGGER.error("Cannot save the labels: %s", err)
         return _json_error(500, "save_failed")
     return web.json_response(labels)
+
+
+# ---------------------------
+#   mask_addresses
+# ---------------------------
+def mask_addresses(text: str) -> str:
+    """Replace the IPv4 and IPv6 addresses of a text with <address>."""
+
+    def ipv6(match: re.Match[str]) -> str:
+        found = match.group(0)
+        return "<address>" if "::" in found or found.count(":") >= 3 else found
+
+    return _SUPPORT_IPV6.sub(ipv6, _SUPPORT_IPV4.sub("<address>", text))
+
+
+# ---------------------------
+#   get_support
+# ---------------------------
+async def get_support(request: web.Request) -> web.Response:
+    """What a hardware support request needs, for the issue form the page opens on GitHub.
+
+    The fields are named as the form's (hardware_support.yml): system, host
+    (the same lines as the form's shell block) and logs. Nothing leaves the
+    host here: the page shows it all, and the user decides to send it.
+    """
+    app = request.app
+    host = await asyncio.to_thread(app[HARDWARE].report)
+    runs_in = "Docker image" if any(mark.exists() for mark in CONTAINER_MARKS) else "bare metal"
+    lines = [line for line in app[SUPERVISOR].logs.since(0) if line["source"] in SUPPORT_SOURCES]
+    logs = "\n".join(f"[{line['source']}] {line['text']}" for line in lines[-SUPPORT_LOG_LINES:])
+    return web.json_response(
+        {
+            "system": f"{runs_in} {VERSION}, kernel {os.uname().release}",
+            "host": host,
+            "logs": mask_addresses(logs),
+        }
+    )
 
 
 # ---------------------------
@@ -742,6 +804,7 @@ def create_app(
     router.add_get("/api/labels", get_labels)
     router.add_put("/api/labels", put_labels)
     router.add_get("/api/bays", get_bays)
+    router.add_get("/api/support", get_support)
     router.add_put("/api/bays", put_bays)
     router.add_get("/api/cron", get_cron)
     router.add_get("/api/settings", get_settings)

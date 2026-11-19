@@ -114,6 +114,25 @@
         <p class="warning" id="manual-safety" data-i18n="fans.safety" hidden></p>
         <div id="fan-list"></div>
       </article>
+
+      <!-- A hardware support request, filled in from this host (fans.js, GET /api/support) -->
+      <article class="card" id="support-card">
+        <h2 data-icon="info" data-i18n="support.title"></h2>
+        <p class="muted small" data-i18n="support.text"></p>
+        <div class="actions">
+          <button type="button" class="secondary" id="support-prepare" data-i18n="support.prepare"></button>
+        </div>
+        <div id="support-preview" hidden>
+          <p class="small" data-i18n="support.preview"></p>
+          <p class="warning small" id="support-short" data-i18n="support.too_long" hidden></p>
+          <pre class="log" id="support-text" tabindex="0"></pre>
+          <div class="actions">
+            <button type="button" id="support-open" data-i18n="support.open"></button>
+            <button type="button" class="secondary" id="support-copy" data-i18n="support.copy"></button>
+            <span class="small" id="support-result"></span>
+          </div>
+        </div>
+      </article>
     </section>
 
     <!-- SMART -->

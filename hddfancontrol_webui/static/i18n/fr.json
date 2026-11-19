@@ -463,5 +463,14 @@
   "error.wrong_setup_code": "Code de configuration incorrect. Copiez-le à nouveau depuis le journal du conteneur : il change à chaque démarrage.",
   "error.already_set_up": "Le nom d’utilisateur et le mot de passe sont déjà définis : connectez-vous.",
   "error.core_unavailable": "Le service de pilotage des ventilateurs n’a pas répondu. Réessayez dans un instant ; si le problème persiste, consultez les journaux du conteneur.",
-  "error.forbidden": "Non autorisé."
+  "error.forbidden": "Non autorisé.",
+  "support.title": "Matériel non pris en charge ?",
+  "support.text": "Aucun ventilateur à choisir, des connecteurs qui ne réagissent pas, un serveur dont les ventilateurs dépendent du BMC, un disque sans température : préparez une demande d'assistance depuis cet hôte. Vous voyez tout avant l'envoi.",
+  "support.prepare": "Préparer une demande d'assistance",
+  "support.preview": "Ceci remplit le formulaire d'assistance matérielle sur GitHub. Il ne contient aucun numéro de série, et les adresses du journal sont masquées. Sur GitHub, indiquez le nom de la machine et ce dont vous avez besoin.",
+  "support.too_long": "Le rapport est trop long pour un lien : GitHub le reçoit raccourci. Copiez-le et collez le reste dans le ticket.",
+  "support.open": "Ouvrir sur GitHub",
+  "support.copy": "Copier",
+  "support.copied": "Copié.",
+  "support.select": "Sélectionné : copiez-le avec Ctrl+C."
 }

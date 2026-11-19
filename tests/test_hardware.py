@@ -190,3 +190,28 @@ def test_cpu_temperature() -> None:
     assert pick([chip("cpu_thermal", ("temp1", 47.2))])[0] == 47.2
     assert pick([chip("coretemp", ("Core 0", None), ("Core 1", 44.0))])[0] == 44.0
     assert pick([chip("acpitz", ("temp1", 30.0)), chip("nct6798", ("CPUTIN", 40.0))]) == (None, "")
+
+
+def test_report(fake_sys: Path, fake_dev: Path, tmp_path: Path) -> None:
+    """The support report: board names, chips with their files, the usual modules, drives; never a serial."""
+    dmi = fake_sys / "class" / "dmi" / "id"
+    dmi.mkdir(parents=True)
+    for name, value in {
+        "sys_vendor": "Dell Inc.",
+        "product_name": "PowerEdge R730xd",
+        "product_serial": "SECRET1",
+        "board_serial": "SECRET2",
+    }.items():
+        (dmi / name).write_text(value + "\n")
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    (proc / "modules").write_text("nct6775 45056 0 - Live 0x0\nzfs 6000000 1 - Live 0x0\nipmi_si 90000 0 - Live 0x0\n")
+    report = Hardware(fake_dev, fake_sys, proc).report()
+    assert "SECRET" not in report
+    assert "sys_vendor: Dell Inc.\nproduct_name: PowerEdge R730xd\nboard_vendor: \n" in report
+    assert "== modules\nnct6775 ipmi_si\n" in report
+    assert "pwm1" in report and "== drives\n" in report and report.endswith("== bmc\nno /dev/ipmi0")
+    (fake_dev / "ipmi0").write_text("")
+    (proc / "modules").write_text("zfs 1 0\n")
+    report = Hardware(fake_dev, tmp_path / "nothing", proc).report()
+    assert "== hwmon\n== modules\nnone of the usual ones" in report and report.endswith("/dev/ipmi0")

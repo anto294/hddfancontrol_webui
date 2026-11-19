@@ -2460,3 +2460,9 @@ input.cron,
   direction: ltr;
   text-align: right;
 }
+
+/* Fans: the hardware support request, shown before it goes to GitHub */
+#support-text {
+  height: auto;
+  max-height: 40vh;
+}

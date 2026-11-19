@@ -270,7 +270,7 @@ function renderBanners() {
     );
   }
   if (sensors.state === "done" && state.hardware.hwmons.length > 0 && allPwms().length === 0) {
-    box.append(banner("warning", t("banner.no_pwm")));
+    box.append(banner("warning", t("banner.no_pwm"), el("button", { class: "secondary", text: t("support.prepare"), onclick: () => prepareSupport(true) })));
   }
   if (status.read_only) box.append(banner("error", t("banner.read_only")));
   if (status.missing_pwms.length) box.append(banner("error", t("banner.missing_pwms", { paths: status.missing_pwms.map(pwmLabel).join(", ") })));
@@ -643,6 +643,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("pwmtest-start").addEventListener("click", startPwmTest);
   $("pwmtest-cancel").addEventListener("click", cancelPwmTest);
   $("pwmtest-use").addEventListener("click", usePwmResults);
+  $("support-prepare").addEventListener("click", () => prepareSupport(false));
+  $("support-open").addEventListener("click", openSupport);
+  $("support-copy").addEventListener("click", copySupport);
   $("auth-form").addEventListener("submit", saveCredentials);
   $("logout").addEventListener("click", logout);
   for (const button of document.querySelectorAll(".open-wizard")) button.addEventListener("click", openWizard);

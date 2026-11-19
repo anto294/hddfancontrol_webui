@@ -463,5 +463,14 @@
   "error.wrong_setup_code": "Código de configuración incorrecto. Vuelve a copiarlo del registro del contenedor: cambia en cada arranque.",
   "error.already_set_up": "El usuario y la contraseña ya están definidos: inicia sesión.",
   "error.core_unavailable": "El servicio de control de ventiladores no respondió. Vuelve a intentarlo en un momento; si sigue pasando, revisa el registro del contenedor.",
-  "error.forbidden": "No permitido."
+  "error.forbidden": "No permitido.",
+  "support.title": "¿Hardware no compatible?",
+  "support.text": "Ningún ventilador que elegir, conectores que no responden, un servidor cuyos ventiladores controla su BMC, un disco sin temperatura: prepara una solicitud de soporte desde este equipo. Lo ves todo antes de enviarlo.",
+  "support.prepare": "Preparar una solicitud de soporte",
+  "support.preview": "Esto rellena el formulario de soporte de hardware en GitHub. No incluye números de serie y las direcciones del registro están ocultas. En GitHub, indica el nombre de la máquina y lo que necesitas.",
+  "support.too_long": "El informe es demasiado largo para un enlace: GitHub lo recibe recortado. Cópialo y pega el resto en la incidencia.",
+  "support.open": "Abrir en GitHub",
+  "support.copy": "Copiar",
+  "support.copied": "Copiado.",
+  "support.select": "Seleccionado: cópialo con Ctrl+C."
 }

@@ -7,6 +7,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Ask for support of your hardware from the web UI.** When fans,
+  sensors or a server are not supported, **Fans → Hardware not
+  supported?** (also a button in the "No PWM output" banner) prepares a
+  [hardware support request](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_support.yml):
+  board and BIOS names, kernel, every hwmon chip with its files, the
+  sensor modules, the drives and the last hardware log lines. You see it
+  all first; **Open on GitHub** opens the issue form filled in, **Copy**
+  copies it. It has no serial number, and addresses in the log are
+  masked.
+
 ## [0.10.1] - 2026-11-18
 
 ### Fixed

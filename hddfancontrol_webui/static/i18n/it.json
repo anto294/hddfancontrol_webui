@@ -463,5 +463,14 @@
   "error.wrong_setup_code": "Codice di configurazione sbagliato. Copialo di nuovo dal log del container: cambia a ogni avvio.",
   "error.already_set_up": "Nome utente e password sono già impostati: accedi.",
   "error.core_unavailable": "Il servizio di controllo ventole non ha risposto. Riprova tra poco; se continua, guarda i log del container.",
-  "error.forbidden": "Non consentito."
+  "error.forbidden": "Non consentito.",
+  "support.title": "Hardware non supportato?",
+  "support.text": "Nessuna ventola da scegliere, header che non rispondono, un server con le ventole gestite dal BMC, un disco senza temperatura: prepara una richiesta di supporto da questo host. Vedi tutto prima che venga inviato.",
+  "support.prepare": "Prepara una richiesta di supporto",
+  "support.preview": "Questo compila il modulo di supporto hardware su GitHub. Non contiene numeri di serie, e gli indirizzi nel log sono mascherati. Su GitHub scrivi il nome della macchina e cosa ti serve.",
+  "support.too_long": "Il rapporto è troppo lungo per un link: GitHub lo riceve accorciato. Copialo e incolla il resto nella issue.",
+  "support.open": "Apri su GitHub",
+  "support.copy": "Copia",
+  "support.copied": "Copiato.",
+  "support.select": "Selezionato: copialo con Ctrl+C."
 }

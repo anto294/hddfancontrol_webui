@@ -463,5 +463,14 @@
   "error.wrong_setup_code": "Wrong setup code. Copy it again from the log of the container: it changes at every start.",
   "error.already_set_up": "The username and password are already set: log in.",
   "error.core_unavailable": "The fan control service did not answer. Try again in a moment; if it persists, look at the logs of the container.",
-  "error.forbidden": "Not allowed."
+  "error.forbidden": "Not allowed.",
+  "support.title": "Hardware not supported?",
+  "support.text": "No fan to choose, headers that do not react, a server whose fans belong to its BMC, a drive without a temperature: prepare a support request from this host. You see everything before it is sent.",
+  "support.prepare": "Prepare a support request",
+  "support.preview": "This fills in the hardware support form on GitHub. It has no serial number, and the addresses in the log are masked. On GitHub, name the machine and say what you need.",
+  "support.too_long": "The report is too long for a link: GitHub gets it shortened. Copy it and paste the rest into the issue.",
+  "support.open": "Open on GitHub",
+  "support.copy": "Copy",
+  "support.copied": "Copied.",
+  "support.select": "Selected: copy it with Ctrl+C."
 }
