@@ -155,7 +155,8 @@ function renderSettings() {
   const hwmons = $("hwmon-list");
   hwmons.replaceChildren(headRow(t("settings.use"), t("settings.sensor"), t("settings.now"), t("settings.temp_min"), t("settings.temp_max")));
   const chosen = new Map(settings.hwmons.map((h) => [h.path, h]));
-  const inputs = state.hardware.hwmons.flatMap((device) => device.temps.map((temp) => ({ ...temp, chip: device.name || device.hwmon })));
+  // The temperatures of a BMC only show (overview): hddfancontrol cannot read them.
+  const inputs = state.hardware.hwmons.flatMap((device) => device.temps.filter((temp) => !temp.path.startsWith("ipmi:")).map((temp) => ({ ...temp, chip: device.name || device.hwmon })));
   for (const path of chosen.keys()) {
     if (!inputs.some((i) => i.path === path)) inputs.push({ path, label: t("settings.not_found"), chip: "", celsius: null });
   }

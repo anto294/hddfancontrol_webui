@@ -141,7 +141,9 @@ function renderPwmTestList() {
   const list = $("pwmtest-list");
   const checked = new Set([...list.querySelectorAll("input:checked")].map((i) => i.value));
   list.replaceChildren(
-    ...allPwms().map((pwm) =>
+    ...allPwms()
+      .filter((pwm) => pwm.path !== BMC_PWM)
+      .map((pwm) =>
       el("label", { class: "check" }, el("input", { type: "checkbox", value: pwm.path, checked: checked.has(pwm.path) }), `${pwmLabel(pwm.path)} — ${fmtRpm(pwm.rpm)}`),
     ),
   );

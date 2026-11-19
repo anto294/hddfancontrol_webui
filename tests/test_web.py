@@ -16,6 +16,7 @@ from aiohttp.test_utils import TestClient
 from conftest import ScriptMaker
 
 from hddfancontrol_webui.alerts import Alerts
+from hddfancontrol_webui.const import BMC_PWM
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
@@ -472,3 +473,14 @@ async def test_only_the_gateway_may_connect(make_client: ClientMaker, tmp_path: 
             async with session.get("http://core/healthz") as response:
                 assert response.status == status
         await runner.cleanup()
+
+
+async def test_bmc_in_the_api(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a BMC the status says so; the fans of a BMC cannot get a PWM test."""
+    client = await make_client()
+    status = await (await client.get("/api/status")).json()
+    assert status["bmc"] is None
+    hardware = client.server.app[HARDWARE]
+    monkeypatch.setattr(hardware, "pwm_paths", lambda: {PWM1, BMC_PWM})
+    response = await client.post("/api/pwm-test", json={"paths": [PWM1, BMC_PWM]}, headers=FETCH)
+    assert response.status == 400 and (await response.json())["error"] == "bmc_no_test"

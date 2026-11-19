@@ -463,5 +463,13 @@
   "error.wrong_setup_code": "Código de configuración incorrecto. Vuelve a copiarlo del registro del contenedor: cambia en cada arranque.",
   "error.already_set_up": "El usuario y la contraseña ya están definidos: inicia sesión.",
   "error.core_unavailable": "El servicio de control de ventiladores no respondió. Vuelve a intentarlo en un momento; si sigue pasando, revisa el registro del contenedor.",
-  "error.forbidden": "No permitido."
+  "error.forbidden": "No permitido.",
+  "error.bmc_no_test": "Los ventiladores de un BMC nunca se detienen: no necesitan la prueba PWM.",
+  "bmc.fans": "Ventiladores",
+  "bmc.auto": "{name} gestiona los ventiladores.",
+  "bmc.manual": "La interfaz web controla los ventiladores: {percent} % (experimental).",
+  "bmc.handback": "Ventiladores devueltos a {name}: {reason}.",
+  "bmc.stale": "Ventiladores devueltos a {name}: no se pueden leer sus sensores.",
+  "bmc.read_only": "Solo lectura: {name} no permite controlar los ventiladores.",
+  "bmc.error": "No se pueden leer los sensores: {error}"
 }

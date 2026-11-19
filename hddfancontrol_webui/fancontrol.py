@@ -46,9 +46,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .aio import cancel_and_wait
+from .const import BMC_PWM
 from .settings import Hwmon, Pwm, Settings, is_pwm_path
 from .storage import write_atomic
 
@@ -319,8 +320,21 @@ def _age_seconds(latest: dict[str, Any] | None, now: datetime) -> float | None:
 # ---------------------------
 #   PwmWriter
 # ---------------------------
+class BmcFans(Protocol):
+    """The fans of a BMC (bmc.Bmc, experimental): one output for every fan."""
+
+    def write(self, value: int) -> None:
+        """Ask for this PWM value (0-255)."""
+
+    def release(self) -> None:
+        """Give the fans back to the BMC."""
+
+
 class PwmWriter:
     """Write PWM files and give each one back its mode at the end.
+
+    BMC_PWM (experimental) is no file: its values go to bmc, and giving it
+    back hands the fans to the BMC's own control.
 
     The state an output had before it was first taken (its mode and value)
     is also kept in state_file, with the boot it belongs to. A run that
@@ -332,8 +346,15 @@ class PwmWriter:
     removed once its output is given back.
     """
 
-    def __init__(self, sys_root: Path = Path("/sys"), state_file: Path | None = None, boot_id_file: Path = BOOT_ID) -> None:
+    def __init__(
+        self,
+        sys_root: Path = Path("/sys"),
+        state_file: Path | None = None,
+        boot_id_file: Path = BOOT_ID,
+        bmc: BmcFans | None = None,
+    ) -> None:
         """Write under this tree (the real /sys, or a copy in the tests); keep the chip's state in state_file."""
+        self.bmc = bmc
         self._sys = sys_root
         self._saved: dict[str, tuple[str | None, str | None]] = {}
         self.values: dict[str, int] = {}
@@ -416,6 +437,13 @@ class PwmWriter:
     def write(self, path: str, value: int) -> None:
         """Take the output in manual mode, the first time, and set its value."""
         value = max(0, min(PWM_MAX, int(value)))
+        if path == BMC_PWM:
+            if self.bmc is None:
+                raise ValueError(f"{path}: there is no BMC whose fans can be driven")
+            self.bmc.write(value)
+            self._saved[path] = (None, None)
+            self.values[path] = value
+            return
         self._take(path, always=True)
         self._file(path).write_text(f"{value}\n", encoding="utf-8")
         self.values[path] = value
@@ -427,6 +455,8 @@ class PwmWriter:
         the output; hddfancontrol pwm-test writes values without switching
         the mode first, so the PWM test takes the output with this.
         """
+        if path == BMC_PWM:
+            raise ValueError(f"{path}: the fans of a BMC cannot be tested")
         self._take(path, always=False)
 
     def forget(self) -> None:
@@ -442,6 +472,10 @@ class PwmWriter:
         output without an enable file gets its value back.
         """
         for path, (enable, value) in self._saved.items():
+            if path == BMC_PWM:
+                if self.bmc is not None:
+                    self.bmc.release()
+                continue
             try:
                 if enable is not None and enable != str(ENABLE_MANUAL):
                     self._file(f"{path}_enable").write_text(f"{enable}\n", encoding="utf-8")

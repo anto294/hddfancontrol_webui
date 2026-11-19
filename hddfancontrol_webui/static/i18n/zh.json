@@ -463,5 +463,13 @@
   "error.wrong_setup_code": "设置码错误。请从容器日志中重新复制：每次启动设置码都会变化。",
   "error.already_set_up": "用户名和密码已设置：请登录。",
   "error.core_unavailable": "风扇控制服务没有响应。请稍后重试；如果问题持续，请查看容器日志。",
-  "error.forbidden": "不允许。"
+  "error.forbidden": "不允许。",
+  "error.bmc_no_test": "BMC 风扇从不停转，无需 PWM 测试。",
+  "bmc.fans": "风扇",
+  "bmc.auto": "风扇由 {name} 控制。",
+  "bmc.manual": "风扇由网页界面控制：{percent} %（实验性）。",
+  "bmc.handback": "风扇已交还给 {name}：{reason}。",
+  "bmc.stale": "风扇已交还给 {name}：无法读取其传感器。",
+  "bmc.read_only": "只读：{name} 不允许控制风扇。",
+  "bmc.error": "无法读取传感器：{error}"
 }

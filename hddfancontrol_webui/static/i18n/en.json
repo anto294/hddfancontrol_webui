@@ -463,5 +463,13 @@
   "error.wrong_setup_code": "Wrong setup code. Copy it again from the log of the container: it changes at every start.",
   "error.already_set_up": "The username and password are already set: log in.",
   "error.core_unavailable": "The fan control service did not answer. Try again in a moment; if it persists, look at the logs of the container.",
-  "error.forbidden": "Not allowed."
+  "error.forbidden": "Not allowed.",
+  "error.bmc_no_test": "The fans of a BMC never stop: they need no PWM test.",
+  "bmc.fans": "Fans",
+  "bmc.auto": "The {name} controls the fans.",
+  "bmc.manual": "The web UI drives the fans: {percent} % (experimental).",
+  "bmc.handback": "The fans are back with the {name}: {reason}.",
+  "bmc.stale": "The fans are back with the {name}: its sensors cannot be read.",
+  "bmc.read_only": "Read only: the {name} does not let its fans be driven.",
+  "bmc.error": "The sensors cannot be read: {error}"
 }

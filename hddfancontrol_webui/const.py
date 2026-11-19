@@ -73,6 +73,7 @@ SOURCE_FAN_CONTROL = "fan-control"
 SOURCE_WEBUI = "webui"
 SOURCE_TEMPS = "temps"
 SOURCE_ALERTS = "alerts"
+SOURCE_BMC = "bmc"
 
 LOG_BUFFER_LINES = 2000
 
@@ -111,3 +112,9 @@ CORE_SOCKET_ENV = "HFC_CORE_SOCKET"
 WEB_DIR_ENV = "HFC_WEB_DIR"
 HEADER_USER = "X-Webui-User"
 HEADER_CLIENT = "X-Webui-Client"
+
+# EXPERIMENTAL (bmc.py): the fans of a Dell server, driven through its iDRAC,
+# show as this one PWM output; the temperatures of any BMC as inputs whose
+# path starts with BMC_TEMP_PREFIX (shown only: hddfancontrol cannot read them).
+BMC_PWM = "ipmi:fans"
+BMC_TEMP_PREFIX = "ipmi:temp/"

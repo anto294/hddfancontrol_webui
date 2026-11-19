@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .const import FAN_CMD_NOOP, SETTINGS_FILE, TRUE_WORDS
+from .const import BMC_PWM, FAN_CMD_NOOP, SETTINGS_FILE, TRUE_WORDS
 from .cron import CronError, parse
 from .storage import write_atomic
 
@@ -329,8 +329,8 @@ def is_drive_path(value: str) -> bool:
 #   is_pwm_path
 # ---------------------------
 def is_pwm_path(value: str) -> bool:
-    """Whether the value is a PWM output of a hwmon chip: /sys/class/hwmon/hwmonN/pwmN."""
-    return bool(_PWM_PATH.match(value))
+    """Whether the value is a PWM output: /sys/class/hwmon/hwmonN/pwmN, or the fans of a Dell iDRAC (BMC_PWM)."""
+    return value == BMC_PWM or bool(_PWM_PATH.match(value))
 
 
 # ---------------------------
@@ -659,7 +659,8 @@ def hddfancontrol_args(settings: Settings, temp_log: Path | None, measure_only: 
     if measure_only:
         args += ["--fan-cmd", FAN_CMD_NOOP]
     else:
-        args += ["--pwm", *(f"{p.path}:{p.start}:{p.stop}" for p in settings.pwms)]
+        # The fans of a BMC are no file hddfancontrol could write.
+        args += ["--pwm", *(f"{p.path}:{p.start}:{p.stop}" for p in settings.pwms if p.path != BMC_PWM)]
     args += ["--drive-temp-range", f"{settings.drive_temp_min:g}", f"{settings.drive_temp_max:g}"]
     args += ["--min-fan-speed-prct", str(settings.min_fan_speed_prct)]
     args += ["--interval", f"{settings.interval_s}s"]

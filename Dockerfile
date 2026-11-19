@@ -73,6 +73,7 @@ ARG APP_VERSION=dev
 # compiler, no pip, nothing downloaded at start.
 RUN apk add --no-cache \
       hdparm \
+      ipmitool \
       kmod \
       lm-sensors-detect \
       nvme-cli \

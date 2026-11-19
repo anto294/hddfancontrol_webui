@@ -15,6 +15,7 @@ import os
 import re
 import stat
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -175,11 +176,22 @@ def _natural_key(text: str) -> list[Any]:
 class Hardware:
     """Read the drives and the hwmon devices of the host."""
 
-    def __init__(self, dev_root: Path = Path("/dev"), sys_root: Path = Path("/sys"), proc_root: Path = Path("/proc")) -> None:
-        """Read from these trees: the real ones, or a copy in the tests."""
+    def __init__(
+        self,
+        dev_root: Path = Path("/dev"),
+        sys_root: Path = Path("/sys"),
+        proc_root: Path = Path("/proc"),
+        bmc: Callable[[], HwmonDevice | None] | None = None,
+    ) -> None:
+        """Read from these trees: the real ones, or a copy in the tests.
+
+        bmc (experimental, bmc.Bmc.hwmon) gives the BMC of a server as one
+        more hwmon device, or None when there is none.
+        """
         self._dev = dev_root
         self._sys = sys_root
         self._proc = proc_root
+        self._bmc = bmc
 
     def drives(self) -> list[Drive]:
         """List the whole drives that have a name in /dev/disk/by-id."""
@@ -279,8 +291,10 @@ class Hardware:
         try:
             names = sorted((p.name for p in base.iterdir() if _HWMON.match(p.name)), key=_natural_key)
         except OSError:
-            return []
-        return [self._hwmon(base / name) for name in names]
+            names = []
+        devices = [self._hwmon(base / name) for name in names]
+        bmc = self._bmc() if self._bmc is not None else None
+        return devices + [bmc] if bmc is not None else devices
 
     def _hwmon(self, directory: Path) -> HwmonDevice:
         """Read one hwmon device."""
@@ -330,6 +344,8 @@ class Hardware:
         appear and can change at a reboot; the device link of the hwmon folder
         (/sys/devices/platform/nct6775.656 for example) does not.
         """
+        if not path.startswith("/sys/"):
+            return None  # the fans of a BMC have no chip in /sys
         folder = self._sys / os.path.dirname(path.removeprefix("/sys/"))
         try:
             real = (folder / "device").resolve(strict=True)

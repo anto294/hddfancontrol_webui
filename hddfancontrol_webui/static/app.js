@@ -42,6 +42,11 @@ const LOG_MAX_LINES = 2000;
 // Two hardware snapshots closer than this give no rate: too few ms to mean anything.
 const RATE_MIN_SECONDS = 1;
 const SECTOR_BYTES = 512;
+// EXPERIMENTAL: the fans of a Dell server, driven through its iDRAC (bmc.py),
+// show as this one PWM output; they never stop, so they get a low start and
+// stop value instead of a PWM test.
+const BMC_PWM = "ipmi:fans";
+const BMC_START_STOP = 38;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -143,6 +148,10 @@ function shortPath(path) {
 // The name given to a fan, or "nct6798 · pwm2" for /sys/class/hwmon/hwmon3/pwm2.
 function pwmLabel(path) {
   if (state.labels[path]) return state.labels[path];
+  if (path === BMC_PWM) {
+    const bmc = state.hardware.hwmons.find((device) => device.pwms.some((pwm) => pwm.path === path));
+    return `${bmc ? bmc.name : "BMC"} · ${t("bmc.fans")}`;
+  }
   for (const device of state.hardware.hwmons) {
     if (device.pwms.some((pwm) => pwm.path === path)) {
       return `${device.name || device.hwmon} · ${shortPath(path)}`;
@@ -481,6 +490,33 @@ function renderOverview() {
     }
     if (cpu.temp !== null) control.append(row(t("overview.cpu_temp"), el("span", { title: cpu.temp_path, text: fmtTemp(cpu.temp) })));
   }
+  renderBmc();
+}
+
+// EXPERIMENTAL: the BMC of a server (iDRAC, iLO): who drives its fans, its temperatures and fans.
+function renderBmc() {
+  const bmc = state.status.bmc;
+  $("bmc-card").hidden = !bmc;
+  if (!bmc) return;
+  $("bmc-title").textContent = [bmc.name, bmc.product].filter(Boolean).join(" · ");
+  let text;
+  if (!bmc.drives_fans) text = t("bmc.read_only", { name: bmc.name });
+  else if (bmc.handback === "stale") text = t("bmc.stale", { name: bmc.name });
+  else if (bmc.handback) text = t("bmc.handback", { name: bmc.name, reason: bmc.handback });
+  else if (bmc.manual && bmc.percent !== null) text = t("bmc.manual", { percent: bmc.percent });
+  else text = t("bmc.auto", { name: bmc.name });
+  $("bmc-state").textContent = text;
+  $("bmc-error").textContent = bmc.error ? t("bmc.error", { error: bmc.error }) : "";
+  const table = $("bmc-readings");
+  table.replaceChildren(
+    ...bmc.readings
+      .filter((reading) => reading.value !== null)
+      .map((reading) => {
+        const value = reading.kind === "temp" ? fmtTemp(reading.value) : reading.kind === "fan" ? fmtRpm(Math.round(reading.value)) : ltr(`${Math.round(reading.value)} %`);
+        const hot = reading.kind === "temp" && reading.status !== "ok" && reading.status !== "na" && reading.status !== "ns";
+        return row(reading.name, el("span", { class: hot ? "error" : "", text: value }));
+      }),
+  );
 }
 
 // An arrow when a drive got warmer or cooler by TREND_MIN_DELTA in TREND_SECONDS.

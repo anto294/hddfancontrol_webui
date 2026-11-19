@@ -250,7 +250,7 @@ function stepFans(body) {
 
 async function startMeasure() {
   try {
-    await api("POST", "/api/pwm-test", { paths: [...wizard.pwms] });
+    await api("POST", "/api/pwm-test", { paths: [...wizard.pwms].filter((path) => path !== BMC_PWM) });
   } catch (error) {
     alertBanner(errorText(error));
   }
@@ -276,10 +276,11 @@ function stepMeasure(body) {
     const result = test.paths.includes(path) ? test.results[path] || { status: "pending" } : null;
     const measured = wizard.measured[path];
     const status = measured ? t("pwmtest.done") : result ? t(`pwmtest.${result.status}`) + (test.current === path ? " …" : "") : t("wizard.not_measured");
-    table.append(row(pwmLabel(path), status, String(measured ? measured.start : SAFE_START), String(measured ? measured.stop : SAFE_STOP)));
+    if (path === BMC_PWM) table.append(row(pwmLabel(path), "—", String(BMC_START_STOP), String(BMC_START_STOP)));
+    else table.append(row(pwmLabel(path), status, String(measured ? measured.start : SAFE_START), String(measured ? measured.stop : SAFE_STOP)));
   }
   body.append(table);
-  const all = [...wizard.pwms].every((path) => wizard.measured[path]);
+  const all = [...wizard.pwms].every((path) => wizard.measured[path] || path === BMC_PWM);
   if (test.running) {
     body.append(
       el("p", { class: "warning", text: t("wizard.measure_running") }),
@@ -346,7 +347,11 @@ function wizardDocument() {
     drive_temp_max: preset.max,
     drives: [...wizard.drives],
     monitor_drives: [...wizard.drives],
-    pwms: [...wizard.pwms].map((path) => ({ path, start: wizard.measured[path] ? wizard.measured[path].start : SAFE_START, stop: wizard.measured[path] ? wizard.measured[path].stop : SAFE_STOP })),
+    pwms: [...wizard.pwms].map((path) =>
+      path === BMC_PWM
+        ? { path, start: BMC_START_STOP, stop: BMC_START_STOP }
+        : { path, start: wizard.measured[path] ? wizard.measured[path].start : SAFE_START, stop: wizard.measured[path] ? wizard.measured[path].stop : SAFE_STOP },
+    ),
     spin_down_time_s: SPIN_DOWN[wizard.spinDown],
     spin_down_drives: {},
   };

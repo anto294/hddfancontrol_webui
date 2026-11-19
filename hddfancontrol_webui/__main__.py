@@ -23,6 +23,7 @@ from aiohttp import web
 
 from .alerts import Alerts
 from .bays import Bays
+from .bmc import IPMITOOL_BIN, Bmc
 from .const import (
     DEFAULT_CONFIG_DIR,
     HDDFANCONTROL_BIN,
@@ -33,6 +34,7 @@ from .const import (
     SENSORS_DETECT_BIN,
     SMARTCTL_BIN,
     SOURCE_ALERTS,
+    SOURCE_BMC,
     SOURCE_FAN_CONTROL,
     SOURCE_GATEWAY,
     SOURCE_SENSORS,
@@ -83,6 +85,8 @@ class Core:
     user: WebUser | None
     gateway: Daemon | None
     supervisor: Supervisor
+    # EXPERIMENTAL: the BMC of a server (iDRAC, iLO), None when BMC=false.
+    bmc: Bmc | None = None
 
 
 # ---------------------------
@@ -98,9 +102,15 @@ def build() -> Core:
     logs = LogBuffer()
     temp_log_path = config_dir / TEMP_LOG_DIR / TEMP_LOG_FILE
     temp_log = TempLog(temp_log_path)
-    hardware = Hardware()
+    # EXPERIMENTAL: the BMC of the host, through /dev/ipmi0; BMC=false leaves it alone.
+    bmc = (
+        Bmc(os.environ.get("IPMITOOL_BIN", IPMITOOL_BIN), log=lambda text: logs.add(SOURCE_BMC, text))
+        if env_flag(os.environ, "BMC", True)
+        else None
+    )
+    hardware = Hardware(bmc=bmc.hwmon if bmc is not None else None)
     fans = FanController(
-        PwmWriter(state_file=config_dir / PWM_STATE_FILE),
+        PwmWriter(state_file=config_dir / PWM_STATE_FILE, bmc=bmc),
         temp_log.latest,
         lambda text: logs.add(SOURCE_FAN_CONTROL, text),
         hardware.kernel_names,
@@ -177,6 +187,7 @@ def build() -> Core:
         Bays(config_dir),
         peers=peers,
         load_modules=load_modules,
+        bmc_status=bmc.status if bmc is not None else None,
     )
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:
@@ -190,6 +201,12 @@ def build() -> Core:
             logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}: core started, the gateway runs as {user.name}")
 
         async def startup() -> None:
+            # The BMC first: a Dell gets its fans back before anything may take them.
+            if bmc is not None:
+                try:
+                    await bmc.start()
+                except Exception as err:  # any failure: report it and go on without it
+                    logs.add(SOURCE_BMC, f"ERROR: the BMC cannot be used: {err!r}")
             # A failed sensor scan must not keep the fans from being controlled.
             if load_modules:
                 app[STATE]["sensors"] = SensorReport(state="running")
@@ -216,7 +233,7 @@ def build() -> Core:
         history.close()
 
     app.cleanup_ctx.append(lifecycle)
-    return Core(app, socket_path, user, gateway, supervisor)
+    return Core(app, socket_path, user, gateway, supervisor, bmc)
 
 
 # ---------------------------
@@ -247,6 +264,9 @@ async def serve(core: Core) -> None:
     finally:
         try:
             await core.supervisor.release_fans()
+            if core.bmc is not None:
+                # The fans of a Dell go back to its iDRAC, whatever RESTORE_FAN_SETTINGS says.
+                await core.bmc.close()
         finally:
             if core.gateway is not None:
                 await core.gateway.stop()

@@ -28,7 +28,7 @@ from typing import Any
 from aiohttp import web
 
 from .bays import BayError, Bays
-from .const import HEADER_CLIENT, HEADER_USER, HISTORY_MAX_HOURS, SOURCE_AUDIT, SOURCE_SENSORS, VERSION
+from .const import BMC_PWM, HEADER_CLIENT, HEADER_USER, HISTORY_MAX_HOURS, SOURCE_AUDIT, SOURCE_SENSORS, VERSION
 from .cron import CronError, parse, windows
 from .hardware import Hardware
 from .history import History
@@ -59,6 +59,8 @@ STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
 PEERS: web.AppKey[frozenset[int] | None] = web.AppKey("peers")
 AUDIT: web.AppKey[AuditLog] = web.AppKey("audit")
 LOAD_MODULES: web.AppKey[bool] = web.AppKey("load_modules", bool)
+# EXPERIMENTAL: what the BMC of a server does (bmc.Bmc.status), or None without one.
+BMC_STATUS: web.AppKey[Callable[[], dict[str, Any] | None]] = web.AppKey("bmc_status")
 
 # The same change sent again within this many seconds (a slider, a script)
 # is counted instead of logged again.
@@ -187,6 +189,7 @@ async def get_status(request: web.Request) -> web.Response:
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
         alerts=alerts.status() if alerts is not None else [],
+        bmc=app[BMC_STATUS](),
     )
     return web.json_response(data)
 
@@ -525,6 +528,9 @@ async def post_pwm_test(request: web.Request) -> web.Response:
     unknown = [p for p in paths if p not in known]
     if unknown:
         return _json_error(400, "unknown_pwm", [{"field": "paths", "code": "unknown_pwm", "params": {"paths": unknown}}])
+    if BMC_PWM in paths:
+        # The fans of a BMC never stop: there is no start and stop value to find.
+        return _json_error(400, "bmc_no_test")
     try:
         await request.app[SUPERVISOR].start_pwm_test(list(dict.fromkeys(paths)))
     except Busy:
@@ -700,6 +706,7 @@ def create_app(
     bays: Bays | None = None,
     peers: frozenset[int] | None = None,
     load_modules: bool = True,
+    bmc_status: Callable[[], dict[str, Any] | None] | None = None,
 ) -> web.Application:
     """Build the core API around parts that the caller starts and stops.
 
@@ -722,6 +729,7 @@ def create_app(
 
     app.on_cleanup.append(flush_audit)
     app[HARDWARE] = hardware
+    app[BMC_STATUS] = bmc_status or (lambda: None)
     app[TEMP_LOG] = temp_log
     app[HISTORY] = history
     app[MONITOR] = monitor
