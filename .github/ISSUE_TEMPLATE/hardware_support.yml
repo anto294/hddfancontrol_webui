@@ -55,7 +55,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Step 2.** Run this block **on the host** as root (TrueNAS: **System → Shell**; elsewhere `sudo -i`), then paste what it prints below. It reads only names and model numbers: no serial number, MAC or IP address.
+        **Step 2.** Run this block **on the host** as root, then paste what it prints below. It reads only names and model numbers: no serial number, MAC or IP address.
+
+        - **TrueNAS SCALE:** **System → Shell**, then `sudo -i`. The block uses only tools TrueNAS has; do not install packages on it.
+        - **Debian, Proxmox, Ubuntu…:** `sudo -i` in a terminal.
+        - **The web UI already runs?** **Fans → Hardware not supported? → Prepare a support request** fills this form in for you.
+        - **The machine runs no Linux yet** (ESXi, Windows, a bare server you are choosing a system for): boot a live Linux from a USB stick (Ubuntu, Debian live, SystemRescue) and run the block there. It reads the hardware, not the installed system.
 
         ```sh
         {
@@ -79,13 +84,23 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Step 3, servers only** (the fans belong to a BMC). With `/dev/ipmi0` on the host (else `modprobe ipmi_si ipmi_devintf` first), paste the output of:
+        **Step 3, servers only** (the fans belong to a BMC). First make the BMC show on the host: `ls /dev/ipmi0`, and without it `modprobe ipmi_si ipmi_devintf`. Then read it with `ipmitool`, in one of these ways:
 
-        ```sh
-        ipmitool mc info
-        ipmitool sensor
-        ipmitool fru print 0 | grep -Ei 'manufacturer|product name|board product'
-        ```
+        - **TrueNAS SCALE, Unraid and other systems where you install nothing:** a throw-away container, from the host's shell as root. It only sees `/dev/ipmi0`, and it is gone when it ends:
+
+          ```sh
+          docker run --rm --device /dev/ipmi0 alpine:3.24 sh -c 'apk add -q ipmitool && ipmitool mc info && ipmitool sensor && ipmitool fru print 0 | grep -Ei "manufacturer|product name|board product"'
+          ```
+
+        - **Debian, Proxmox, Ubuntu:** `apt install ipmitool`, then:
+
+          ```sh
+          ipmitool mc info
+          ipmitool sensor
+          ipmitool fru print 0 | grep -Ei 'manufacturer|product name|board product'
+          ```
+
+        - **A live Linux** (see step 2): install `ipmitool` there and run the same three commands.
 
         These commands only read. Please do **not** try raw fan commands found on the Internet for this report: some leave the fans at a fixed speed. Dell and HPE are being studied on the `experimental` branch ([docs/bmc.md](https://github.com/anto294/hddfancontrol_webui/blob/experimental/docs/bmc.md)).
 
