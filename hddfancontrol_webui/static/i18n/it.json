@@ -526,5 +526,14 @@
   "error.bmc_missing": "Nessun BMC trovato su questo host.",
   "error.curve_points": "La curva vuole da {min} a {max} punti.",
   "error.curve_order": "Ogni punto deve essere più caldo del precedente, con una velocità almeno uguale.",
-  "error.bmc_model_vendor": "Questo modello ha un BMC diverso da quello trovato ({name})."
+  "error.bmc_model_vendor": "Questo modello ha un BMC diverso da quello trovato ({name}).",
+  "support.title": "Hardware non supportato?",
+  "support.text": "Nessuna ventola da scegliere, header che non rispondono, un server con le ventole gestite dal BMC, un disco senza temperatura: prepara una richiesta di supporto da questo host. Vedi tutto prima che venga inviato.",
+  "support.prepare": "Prepara una richiesta di supporto",
+  "support.preview": "Questo compila il modulo di supporto hardware su GitHub. Non contiene numeri di serie, e gli indirizzi nel log sono mascherati. Su GitHub scrivi il nome della macchina e cosa ti serve.",
+  "support.too_long": "Il rapporto è troppo lungo per un link: GitHub lo riceve accorciato. Copialo e incolla il resto nella issue.",
+  "support.open": "Apri su GitHub",
+  "support.copy": "Copia",
+  "support.copied": "Copiato.",
+  "support.select": "Selezionato: copialo con Ctrl+C."
 }

@@ -1,6 +1,6 @@
 # Contributing
 
-Bug reports, hardware reports, translations and pull requests are welcome. For a larger change, open an issue first, so that we can agree on the approach before you write the code.
+Bug reports, hardware reports, [hardware support requests](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_support.yml), translations and pull requests are welcome. For a larger change, open an issue first, so that we can agree on the approach before you write the code.
 
 ## Set up
 

@@ -87,7 +87,7 @@ Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleep
 |---|---|---|---|
 | nct6798 (`nct6775`) | ASRock B550M PG Riptide | TrueNAS SCALE, Docker | Works |
 
-Tried it on other hardware? Please send a [hardware report](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_report.yml), whether it works or not.
+Tried it on other hardware? Please send a [hardware report](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_report.yml), whether it works or not. Your fans, sensors or server are not supported? Open a [hardware support request](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_support.yml): it guides you through what to send.
 
 ## Installation
 
@@ -346,6 +346,8 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 **The web UI says it is read only.** `/sys` is mounted read only, which is what Docker does for a container that is not privileged, so no fan can be written: hddfancontrol and hd-idle do not start, and manual control and the PWM test are off. Set `privileged: true` (on TrueNAS SCALE, tick **Privileged** in the app settings) and restart the container.
 
 **A fan does not react to its slider.** The header may be in DC mode, or the BIOS may hold it at a fixed speed. Set the header to PWM mode in the BIOS.
+
+**Still no fan, or a server whose fans belong to its BMC (Dell iDRAC, HPE iLO).** In **Fans → Hardware not supported?**, **Prepare a support request** fills in a [hardware support request](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_support.yml) from the host: you see it all, then open it on GitHub, name the machine and say what you need. Or open the form yourself: it says which commands to run and what to paste. Either way, support can be added for hardware we do not own.
 
 **The hwmon number of the fan chip changed after a reboot or a system update.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`, for example after a TrueNAS update loads the modules in another order. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656`, for example): at start it finds the chip under its new number, corrects the settings and the fan's name, and says so in the log. If the chip is not there at all (its module is not loaded, or a new kernel names it differently), those fans are not controlled, and never another chip's outputs in their place; a banner and an alert name them. Load the module, or choose the fans again in **Settings**.
 

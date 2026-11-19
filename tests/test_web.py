@@ -28,7 +28,7 @@ from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app
+from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app, mask_addresses
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -523,3 +523,25 @@ async def test_bmc_configuration(make_client: ClientMaker, tmp_path: Path, monke
     monkeypatch.setattr(bmc, "set_config", broken)
     response = await client.put("/api/bmc", json={}, headers=FETCH)
     assert response.status == 500
+
+
+async def test_support(make_client: ClientMaker) -> None:
+    """The support request: the system, the host report, the hardware log lines with addresses masked."""
+    client = await make_client()
+    logs = client.server.app[SUPERVISOR].logs
+    logs.add("sensors", "Loaded nct6775")
+    logs.add("gateway", "Login of admin (from 192.168.1.20)")
+    logs.add("webui", "Listening on 10.0.0.5 and fe80::1")
+    data = await (await client.get("/api/support")).json()
+    assert data["system"].startswith(("Docker image", "bare metal")) and "kernel" in data["system"]
+    assert data["host"].startswith("== board")
+    assert "[sensors] Loaded nct6775" in data["logs"] and "gateway" not in data["logs"]
+    assert "[webui] Listening on <address> and <address>" in data["logs"]
+
+
+def test_mask_addresses() -> None:
+    """IPv4 and IPv6 addresses go; times, versions and chip names stay."""
+    text = "from 192.168.1.20, fe80::1, 2a02:1:2:3:4::9 and [::1]:28462 at 10:17:02, v0.10.1, nct6775.656"
+    assert (
+        mask_addresses(text) == "from <address>, <address>, <address> and [<address>]:28462 at 10:17:02, v0.10.1, nct6775.656"
+    )

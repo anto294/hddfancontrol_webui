@@ -51,7 +51,7 @@ and every value that reaches a command line has been checked by `settings.from_d
 | `supervisor.py` | Runs hddfancontrol and hd-idle (`Daemon`: restart with a growing delay, 5 s doubling to 60 s), owns the fan controller, manual control and the PWM test behind one lock |
 | `fancontrol.py` | Writes the PWM files: curve and auto modes, manual control, the safety rules |
 | `templog.py` | Reads the last line of hddfancontrol's temperature log |
-| `hardware.py` | Reads `/dev/disk/by-id`, `/sys/class/hwmon`, `/sys/class/block`, `/proc`; never sends a command to a drive |
+| `hardware.py` | Reads `/dev/disk/by-id`, `/sys/class/hwmon`, `/sys/class/block`, `/proc`; never sends a command to a drive; the host report of the hardware support request |
 | `settings.py` | The settings and their only validation |
 | `monitor.py`, `history.py` | Records temperatures and fan speeds, reads SMART, raises alerts |
 | `alerts.py`, `notify.py` | Alert states, notes, quiet hours, sending to ntfy, Gotify or JSON |

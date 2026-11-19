@@ -7,7 +7,7 @@ installing and using it, start from the [README](../README.md).
 | --- | --- |
 | [architecture.md](architecture.md) | The processes (core, gateway, daemons), the modules, where the data lives, start and stop |
 | [fan-control.md](fan-control.md) | How temperatures are measured, the PWM files, the curve, auto and manual modes, the safety rules, the PWM test, spin down |
-| [monitoring.md](monitoring.md) | History, SMART and self-tests, alerts, notifications, schedules |
+| [monitoring.md](monitoring.md) | History, SMART and self-tests, alerts, notifications, schedules, the hardware support request |
 | [security.md](security.md) | The trust boundary, a request step by step, credentials, TLS, the page |
 | [web-ui.md](web-ui.md) | The page: files, rules, languages, theme, tabs |
 | [decisions.md](decisions.md) | Every choice that shapes the program, with its reason |

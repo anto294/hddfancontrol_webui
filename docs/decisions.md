@@ -143,10 +143,11 @@ reads badly. (0.10.0, 2026-11-18)
 **Features under test live on the `experimental` branch, which is checked like `main`
 and publishes its own image tag.** Every push to it runs the same CI (lint, tests on
 Python 3.11 and 3.14, Bandit, hadolint, actionlint, the image test) and CodeQL, and
-publishes `:experimental`; `edge` and `latest` never come from it. Why: a feature that
-needs real hardware we do not have (a Dell server) must be tried by others from an
-image, without reaching the users of `edge` or of a release; and what they run must
-pass the same checks. Merging into `main` stays a separate decision. (2026-11-19)
+publishes `:experimental`; `edge` and `latest` never come from it, and a manual run on
+any other branch publishes nothing. Why: a feature that needs real hardware we do not
+have (a Dell server) must be tried by others from an image, without reaching the users
+of `edge` or of a release; and what they run must pass the same checks. Merging into
+`main` stays a separate decision. (2026-11-19)
 
 ## Server fans through a BMC (experimental)
 
@@ -171,3 +172,13 @@ stopping hand them back. See [bmc.md](bmc.md). (2026-11-19)
 **The CPU profiles and the minimum speed of each model are cautious starting values of
 ours, not Dell's.** Why: Dell publishes none; they are to be checked on real servers
 and changed here when they are. (2026-11-19)
+
+## Support
+
+**Hardware we do not own is supported from what its owner sends, through a guided
+issue form that the web UI can fill in.** The form says which commands to run and where
+(TrueNAS without installing anything, a throw-away container for `ipmitool`, a live
+Linux); the web UI's button sends the same report. Neither reads a serial number, and
+the user sees everything before it leaves the host. Why: requests such as "support my
+Dell R730xd" cannot be answered without the machine's own data, and that data must not
+expose the owner. (2026-11-19)

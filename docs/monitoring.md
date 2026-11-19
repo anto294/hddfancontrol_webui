@@ -1,7 +1,7 @@
 # History, SMART and alerts
 
-What the web UI records, how it reads SMART data without waking drives, and when it
-raises and sends an alert. Setup from a user's point of view is in the
+What the web UI records, how it reads SMART data without waking drives, when it
+raises and sends an alert, and how it helps to ask for support of new hardware. Setup from a user's point of view is in the
 [README](../README.md#alerts).
 
 ## History
@@ -96,3 +96,31 @@ Every schedule (`smart_schedule`, `selftest_short`, `selftest_long`, `notify_sum
 errors with a code and parameters like the other settings. `GET /api/cron?expr=` gives
 the next runs as the server's clock sees them, for the preview under each field; the
 **Compose** button of each field builds the expression from a small form.
+
+## Hardware support request
+
+Support for hardware we do not own (a fan chip, a server whose fans belong to its BMC)
+can only be built from what its owner sends. The issue form
+[`hardware_support.yml`](../.github/ISSUE_TEMPLATE/hardware_support.yml) walks them
+through it: what is missing and the machine, one shell block to paste, `ipmitool` for
+servers (in a throw-away privileged `alpine` container on TrueNAS SCALE and other
+systems where nothing is installed, or from a live Linux), `smartctl` for drives
+without a temperature.
+
+The web UI fills the same form in by itself (**Fans → Hardware not supported?**, and a
+button in the "No PWM output" banner):
+
+- `Hardware.report()` prints the lines of the form's shell block: board and BIOS names
+  (only the DMI fields named in `_REPORT_DMI`, never a `*_serial` or `product_uuid`),
+  the kernel, every hwmon chip with its `pwm`, `fan` and `temp` files, the usual sensor
+  modules, the drives (name, bus, model) and whether `/dev/ipmi0` is there.
+- `GET /api/support` adds the system (Docker image or bare metal, version, kernel) and
+  the last `SUPPORT_LOG_LINES` (30) log lines of `SUPPORT_SOURCES` (sensors,
+  hddfancontrol, fan-control, webui; never the gateway's or the audit's, which name
+  users and addresses). Addresses are masked anyway (`mask_addresses`).
+- The page shows it all first. **Open on GitHub** opens the form with its `system`,
+  `host` and `logs` fields filled in by their ids; past `SUPPORT_MAX_URL` (7500
+  characters) the link drops the oldest log lines, then the end of the host part, and
+  the page says so. **Copy** copies the whole report.
+
+Nothing leaves the host until the user opens the link.

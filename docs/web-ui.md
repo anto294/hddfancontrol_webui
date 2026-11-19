@@ -62,7 +62,7 @@ for `data-theme="dark"`.
 | Tab | What |
 | --- | --- |
 | Overview | Control state, CPU, drives with bars and trends, fans, the bay map with animated drives (spinning platters, a head and a LED driven by real I/O; moving electrons for SSDs), the BMC state |
-| Fans | Every PWM output, its speed, RPM and name; manual control |
+| Fans | Every PWM output, its speed, RPM and name; manual control; the hardware support request |
 | Drives | SMART per drive, self-tests |
 | History | Charts of temperatures, PWM and RPM, CSV export |
 | Settings | Everything of `settings.json`, folded sections, a cron composer for each schedule, backup |

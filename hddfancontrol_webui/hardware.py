@@ -162,6 +162,14 @@ def _read_int(path: Path) -> int | None:
         return None
 
 
+# What the hardware support request asks for (.github/ISSUE_TEMPLATE/hardware_support.yml):
+# the same lines its shell block prints. Names and model numbers only: the
+# DMI fields are named one by one, so no *_serial or product_uuid is ever read.
+_REPORT_DMI = ("sys_vendor", "product_name", "board_vendor", "board_name", "bios_version")
+_REPORT_FILES = re.compile(r"^(pwm\d+|fan\d+_input|temp\d+_input)$")
+_REPORT_MODULES = re.compile(r"^(nct|it87|f71|w83|asus|dell|hp|coretemp|k10temp|drivetemp|ipmi)", re.IGNORECASE)
+
+
 # ---------------------------
 #   _natural_key
 # ---------------------------
@@ -192,6 +200,33 @@ class Hardware:
         self._sys = sys_root
         self._proc = proc_root
         self._bmc = bmc
+
+    def report(self) -> str:
+        """The host as a hardware support request asks for it: board, kernel, hwmon chips, modules, drives, BMC device.
+
+        The same lines as the shell block of the issue form, so a report from
+        the web UI and one pasted by hand read alike. Never a serial number.
+        """
+        dmi = self._sys / "class" / "dmi" / "id"
+        lines = ["== board", *(f"{name}: {_read(dmi / name) or ''}" for name in _REPORT_DMI)]
+        lines += ["== kernel", os.uname().release, "== hwmon"]
+        base = self._sys / "class" / "hwmon"
+        try:
+            chips = sorted((p for p in base.iterdir() if _HWMON.match(p.name)), key=lambda p: _natural_key(p.name))
+        except OSError:
+            chips = []
+        for chip in chips:
+            try:
+                files = sorted((p.name for p in chip.iterdir() if _REPORT_FILES.match(p.name)), key=_natural_key)
+            except OSError:
+                files = []
+            lines.append(f"{chip.name} {_read(chip / 'name') or ''}: {' '.join(files)}")
+        modules = [line.split()[0] for line in (_read(self._proc / "modules") or "").splitlines() if line.strip()]
+        lines += ["== modules", " ".join(m for m in modules if _REPORT_MODULES.match(m)) or "none of the usual ones"]
+        lines.append("== drives")
+        lines += [f"{d.name} {d.bus or '-'} {d.model or '-'}" for d in self.drives()]
+        lines += ["== bmc", "/dev/ipmi0" if (self._dev / "ipmi0").exists() else "no /dev/ipmi0"]
+        return "\n".join(lines)
 
     def drives(self) -> list[Drive]:
         """List the whole drives that have a name in /dev/disk/by-id."""

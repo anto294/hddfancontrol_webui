@@ -201,3 +201,75 @@ function usePwmResults() {
   result.textContent = t("pwmtest.review");
   result.className = "small";
 }
+
+// ---------------------------------------------------------------------------
+// Hardware support request: the issue form of GitHub (hardware_support.yml),
+// filled in from GET /api/support. The user sees everything before sending.
+// ---------------------------------------------------------------------------
+
+const SUPPORT_FORM = "https://github.com/anto294/hddfancontrol_webui/issues/new";
+// GitHub refuses longer addresses: the log, then the host report, are cut to fit.
+const SUPPORT_MAX_URL = 7500;
+let support = null;
+
+function supportUrl(data) {
+  const params = new URLSearchParams({ template: "hardware_support.yml", title: "[Hardware support] ", system: data.system, host: data.host, logs: data.logs });
+  return `${SUPPORT_FORM}?${params}`;
+}
+
+// The report cut until its link fits: the oldest log lines go first, then the end of the host part.
+function fitSupport(data) {
+  const fitted = { ...data };
+  let logs = fitted.logs.split("\n");
+  while (supportUrl(fitted).length > SUPPORT_MAX_URL && logs.length && logs[0] !== "") {
+    logs = logs.slice(1);
+    fitted.logs = logs.join("\n");
+  }
+  while (supportUrl(fitted).length > SUPPORT_MAX_URL && fitted.host.length > 200) {
+    fitted.host = `${fitted.host.slice(0, Math.floor(fitted.host.length * 0.9))}\n…`;
+  }
+  return { fitted, cut: fitted.logs !== data.logs || fitted.host !== data.host };
+}
+
+function supportText(data) {
+  return `System: ${data.system}\n\n${data.host}\n\n== log\n${data.logs}`;
+}
+
+async function prepareSupport(fromBanner) {
+  if (fromBanner) showTab("fans");
+  const result = $("support-result");
+  result.textContent = "";
+  try {
+    support = await api("GET", "/api/support");
+  } catch (error) {
+    $("support-preview").hidden = false;
+    result.textContent = errorText(error);
+    return;
+  }
+  // The whole report shows (and is copied); only the link may carry less.
+  $("support-text").textContent = supportText(support);
+  $("support-short").hidden = !fitSupport(support).cut;
+  $("support-preview").hidden = false;
+  $("support-card").scrollIntoView({ block: "start" });
+}
+
+function openSupport() {
+  if (!support) return;
+  window.open(supportUrl(fitSupport(support).fitted), "_blank", "noopener,noreferrer");
+}
+
+// The whole report, uncut. Over plain HTTP the clipboard is not available: the text is selected instead.
+async function copySupport() {
+  if (!support) return;
+  const result = $("support-result");
+  try {
+    await navigator.clipboard.writeText(supportText(support));
+    result.textContent = t("support.copied");
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents($("support-text"));
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    result.textContent = t("support.select");
+  }
+}

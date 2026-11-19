@@ -526,5 +526,14 @@
   "error.bmc_missing": "No BMC was found on this host.",
   "error.curve_points": "The curve needs {min} to {max} points.",
   "error.curve_order": "Each point must be warmer than the one before, with a speed at least as high.",
-  "error.bmc_model_vendor": "This model has a different BMC from the one found ({name})."
+  "error.bmc_model_vendor": "This model has a different BMC from the one found ({name}).",
+  "support.title": "Hardware not supported?",
+  "support.text": "No fan to choose, headers that do not react, a server whose fans belong to its BMC, a drive without a temperature: prepare a support request from this host. You see everything before it is sent.",
+  "support.prepare": "Prepare a support request",
+  "support.preview": "This fills in the hardware support form on GitHub. It has no serial number, and the addresses in the log are masked. On GitHub, name the machine and say what you need.",
+  "support.too_long": "The report is too long for a link: GitHub gets it shortened. Copy it and paste the rest into the issue.",
+  "support.open": "Open on GitHub",
+  "support.copy": "Copy",
+  "support.copied": "Copied.",
+  "support.select": "Selected: copy it with Ctrl+C."
 }

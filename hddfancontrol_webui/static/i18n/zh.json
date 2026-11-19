@@ -526,5 +526,14 @@
   "error.bmc_missing": "此主机上未找到 BMC。",
   "error.curve_points": "曲线需要 {min} 到 {max} 个点。",
   "error.curve_order": "每个点的温度必须高于前一个点，转速不得低于前一个点。",
-  "error.bmc_model_vendor": "此型号的 BMC 与检测到的（{name}）不同。"
+  "error.bmc_model_vendor": "此型号的 BMC 与检测到的（{name}）不同。",
+  "support.title": "硬件不受支持？",
+  "support.text": "没有可选的风扇、风扇接口没有反应、服务器风扇由 BMC 控制、硬盘没有温度：从这台主机准备一份支持请求。发送前你可以看到全部内容。",
+  "support.prepare": "准备支持请求",
+  "support.preview": "这会在 GitHub 上填写硬件支持表单。其中不含序列号，日志中的地址已被隐藏。请在 GitHub 上写明机器型号和你的需求。",
+  "support.too_long": "报告太长，无法放进一个链接：GitHub 收到的是截短的版本。请复制报告，把其余部分粘贴到 issue 中。",
+  "support.open": "在 GitHub 上打开",
+  "support.copy": "复制",
+  "support.copied": "已复制。",
+  "support.select": "已选中：请按 Ctrl+C 复制。"
 }

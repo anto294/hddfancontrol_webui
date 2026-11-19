@@ -1,0 +1,155 @@
+name: Hardware support request
+description: Your fans, sensors, drives or server are not supported yet, step by step
+title: "[Hardware support] "
+labels: ["hardware", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when the web UI **cannot** drive or read something on your machine: no fan to choose, fan headers that do not react, a server whose fans belong to its BMC (Dell iDRAC, HPE iLO, Supermicro…), a drive or sensor without a temperature.
+        Everything works and you want it in the list of tested hardware? Use the [hardware report](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_report.yml) instead.
+
+        **Step 1.** Choose what is missing, and name the machine.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is not supported?
+      options:
+        - No fan to choose (no PWM output, fan chip not found)
+        - Some fan headers do not react
+        - Fans of a server's BMC (Dell iDRAC, HPE iLO, Supermicro, Lenovo XCC, …)
+        - A drive or a disk controller shows no temperature
+        - Another sensor (CPU, HBA, NVMe, chipset)
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: machine
+    attributes:
+      label: Machine
+      description: Maker and model of the server, the NAS or the mainboard.
+      placeholder: Dell PowerEdge R730xd, HPE ProLiant ML350 Gen9, ASRock B550M Pro4, …
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: System, how you run the web UI, and its version
+      description: The version is at the bottom of the web UI.
+      placeholder: TrueNAS SCALE 25.10 (Custom App), image v0.10.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: wanted
+    attributes:
+      label: What should the web UI do?
+      description: Which fans or sensors, and what you see now instead.
+      placeholder: Drive the six system fans of the R730xd from the drive temperatures; today the Fans tab shows no fan.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        **Step 2.** Run this block **on the host** as root, then paste what it prints below. It reads only names and model numbers: no serial number, MAC or IP address.
+
+        - **TrueNAS SCALE:** **System → Shell**, then `sudo -i`. The block uses only tools TrueNAS has; do not install packages on it.
+        - **Debian, Proxmox, Ubuntu…:** `sudo -i` in a terminal.
+        - **The web UI already runs?** **Fans → Hardware not supported? → Prepare a support request** fills this form in for you.
+        - **The machine runs no Linux yet** (ESXi, Windows, a bare server you are choosing a system for): boot a live Linux from a USB stick (Ubuntu, Debian live, SystemRescue) and run the block there. It reads the hardware, not the installed system.
+
+        ```sh
+        {
+        echo "== board"; for f in sys_vendor product_name board_vendor board_name bios_version; do printf '%s: ' "$f"; cat "/sys/class/dmi/id/$f" 2>/dev/null || echo; done
+        echo "== kernel"; uname -r
+        echo "== hwmon"; for d in /sys/class/hwmon/hwmon*; do echo "$(basename "$d") $(cat "$d/name"): $(cd "$d" && ls | grep -E '^(pwm[0-9]+|fan[0-9]+_input|temp[0-9]+_input)$' | tr '\n' ' ')"; done
+        echo "== modules"; lsmod | grep -Ei '^(nct|it87|f71|w83|asus|dell|hp|coretemp|k10temp|drivetemp|ipmi)' || echo "none of the usual ones"
+        echo "== drives"; lsblk -d -o NAME,TRAN,MODEL
+        echo "== bmc"; ls /dev/ipmi* 2>/dev/null || echo "no /dev/ipmi0"
+        }
+        ```
+
+  - type: textarea
+    id: host
+    attributes:
+      label: Output of the block
+      render: shell
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        **Step 3, servers only** (the fans belong to a BMC). First make the BMC show on the host: `ls /dev/ipmi0`, and without it `modprobe ipmi_si ipmi_devintf`. Then read it with `ipmitool`, in one of these ways:
+
+        - **TrueNAS SCALE, Unraid and other systems where you install nothing:** a throw-away container, from the host's shell as root. It must be privileged to reach the BMC; the commands only read, and the container is gone when they end:
+
+          ```sh
+          docker run --rm --privileged alpine:3.24 sh -c 'apk add -q ipmitool && ipmitool mc info && ipmitool sensor && ipmitool fru print 0 | grep -Ei "manufacturer|product name|board product"'
+          ```
+
+        - **Debian, Proxmox, Ubuntu:** `apt install ipmitool`, then:
+
+          ```sh
+          ipmitool mc info
+          ipmitool sensor
+          ipmitool fru print 0 | grep -Ei 'manufacturer|product name|board product'
+          ```
+
+        - **A live Linux** (see step 2): install `ipmitool` there and run the same three commands.
+
+        These commands only read. Please do **not** try raw fan commands found on the Internet for this report: some leave the fans at a fixed speed. Dell and HPE are being studied on the `experimental` branch ([docs/bmc.md](https://github.com/anto294/hddfancontrol_webui/blob/experimental/docs/bmc.md)).
+
+  - type: textarea
+    id: bmc
+    attributes:
+      label: Output of ipmitool (servers only)
+      render: shell
+
+  - type: markdown
+    attributes:
+      value: |
+        **Step 4, a drive or controller without a temperature.** For each such drive (`sdX` from the block above):
+
+        ```sh
+        smartctl -A -l scttemp /dev/sdX
+        ```
+
+  - type: textarea
+    id: drives
+    attributes:
+      label: Output of smartctl (drives only)
+      render: shell
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Lines of the web UI log
+      description: From the **Logs** tab, the lines of `sensors`, `hddfancontrol` and `webui` around the start, or `docker logs` / `journalctl -u hddfancontrol-webui`.
+      render: shell
+
+  - type: dropdown
+    id: testing
+    attributes:
+      label: Can you try a test version?
+      description: Support for hardware we do not own is built blind; someone who can try it makes it possible.
+      options:
+        - Yes, a test image (Docker tag)
+        - Yes, from source
+        - No, only this report
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I searched the existing issues and the tested hardware list of the README.
+          required: true
+        - label: What I pasted has no serial number, MAC address, IP address or password.
+          required: true
