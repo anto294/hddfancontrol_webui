@@ -1,5 +1,5 @@
 name: Hardware report
-description: Tell which mainboard and fan chip work (or do not) with the web UI
+description: Tell which mainboard and fan chip you tried, for the list of tested hardware
 labels: ["hardware"]
 body:
   - type: markdown
