@@ -50,6 +50,7 @@ Open `https://<host>:28462` (the certificate is self-signed: accept it once), ty
 - [Environment variables](#environment-variables)
 - [Resource use](#resource-use)
 - [Troubleshooting](#troubleshooting)
+- [How it works](#how-it-works)
 - [Contributing](#contributing)
 - [Credits and license](#credits-and-license)
 
@@ -350,6 +351,10 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 **The hwmon number of the fan chip changed after a reboot or a system update.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`, for example after a TrueNAS update loads the modules in another order. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656`, for example): at start it finds the chip under its new number, corrects the settings and the fan's name, and says so in the log. If the chip is not there at all (its module is not loaded, or a new kernel names it differently), those fans are not controlled, and never another chip's outputs in their place; a banner and an alert name them. Load the module, or choose the fans again in **Settings**.
 
 **A drive never sleeps.** Something reads or writes it: a pool scrub, SMART tests, an app. The web UI itself reads temperatures only through hddfancontrol, which leaves sleeping drives alone, and SMART data only with `-n standby`.
+
+## How it works
+
+[docs/](docs/README.md) explains the inside of the web UI and the reasons behind it: the processes and where the data lives, how the fans are driven and the safety rules, SMART and alerts, the security design, the page, and a list of every design choice with its reason.
 
 ## Contributing
 
