@@ -138,6 +138,17 @@ client, and the network delay does not skew the rates. (0.10.0, 2026-11-18)
 Hindi and Arabic (right to left). Why: the most spoken languages; a literal translation
 reads badly. (0.10.0, 2026-11-18)
 
+## Branches and images
+
+**Features under test live on the `experimental` branch, which is checked like `main`
+and publishes its own image tag.** Every push to it runs the same CI (lint, tests on
+Python 3.11 and 3.14, Bandit, hadolint, actionlint, the image test) and CodeQL, and
+publishes `:experimental`; `edge` and `latest` never come from it, and a manual run on
+any other branch publishes nothing. Why: a feature that needs real hardware we do not
+have (a Dell server) must be tried by others from an image, without reaching the users
+of `edge` or of a release; and what they run must pass the same checks. Merging into
+`main` stays a separate decision. (2026-11-19)
+
 ## Support
 
 **Hardware we do not own is supported from what its owner sends, through a guided
