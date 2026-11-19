@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Web UI and process supervisor for [hddfancontrol](https://github.com/desbma/hddfancontrol) 2.x and [hd-idle](https://github.com/adelolmo/hd-idle). Repository: `anto294/hddfancontrol_webui`. For any Linux host (TrueNAS SCALE, Proxmox VE, Unraid, OpenMediaVault, any distribution with systemd), on x86_64 and arm64: shipped as a Docker image (`ghcr.io/anto294/hddfancontrol_webui`) and as bare metal tarballs (systemd). Nothing may require one system; what is specific to one is a note in the README. All code lives in `hddfancontrol_webui/`.
+Web UI and process supervisor for [hddfancontrol](https://github.com/desbma/hddfancontrol) 2.x and [hd-idle](https://github.com/adelolmo/hd-idle). Repository: `anto294/hddfancontrol_webui`. For any Linux host (TrueNAS SCALE, Proxmox VE, Unraid, OpenMediaVault, any distribution with systemd), on x86_64 and arm64: shipped as a Docker image (`ghcr.io/anto294/hddfancontrol_webui`, a description per tag set by `docker.yml`) and as bare metal tarballs (systemd). Nothing may require one system; what is specific to one is a note in the README. All code lives in `hddfancontrol_webui/`.
 
 ## Architecture
 
