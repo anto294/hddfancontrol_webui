@@ -9,7 +9,7 @@
 [![Pulls](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fanto294%2Fhddfancontrol_webui%2Fbadges%2Fpulls.json&style=plastic)](https://github.com/anto294/hddfancontrol_webui/pkgs/container/hddfancontrol_webui)
 [![License](https://img.shields.io/github/license/anto294/hddfancontrol_webui?style=plastic)](LICENSE)
 
-Control the case fans of a NAS from the temperature of its hard drives, and spin the drives down when they are idle, from a web page. Built around [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma and [hd-idle](https://github.com/adelolmo/hd-idle) by adelolmo, for **TrueNAS SCALE** first, and for any Linux system with Docker or systemd.
+Control the case fans of a NAS or a home server from the temperature of its hard drives, and spin the drives down when they are idle, from a web page. Built around [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma and [hd-idle](https://github.com/adelolmo/hd-idle) by adelolmo, for **any Linux system**: TrueNAS SCALE, Proxmox VE, Unraid, OpenMediaVault, Debian, Ubuntu, Fedora, Arch… As a Docker image or as a systemd service, on x86_64 and arm64.
 
 > [!NOTE]
 > The drive temperatures come from [hddfancontrol](https://github.com/desbma/hddfancontrol) by desbma, which measures the drives without waking them. This project runs it and hd-idle, keeps them running, drives the fans from what it measures (curve and auto modes, fan groups, limits per drive), and adds the web UI, manual control, the history, SMART data and alerts. It is not an official desbma project.
@@ -18,7 +18,7 @@ Control the case fans of a NAS from the temperature of its hard drives, and spin
 
 ## Quick start
 
-With Docker Compose (on TrueNAS SCALE, see [Installation](#truenas-scale)):
+With Docker Compose (for TrueNAS SCALE, Proxmox VE and the others, see [Installation](#installation)):
 
 ```bash
 mkdir hddfancontrol && cd hddfancontrol
@@ -78,7 +78,8 @@ Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleep
 ## Requirements
 
 - A mainboard whose fan headers are PWM-controlled through a Linux hwmon driver (`nct6775`, `it87`, …). Most consumer and many server boards work; if a BIOS fan mode exists, the fans must not be locked at full speed.
-- **Docker:** any x86_64 or arm64 host. TrueNAS SCALE 24.10 or later runs it as a Custom App.
+- **Linux on the machine that has the fans and the drives**, x86_64 or arm64. The web UI must run on that host (or in a privileged container on it): a virtual machine does not see the fan chip, and an unprivileged LXC container cannot write it.
+- **Docker:** any host with Docker. TrueNAS SCALE 24.10 or later runs it as a Custom App, Unraid as a container.
 - **Bare metal:** Linux with systemd and Python 3.11 or later (Debian 12, Ubuntu 24.04, Proxmox VE 8, OpenMediaVault 7, Fedora, Arch, …), plus `smartmontools` and `hdparm`.
 
 ### Tested hardware
@@ -90,6 +91,14 @@ Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleep
 Tried it on other hardware? Please send a [hardware report](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_report.yml), whether it works or not. Your fans, sensors or server are not supported? Open a [hardware support request](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_support.yml): it guides you through what to send.
 
 ## Installation
+
+| System | How |
+|---|---|
+| TrueNAS SCALE | [Custom App](#truenas-scale) (Docker): TrueNAS does not let you install packages on the host |
+| Proxmox VE | [Bare metal](#bare-metal) on the Proxmox host, or [Docker](#docker-compose) installed on the host. Not in a VM, nor in an unprivileged LXC container |
+| Unraid | [Docker](#docker-compose): a container with **Privileged** on, `/config` on `appdata` |
+| OpenMediaVault | [Docker](#docker-compose) (the compose plugin) or [bare metal](#bare-metal) |
+| Debian, Ubuntu, Fedora, Arch, … | [Bare metal](#bare-metal) or [Docker](#docker-compose) |
 
 ### TrueNAS SCALE
 
@@ -118,10 +127,13 @@ The image is `ghcr.io/anto294/hddfancontrol_webui`, with these tags:
 
 | Tag | What it is |
 |---|---|
-| `latest` | The latest stable release |
-| `X.Y` / `vX.Y.Z` | A given release |
-| `edge` | The `main` branch, built at every change |
-| `experimental` | The `experimental` branch: features under test, such as the [server fans through a BMC](docs/bmc.md). Checked like `main`, but not for everyday use |
+| `latest` | The latest stable release. **Use this one** |
+| `X.Y` | The latest release of a minor version, with its fixes (`0.10` follows `v0.10.1`, `v0.10.2`…) |
+| `vX.Y.Z` | One release, never moved: to pin a version |
+| `edge` | The `main` branch, built at every change: the next release before it is out |
+| `experimental` | The [`experimental`](https://github.com/anto294/hddfancontrol_webui/tree/experimental) branch, `edge` plus hardware under test (such as the [server fans through a BMC](docs/bmc.md)). Checked like `main`, but for testers, not for everyday use |
+
+Every image is built for `linux/amd64` and `linux/arm64`, with a provenance attestation (how and from which commit it was built) and its list of packages (SBOM). The version shows at the bottom of the web UI (`edge-<commit>` and `experimental-<commit>` for the branches).
 
 The container runs privileged, because it writes the PWM files of `/sys` and sends ATA commands to the drives. Without `privileged`, Docker mounts `/sys` read only: the web UI then shows a warning, works read only, and starts neither hddfancontrol nor hd-idle. The root file system can be read only, since everything the app keeps is in `/config`.
 

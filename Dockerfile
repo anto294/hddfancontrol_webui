@@ -92,7 +92,7 @@ COPY hddfancontrol_webui /app/hddfancontrol_webui
 # The root file system can be read only: compile the bytecode now.
 RUN python3 -m compileall -q /app/hddfancontrol_webui
 LABEL org.opencontainers.image.title="hddfancontrol_webui" \
-      org.opencontainers.image.description="Web UI for hddfancontrol and hd-idle" \
+      org.opencontainers.image.description="Fan control from drive temperatures and drive spin down, with a web UI, for any Linux host (TrueNAS SCALE, Proxmox VE, Unraid, OpenMediaVault…)" \
       org.opencontainers.image.source="https://github.com/anto294/hddfancontrol_webui" \
       org.opencontainers.image.licenses="GPL-3.0-or-later" \
       org.opencontainers.image.version="${APP_VERSION}"

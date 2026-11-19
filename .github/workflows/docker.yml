@@ -42,6 +42,28 @@ jobs:
             exit 1
           fi
 
+      - name: Describe the image
+        id: describe
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          # The description ghcr.io shows for each tag (an annotation of the
+          # multi-arch index, and a label of each image). No comma: the
+          # labels and annotations of metadata-action are lists.
+          base="Fan control from drive temperatures and drive spin down with a web UI. For any Linux host: TrueNAS SCALE · Proxmox VE · Unraid · OpenMediaVault · Debian."
+          if [[ "$EVENT" == release && "$PRERELEASE" == true ]]; then
+            text="Pre-release for testing. $base"
+          elif [[ "$EVENT" == release ]]; then
+            text="Stable release. $base"
+          elif [[ "$REF" == refs/heads/experimental ]]; then
+            text="EXPERIMENTAL: the main branch plus hardware under test (server fans through a BMC). For testers and not for everyday use. $base"
+          else
+            text="Edge: the main branch built at every change. $base"
+          fi
+          echo "text=$text" >> "$GITHUB_OUTPUT"
+
       - name: Validate the release tag
         if: github.event_name == 'release'
         env:
@@ -68,9 +90,16 @@ jobs:
       - name: Tags and labels
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          # ghcr.io reads the description of a multi-arch image from its index.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: ghcr.io/${{ github.repository }}
           flavor: latest=false
+          labels: |
+            org.opencontainers.image.description=${{ steps.describe.outputs.text }}
+          annotations: |
+            org.opencontainers.image.description=${{ steps.describe.outputs.text }}
           tags: |
             type=raw,value=edge,enable=${{ github.event_name != 'release' && github.ref == 'refs/heads/main' }}
             type=raw,value=experimental,enable=${{ github.event_name != 'release' && github.ref == 'refs/heads/experimental' }}
@@ -87,6 +116,7 @@ jobs:
           build-args: APP_VERSION=${{ github.event.release.tag_name || format('{0}-{1}', github.ref == 'refs/heads/experimental' && 'experimental' || 'edge', github.sha) }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           # A signed record of how the image was built, and the list of its packages.
           provenance: mode=max
           sbom: true

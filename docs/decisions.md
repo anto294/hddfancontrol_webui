@@ -10,8 +10,15 @@ Each entry: the decision, then **Why**, and the date when it was taken.
 **A web UI and supervisor around hddfancontrol and hd-idle, written from scratch.**
 Why: the existing image (fightforlife/docker_hddfancontrol) has no web UI and no
 license; only the names of its environment variables are kept, so a container set up
-for it keeps working (`env_document`). Main target TrueNAS SCALE; bare metal tarballs
-with systemd too, so it is not Docker only. (2026-11-16)
+for it keeps working (`env_document`). (2026-11-16)
+
+**For any Linux host, not one system.** TrueNAS SCALE, Proxmox VE, Unraid,
+OpenMediaVault and any distribution with systemd: a Docker image and bare metal
+tarballs, both for x86_64 and arm64. What is specific to one system (the TrueNAS Init
+Script for a kernel module, its Custom App) is a note in the README, never a
+requirement. Why: the fans and drives are Linux's (hwmon, `/dev`), whatever runs on top;
+TrueNAS SCALE came first only because it is where the project started. It must run on
+the host itself: a VM does not see the fan chip. (2026-11-16, widened 2026-11-19)
 
 **Low resource use.** No polling of a hidden tab, no full read of growing files (the
 temperature log is read from its tail), no long-running process without a reason, no
