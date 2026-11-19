@@ -33,6 +33,7 @@ Web UI and process supervisor for [hddfancontrol](https://github.com/desbma/hddf
 ## Conventions
 
 - One logical change per commit, with a detailed English message (summary, then what and why). Never batch unrelated changes. Run black before committing.
+- `docs/` must always be well written and current: a change that alters behaviour, a safety rule, a default or a design choice updates its page (`docs/README.md` lists them) in the same commit, and a new choice gets an entry with its reason in `docs/decisions.md`. Quote numbers with the constant they come from.
 - Format with **black** (line length 127, `pyproject.toml`). CI runs `black . --check`.
 - Types: CI runs `mypy` strict (`setup.cfg`), with Python 3.11 as the target. A `type: ignore` needs a comment that says why.
 - Lint: CI runs flake8 (errors only), and ruff with `E,F,B,ASYNC,S,I` on the package and `E,F,B,ASYNC,I` on the tests; a finding fails the job. Bandit and CodeQL run too. shellcheck checks `packaging/install.sh`, hadolint the Dockerfile, actionlint the workflows.

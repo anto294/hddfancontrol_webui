@@ -1,5 +1,8 @@
 # Server fans through the BMC (experimental)
 
+[Documentation](README.md) · the choices behind this page are in
+[decisions.md](decisions.md#server-fans-through-a-bmc-experimental).
+
 Status: **experimental**, on the `experimental` branch only. Not tested on real
 hardware yet: the code has been checked against a fake `ipmitool` that answers like
 an iDRAC 8 and an iLO 4. Read this page before trying it.
@@ -84,6 +87,10 @@ iDRAC:
   them again 3 °C lower;
 - when the sensors of the BMC cannot be read for 90 seconds, or no processor
   temperature can be read.
+- on any unexpected error of the web UI's BMC loop, which then goes on.
+
+A command interrupted at exit is allowed to finish first, so the iDRAC always gets the
+last word.
 
 Full speed is never given back: the safety rules of the web UI (a drive at its
 maximum, temperatures that stop coming) put the fans of the iDRAC at 100 %, which

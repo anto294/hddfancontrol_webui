@@ -39,10 +39,11 @@ CONFIG_DIR=/tmp/hfc LOAD_SENSOR_MODULES=false HDDFANCONTROL_BIN=<script> HDIDLE_
 
 - One logical change per commit, with an English message: a summary line, then what changed and why.
 - Every user-facing change gets an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
+- A change to how something works, a safety rule, a default or a design choice updates its page in [docs/](docs/README.md) in the same pull request; a new choice gets an entry in [docs/decisions.md](docs/decisions.md).
 - Every function and class has a docstring. File and SQLite work goes through `asyncio.to_thread`, programs through `asyncio.create_subprocess_exec`, never a shell.
 - The safety rules of fan control (full speed on a hot drive, on missing temperatures and on errors; the fans given back at the end) must never be weakened.
 
-[CLAUDE.md](CLAUDE.md) describes the architecture, module by module, and the full conventions.
+[docs/](docs/README.md) explains how the program works and why; [CLAUDE.md](CLAUDE.md) describes it module by module, with the full conventions.
 
 ## Security
 
