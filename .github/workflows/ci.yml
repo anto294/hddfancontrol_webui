@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # experimental is checked like main: it publishes an image too (docker.yml).
   push:
-    branches: [main]
+    branches: [main, experimental]
   pull_request:
   workflow_dispatch:
 

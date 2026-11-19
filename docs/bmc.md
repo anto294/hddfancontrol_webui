@@ -116,8 +116,10 @@ restarts it) or the server is power cycled. Keep the minimum speed reasonable.
    ```
    If the first command answers *Invalid command* or *Insufficient privilege*, the
    firmware does not allow it, and the web UI will show the BMC read only in practice.
-3. Run the image of the `experimental` branch, privileged as usual (a privileged
-   container sees `/dev/ipmi0`). The log shows `[bmc] BMC found: iDRAC …`.
+3. Run the image `ghcr.io/anto294/hddfancontrol_webui:experimental`, privileged as
+   usual (a privileged container sees `/dev/ipmi0`). It is built from the
+   `experimental` branch at every change; its version shows as `experimental-<commit>`.
+   The log shows `[bmc] BMC found: iDRAC …`.
 4. Open the **IPMI** tab: check the model, choose **Web UI** and a CPU profile, save,
    and watch **Now** and the fans. To make them follow the drives too, add
    **iDRAC · Fans** to a fan group in **Settings**.

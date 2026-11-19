@@ -121,6 +121,7 @@ The image is `ghcr.io/anto294/hddfancontrol_webui`, with these tags:
 | `latest` | The latest stable release |
 | `X.Y` / `vX.Y.Z` | A given release |
 | `edge` | The `main` branch, built at every change |
+| `experimental` | The `experimental` branch: features under test, such as the [server fans through a BMC](docs/bmc.md). Checked like `main`, but not for everyday use |
 
 The container runs privileged, because it writes the PWM files of `/sys` and sends ATA commands to the drives. Without `privileged`, Docker mounts `/sys` read only: the web UI then shows a warning, works read only, and starts neither hddfancontrol nor hd-idle. The root file system can be read only, since everything the app keeps is in `/config`.
 

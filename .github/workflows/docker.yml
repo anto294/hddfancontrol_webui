@@ -1,9 +1,10 @@
 name: Docker image
 
 on:
-  # Every push to main publishes the "edge" tag.
+  # Every push to main publishes the "edge" tag, every push to experimental
+  # the "experimental" tag (features under test, see docs/bmc.md).
   push:
-    branches: [main]
+    branches: [main, experimental]
   # A published release publishes its version, and "latest" unless it is a
   # pre-release.
   release:
@@ -29,6 +30,17 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check the branch
+        if: github.event_name != 'release'
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          # Only main (edge) and experimental have an image tag.
+          if [[ "$REF" != refs/heads/main && "$REF" != refs/heads/experimental ]]; then
+            echo "::error::'$REF' publishes no image: run this workflow on main or experimental"
+            exit 1
+          fi
 
       - name: Validate the release tag
         if: github.event_name == 'release'
@@ -60,7 +72,8 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           flavor: latest=false
           tags: |
-            type=raw,value=edge,enable=${{ github.event_name != 'release' }}
+            type=raw,value=edge,enable=${{ github.event_name != 'release' && github.ref == 'refs/heads/main' }}
+            type=raw,value=experimental,enable=${{ github.event_name != 'release' && github.ref == 'refs/heads/experimental' }}
             type=raw,value=${{ github.event.release.tag_name }},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
@@ -71,7 +84,7 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          build-args: APP_VERSION=${{ github.event.release.tag_name || format('edge-{0}', github.sha) }}
+          build-args: APP_VERSION=${{ github.event.release.tag_name || format('{0}-{1}', github.ref == 'refs/heads/experimental' && 'experimental' || 'edge', github.sha) }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # A signed record of how the image was built, and the list of its packages.

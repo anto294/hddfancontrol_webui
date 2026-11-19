@@ -1,10 +1,11 @@
 name: CodeQL
 
 on:
+  # experimental is checked like main: it publishes an image too (docker.yml).
   push:
-    branches: [main]
+    branches: [main, experimental]
   pull_request:
-    branches: [main]
+    branches: [main, experimental]
   schedule:
     # Weekly, to pick up new CodeQL queries without a code change.
     - cron: "17 4 * * 1"
