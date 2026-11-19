@@ -86,10 +86,10 @@ body:
       value: |
         **Step 3, servers only** (the fans belong to a BMC). First make the BMC show on the host: `ls /dev/ipmi0`, and without it `modprobe ipmi_si ipmi_devintf`. Then read it with `ipmitool`, in one of these ways:
 
-        - **TrueNAS SCALE, Unraid and other systems where you install nothing:** a throw-away container, from the host's shell as root. It only sees `/dev/ipmi0`, and it is gone when it ends:
+        - **TrueNAS SCALE, Unraid and other systems where you install nothing:** a throw-away container, from the host's shell as root. It must be privileged to reach the BMC; the commands only read, and the container is gone when they end:
 
           ```sh
-          docker run --rm --device /dev/ipmi0 alpine:3.24 sh -c 'apk add -q ipmitool && ipmitool mc info && ipmitool sensor && ipmitool fru print 0 | grep -Ei "manufacturer|product name|board product"'
+          docker run --rm --privileged alpine:3.24 sh -c 'apk add -q ipmitool && ipmitool mc info && ipmitool sensor && ipmitool fru print 0 | grep -Ei "manufacturer|product name|board product"'
           ```
 
         - **Debian, Proxmox, Ubuntu:** `apt install ipmitool`, then:
