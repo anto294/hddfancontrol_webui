@@ -220,6 +220,8 @@ function errorText(error) {
 // ---------------------------------------------------------------------------
 
 function showTab(name) {
+  // The IPMI tab is there only with a BMC.
+  if (name === "ipmi" && !(state.status && state.status.bmc)) name = "overview";
   state.tab = name;
   for (const button of document.querySelectorAll("[data-tab]")) {
     button.setAttribute("aria-selected", String(button.dataset.tab === name));
@@ -239,6 +241,7 @@ function showTab(name) {
   if (name === "settings") renderSettings();
   if (name === "logs") renderLogs();
   if (name === "security") loadAuth();
+  if (name === "ipmi") loadIpmi();
   if (name === "fans" || name === "overview") pollHardware();
 }
 
@@ -493,30 +496,14 @@ function renderOverview() {
   renderBmc();
 }
 
-// EXPERIMENTAL: the BMC of a server (iDRAC, iLO): who drives its fans, its temperatures and fans.
+// EXPERIMENTAL: the BMC of a server (iDRAC, iLO): who drives its fans; the rest is in the IPMI tab (ipmi.js).
 function renderBmc() {
   const bmc = state.status.bmc;
   $("bmc-card").hidden = !bmc;
   if (!bmc) return;
   $("bmc-title").textContent = [bmc.name, bmc.product].filter(Boolean).join(" · ");
-  let text;
-  if (!bmc.drives_fans) text = t("bmc.read_only", { name: bmc.name });
-  else if (bmc.handback === "stale") text = t("bmc.stale", { name: bmc.name });
-  else if (bmc.handback) text = t("bmc.handback", { name: bmc.name, reason: bmc.handback });
-  else if (bmc.manual && bmc.percent !== null) text = t("bmc.manual", { percent: bmc.percent });
-  else text = t("bmc.auto", { name: bmc.name });
-  $("bmc-state").textContent = text;
+  $("bmc-state").textContent = bmcStateText(bmc);
   $("bmc-error").textContent = bmc.error ? t("bmc.error", { error: bmc.error }) : "";
-  const table = $("bmc-readings");
-  table.replaceChildren(
-    ...bmc.readings
-      .filter((reading) => reading.value !== null)
-      .map((reading) => {
-        const value = reading.kind === "temp" ? fmtTemp(reading.value) : reading.kind === "fan" ? fmtRpm(Math.round(reading.value)) : ltr(`${Math.round(reading.value)} %`);
-        const hot = reading.kind === "temp" && reading.status !== "ok" && reading.status !== "na" && reading.status !== "ns";
-        return row(reading.name, el("span", { class: hot ? "error" : "", text: value }));
-      }),
-  );
 }
 
 // An arrow when a drive got warmer or cooler by TREND_MIN_DELTA in TREND_SECONDS.
@@ -566,6 +553,7 @@ async function pollStatus() {
     renderOverview();
     renderFansState();
     renderPwmTest();
+    syncIpmi();
     wizardOnStatus();
   } catch (error) {
     if (error.message !== "unauthorized") $("banners").replaceChildren(banner("error", t("error.network")));

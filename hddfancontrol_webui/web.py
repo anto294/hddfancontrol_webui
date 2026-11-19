@@ -28,6 +28,7 @@ from typing import Any
 from aiohttp import web
 
 from .bays import BayError, Bays
+from .bmc import Bmc, BmcConfigError
 from .const import BMC_PWM, HEADER_CLIENT, HEADER_USER, HISTORY_MAX_HOURS, SOURCE_AUDIT, SOURCE_SENSORS, VERSION
 from .cron import CronError, parse, windows
 from .hardware import Hardware
@@ -59,8 +60,8 @@ STATE: web.AppKey[dict[str, Any]] = web.AppKey("state", dict)
 PEERS: web.AppKey[frozenset[int] | None] = web.AppKey("peers")
 AUDIT: web.AppKey[AuditLog] = web.AppKey("audit")
 LOAD_MODULES: web.AppKey[bool] = web.AppKey("load_modules", bool)
-# EXPERIMENTAL: what the BMC of a server does (bmc.Bmc.status), or None without one.
-BMC_STATUS: web.AppKey[Callable[[], dict[str, Any] | None]] = web.AppKey("bmc_status")
+# EXPERIMENTAL: the BMC of a server (bmc.Bmc), or None without one (BMC=false, tests).
+BMC: web.AppKey[Bmc | None] = web.AppKey("bmc")
 
 # The same change sent again within this many seconds (a slider, a script)
 # is counted instead of logged again.
@@ -184,12 +185,13 @@ async def get_status(request: web.Request) -> web.Response:
     data = app[SUPERVISOR].status()
     alerts = app[MONITOR].alerts
     report: SensorReport = app[STATE]["sensors"]
+    bmc = app[BMC]
     data.update(
         version=VERSION,
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
         alerts=alerts.status() if alerts is not None else [],
-        bmc=app[BMC_STATUS](),
+        bmc=bmc.status() if bmc is not None else None,
     )
     return web.json_response(data)
 
@@ -341,6 +343,37 @@ async def put_bays(request: web.Request) -> web.Response:
         _LOGGER.error("Cannot save the bay map: %s", err)
         return _json_error(500, "save_failed")
     return web.json_response(bays)
+
+
+# ---------------------------
+#   get_bmc
+# ---------------------------
+async def get_bmc(request: web.Request) -> web.Response:
+    """EXPERIMENTAL: the IPMI tab: the configuration of the BMC, the server found, the models and CPU profiles."""
+    bmc = request.app[BMC]
+    data = bmc.describe() if bmc is not None else None
+    if data is None:
+        return _json_error(404, "bmc_missing")
+    return web.json_response(data)
+
+
+# ---------------------------
+#   put_bmc
+# ---------------------------
+async def put_bmc(request: web.Request) -> web.Response:
+    """EXPERIMENTAL: store who drives the fans of the BMC and how. Fan control is not restarted."""
+    bmc = request.app[BMC]
+    if bmc is None or not bmc.present:
+        return _json_error(404, "bmc_missing")
+    data = await _read_json(request)
+    try:
+        config = await asyncio.to_thread(bmc.set_config, data)
+    except BmcConfigError as err:
+        return _json_error(400, err.problems[0]["code"], err.problems)
+    except OSError as err:
+        _LOGGER.error("Cannot save the BMC configuration: %s", err)
+        return _json_error(500, "save_failed")
+    return web.json_response(config.to_dict())
 
 
 # ---------------------------
@@ -706,7 +739,7 @@ def create_app(
     bays: Bays | None = None,
     peers: frozenset[int] | None = None,
     load_modules: bool = True,
-    bmc_status: Callable[[], dict[str, Any] | None] | None = None,
+    bmc: Bmc | None = None,
 ) -> web.Application:
     """Build the core API around parts that the caller starts and stops.
 
@@ -729,7 +762,7 @@ def create_app(
 
     app.on_cleanup.append(flush_audit)
     app[HARDWARE] = hardware
-    app[BMC_STATUS] = bmc_status or (lambda: None)
+    app[BMC] = bmc
     app[TEMP_LOG] = temp_log
     app[HISTORY] = history
     app[MONITOR] = monitor
@@ -751,6 +784,8 @@ def create_app(
     router.add_put("/api/labels", put_labels)
     router.add_get("/api/bays", get_bays)
     router.add_put("/api/bays", put_bays)
+    router.add_get("/api/bmc", get_bmc)
+    router.add_put("/api/bmc", put_bmc)
     router.add_get("/api/cron", get_cron)
     router.add_get("/api/settings", get_settings)
     router.add_put("/api/settings", put_settings)

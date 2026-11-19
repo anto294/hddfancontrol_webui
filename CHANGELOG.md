@@ -10,14 +10,19 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Added
 
 - **Experimental: server fans through the BMC** (`experimental` branch,
-  see `docs/bmc.md`). With `/dev/ipmi0`, the web UI reads the sensors of
-  the iDRAC, iLO or other BMC of the host and shows them on the overview.
-  On a Dell PowerEdge of the 12th or 13th generation (iDRAC 7/8, such as
-  the R730/R730xd) it can also drive the fans, as one output; they go back
-  to the iDRAC whenever the web UI lets them go, at start, while a BMC
-  temperature nears its limit and when its sensors cannot be read. HPE
-  iLO stays read only: HPE offers no way to set a fan speed. The image
-  now has `ipmitool`; `BMC=false` turns it off.
+  see `docs/bmc.md`). With `/dev/ipmi0`, a new **IPMI** tab shows the
+  iDRAC, iLO or other BMC of the host: the server model (found in the FRU
+  data, or chosen by brand and model, which sets a minimum speed to start
+  from), what drives the fans now and every sensor. On a Dell PowerEdge of
+  the 12th or 13th generation (iDRAC 7/8, such as the R730/R730xd) the web
+  UI can drive the fans instead of the iDRAC: they follow a CPU profile
+  (silent, normal, turbo or your own curve) and, when they belong to a fan
+  group, the drives too; the higher request wins. They go back to the
+  iDRAC at start and exit, while fan control has let them go, while a BMC
+  temperature nears its limit, and when its sensors or the processor
+  temperature cannot be read. HPE iLO stays read only: HPE offers no way
+  to set a fan speed. The image now has `ipmitool`; `BMC=false` turns it
+  off.
 
 ## [0.10.1] - 2026-11-18
 

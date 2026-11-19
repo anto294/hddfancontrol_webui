@@ -14,11 +14,29 @@ BMC over the network, and stores no BMC password.
 
 | Server | BMC | Fans | Sensors |
 | --- | --- | --- | --- |
-| Dell PowerEdge 12th and 13th generation (R620, R720, R630, R730, R730xd…) | iDRAC 7 / 8 | Driven by the web UI, as one output for every fan (**iDRAC · Fans**) | Shown |
+| Dell PowerEdge 12th and 13th generation (R620, R720, R630, R730, R730xd…) | iDRAC 7 / 8 | Left to the iDRAC, or driven by the web UI | Shown |
 | HPE ProLiant Gen8 / Gen9 / Gen10 (ML350, DL380…) | iLO 4 / 5 | Left to the iLO | Shown |
 | Any other server with IPMI | | Left to the BMC | Shown |
 
-The overview gets a card with what the BMC does and its temperatures and fans.
+Everything is in the **IPMI** tab, which shows only on a host with a BMC:
+
+- **Server**: the BMC and its firmware, and the server model, found in the FRU data
+  (`ipmitool fru print 0`) or chosen by brand and model. Choosing a model sets the
+  minimum speed to start from (20 % for an R730xd, 15 % for an R730…).
+- **Server fans** (Dell only): who drives them, the iDRAC (the default) or the web UI.
+  The web UI runs them at the highest of:
+  - the **minimum speed**;
+  - the **CPU profile**: silent (full speed from 85 °C), normal (80 °C), turbo
+    (75 °C) or custom (2 to 8 points of your own). It follows the processor
+    temperature of the host (coretemp, k10temp), else the processor sensors of the
+    BMC; it goes up at once and comes down by 1 % a second;
+  - the **drives**, when **iDRAC · Fans** belongs to a fan group in **Settings**: the
+    curve or auto mode of the web UI, with all its safety rules.
+- **Now**: what drives the fans and why, and what the processors and the drives ask.
+- **BMC sensors**: every temperature and fan, with its limit.
+
+The configuration lives in `/config/bmc.json`, apart from the settings: saving it
+never restarts fan control. The overview has a short card with the state of the BMC.
 
 ### Dell
 
@@ -30,10 +48,10 @@ ipmitool raw 0x30 0x30 0x02 0xff 0x14     # every fan at 0x14 = 20 %
 ipmitool raw 0x30 0x30 0x01 0x01          # the iDRAC drives them again
 ```
 
-The fans of the iDRAC show as one PWM output, chosen like any other in **Settings**
-or in the guided setup. They never stop, so they get no PWM test: their start and
-stop value is 38 (15 %) in the guided setup; set a higher one in **Settings → Fans**
-if the server complains at that speed.
+The fans of the iDRAC show as one PWM output, **iDRAC · Fans**, which can join a fan
+group like any other in **Settings** or in the guided setup. They never stop, so they
+get no PWM test: their start and stop value is 38 (15 %) in the guided setup. The
+minimum speed of the IPMI tab applies whatever the drives ask.
 
 Dell says nothing about these commands and may remove them: reports say they stopped
 working on 13th generation servers from iDRAC 8 firmware 3.30.30.30, and on 14th
@@ -57,13 +75,15 @@ While the web UI drives them, the iDRAC no longer cools the processors by itself
 the fans keep the last speed set until someone changes it. So the fans go back to the
 iDRAC:
 
-- whenever the web UI gives them back: stop, apply, exit (also with
-  `RESTORE_FAN_SETTINGS=false`), and at every start, since a run that was killed may
-  have left them in manual mode;
+- at every start, since a run that was killed may have left them in manual mode, and
+  at exit (also with `RESTORE_FAN_SETTINGS=false`);
+- while **iDRAC · Fans** belongs to a fan group and fan control has let them go (stop,
+  apply, settings not complete): the drives would not be followed;
 - while a temperature of the BMC is within 5 °C of its upper non-critical threshold
   (80 °C when the BMC gives none), or the BMC reports it as not ok; the web UI takes
   them again 3 °C lower;
-- when the sensors of the BMC cannot be read for 90 seconds.
+- when the sensors of the BMC cannot be read for 90 seconds, or no processor
+  temperature can be read.
 
 Full speed is never given back: the safety rules of the web UI (a drive at its
 maximum, temperatures that stop coming) put the fans of the iDRAC at 100 %, which
@@ -91,8 +111,9 @@ restarts it) or the server is power cycled. Keep the minimum speed reasonable.
    firmware does not allow it, and the web UI will show the BMC read only in practice.
 3. Run the image of the `experimental` branch, privileged as usual (a privileged
    container sees `/dev/ipmi0`). The log shows `[bmc] BMC found: iDRAC …`.
-4. Choose **iDRAC · Fans** in the guided setup or in **Settings**, and watch the
-   **Control** card and the BMC card of the overview.
+4. Open the **IPMI** tab: check the model, choose **Web UI** and a CPU profile, save,
+   and watch **Now** and the fans. To make them follow the drives too, add
+   **iDRAC · Fans** to a fan group in **Settings**.
 
 `BMC=false` turns the whole thing off; `IPMITOOL_BIN` names another `ipmitool`.
 

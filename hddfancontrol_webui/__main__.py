@@ -25,6 +25,7 @@ from .alerts import Alerts
 from .bays import Bays
 from .bmc import IPMITOOL_BIN, Bmc
 from .const import (
+    BMC_PWM,
     DEFAULT_CONFIG_DIR,
     HDDFANCONTROL_BIN,
     HDIDLE_BIN,
@@ -104,7 +105,7 @@ def build() -> Core:
     temp_log = TempLog(temp_log_path)
     # EXPERIMENTAL: the BMC of the host, through /dev/ipmi0; BMC=false leaves it alone.
     bmc = (
-        Bmc(os.environ.get("IPMITOOL_BIN", IPMITOOL_BIN), log=lambda text: logs.add(SOURCE_BMC, text))
+        Bmc(os.environ.get("IPMITOOL_BIN", IPMITOOL_BIN), log=lambda text: logs.add(SOURCE_BMC, text), config_dir=config_dir)
         if env_flag(os.environ, "BMC", True)
         else None
     )
@@ -130,6 +131,11 @@ def build() -> Core:
         hardware=hardware,
         on_pwm_moved=labels.move,
     )
+    if bmc is not None:
+        # The CPU curve of a Dell follows the processors of the host; the
+        # fans go back to the iDRAC while fan control has given them back.
+        bmc.host_cpu_temp = hardware.cpu_temp
+        bmc.in_group = lambda: any(pwm.path == BMC_PWM for pwm in supervisor.settings.pwms)
     history = History(config_dir / HISTORY_DB)
     smartctl = env.get("SMARTCTL_BIN", SMARTCTL_BIN)
 
@@ -187,7 +193,7 @@ def build() -> Core:
         Bays(config_dir),
         peers=peers,
         load_modules=load_modules,
-        bmc_status=bmc.status if bmc is not None else None,
+        bmc=bmc,
     )
 
     async def lifecycle(app: web.Application) -> AsyncIterator[None]:

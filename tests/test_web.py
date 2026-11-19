@@ -16,6 +16,7 @@ from aiohttp.test_utils import TestClient
 from conftest import ScriptMaker
 
 from hddfancontrol_webui.alerts import Alerts
+from hddfancontrol_webui.bmc import Bmc
 from hddfancontrol_webui.const import BMC_PWM
 from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.hardware import Hardware
@@ -41,7 +42,7 @@ ClientMaker = Callable[..., Awaitable[Client]]
 def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker) -> ClientMaker:
     """Build a client on an app with fake hardware and programs."""
 
-    async def make(peers: frozenset[int] | None = None, load_modules: bool = True) -> Client:
+    async def make(peers: frozenset[int] | None = None, load_modules: bool = True, bmc: Bmc | None = None) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
         log_path = config / "templog" / "temps.jsonl"
@@ -73,7 +74,16 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
             return SensorReport(state="done")
 
         app = create_app(
-            supervisor, hardware, temp_log, history, monitor, Labels(config), scan, peers=peers, load_modules=load_modules
+            supervisor,
+            hardware,
+            temp_log,
+            history,
+            monitor,
+            Labels(config),
+            scan,
+            peers=peers,
+            load_modules=load_modules,
+            bmc=bmc,
         )
 
         async def stop(app: web.Application) -> None:
@@ -484,3 +494,32 @@ async def test_bmc_in_the_api(make_client: ClientMaker, monkeypatch: pytest.Monk
     monkeypatch.setattr(hardware, "pwm_paths", lambda: {PWM1, BMC_PWM})
     response = await client.post("/api/pwm-test", json={"paths": [PWM1, BMC_PWM]}, headers=FETCH)
     assert response.status == 400 and (await response.json())["error"] == "bmc_no_test"
+    assert (await client.get("/api/bmc")).status == 404
+    assert (await client.put("/api/bmc", json={}, headers=FETCH)).status == 404
+
+
+async def test_bmc_configuration(make_client: ClientMaker, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The IPMI tab reads and stores the configuration of a BMC; a bad one gets its problems."""
+    bmc = Bmc(config_dir=tmp_path)
+    monkeypatch.setattr(bmc, "present", True)
+    monkeypatch.setattr(bmc, "vendor", "dell")
+    client = await make_client(bmc=bmc)
+    status = await (await client.get("/api/status")).json()
+    assert status["bmc"]["name"] == "iDRAC" and not status["bmc"]["drives_fans"]
+    data = await (await client.get("/api/bmc")).json()
+    assert data["config"]["control"] == "bmc" and data["profiles"]["normal"]
+    response = await client.put("/api/bmc", json={"model": "dell-r730", "control": "webui", "min_percent": 15}, headers=FETCH)
+    assert response.status == 200 and (await response.json())["model"] == "dell-r730"
+    assert bmc.drives_fans and (tmp_path / "bmc.json").exists()
+    response = await client.put("/api/bmc", json={"model": "hpe-ml350-gen9"}, headers=FETCH)
+    assert response.status == 400 and (await response.json())["error"] == "bmc_model_vendor"
+    response = await client.put("/api/bmc", json={"min_percent": 1}, headers=FETCH)
+    body = await response.json()
+    assert response.status == 400 and body["problems"][0]["field"] == "min_percent"
+
+    def broken(_data: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(bmc, "set_config", broken)
+    response = await client.put("/api/bmc", json={}, headers=FETCH)
+    assert response.status == 500

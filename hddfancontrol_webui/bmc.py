@@ -9,41 +9,58 @@ modules ipmi_si and ipmi_devintf), with ipmitool, never over the network.
   driven. Dell's undocumented OEM commands take fan control from the iDRAC
   (raw 0x30 0x30 0x01 0x00), set every fan to a percentage
   (raw 0x30 0x30 0x02 0xff <percent>) and give control back
-  (raw 0x30 0x30 0x01 0x01). They show as one PWM output, BMC_PWM.
+  (raw 0x30 0x30 0x01 0x01).
 - HPE (iLO 4/5) and any other BMC: read only. HPE offers no way to set a
   fan speed; the temperatures and fan speeds of the BMC are shown.
 
-Safety. While the web UI drives them, the iDRAC no longer cools the
-processors by itself, and the fans keep the last speed set until someone
-changes it. So control goes back to the iDRAC (its own automatic mode):
-- whenever the web UI gives the fans back (stop, apply, exit), at start
-  (a run that was killed may have left them in manual mode), and when
-  the sensors cannot be read for STALE_S;
+The server model (MODELS, found in the FRU data or chosen in the IPMI tab)
+gives the minimum speed to start from and the sensors of the processors.
+Its configuration (/config/bmc.json, apart from the settings: changing it
+never restarts fan control) says who drives the fans of a Dell: the iDRAC
+(the default) or the web UI. The web UI runs them at the highest of the
+minimum speed, the CPU curve (a profile, or the user's own points) and
+what the drives of their fan group ask (BMC_PWM, written by the fan
+controller). The CPU curve follows the processor temperature of the host
+(coretemp, k10temp), else the processor sensors of the BMC; it goes up at
+once and down by CPU_STEP_DOWN percent a second.
+
+Safety. While the web UI drives them, the iDRAC no longer cools anything by
+itself, and the fans keep the last speed set until someone changes it. So
+control goes back to the iDRAC (its own automatic mode):
+- at start (a run that was killed may have left them in manual mode) and
+  at close, whatever the settings;
+- while the fans belong to a fan group and the fan controller has given
+  them back (stop, apply, fan control not running);
+- when the sensors of the BMC cannot be read for STALE_S, or no processor
+  temperature is known;
 - while a temperature of the BMC is within HANDBACK_MARGIN of its upper
   non-critical threshold (or above FALLBACK_LIMIT when the BMC gives
   none), or the BMC reports it as not ok; it is taken again
-  HANDBACK_HYSTERESIS degrees lower. Full speed (255) is always applied:
-  it cools everything.
+  HANDBACK_HYSTERESIS degrees lower. Full speed is always applied: it
+  cools everything.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import shutil
 import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .aio import cancel_and_wait
 from .const import BMC_PWM, BMC_TEMP_PREFIX
 from .hardware import HwmonDevice, PwmOutput, TempInput
+from .storage import write_atomic
 
 IPMI_DEVICE = Path("/dev/ipmi0")
 IPMITOOL_BIN = "ipmitool"
+BMC_FILE = "bmc.json"
 DELL = "dell"
 HPE = "hpe"
 # IANA enterprise numbers in "Manufacturer ID" of "ipmitool mc info".
@@ -54,8 +71,12 @@ TIMEOUT_S = 10.0
 # control goes back to the BMC.
 POLL_S = 30.0
 STALE_S = 3 * POLL_S
-# How often a new speed asked by the fan controller is sent.
+# How often the speed is worked out (processor temperature, what the fan
+# controller asks) and sent when it changed.
 APPLY_S = 1.0
+# How fast the CPU curve comes down, in percent per APPLY_S: a load that
+# comes and goes does not make the fans come and go.
+CPU_STEP_DOWN = 1.0
 HANDBACK_MARGIN = 5.0
 HANDBACK_HYSTERESIS = 3.0
 FALLBACK_LIMIT = 80.0
@@ -65,7 +86,64 @@ DELL_MANUAL = ("raw", "0x30", "0x30", "0x01", "0x00")
 DELL_AUTO = ("raw", "0x30", "0x30", "0x01", "0x01")
 DELL_SPEED = ("raw", "0x30", "0x30", "0x02", "0xff")
 
+CONTROLS = ("bmc", "webui")
+PROFILES: dict[str, tuple[tuple[float, float], ...]] = {
+    # Processor temperature (°C) -> fan speed (%), straight lines in between;
+    # below the first point the first speed, never under the minimum speed.
+    "silent": ((50, 0), (65, 20), (75, 45), (85, 100)),
+    "normal": ((45, 0), (60, 25), (70, 50), (80, 100)),
+    "turbo": ((40, 20), (55, 45), (65, 75), (75, 100)),
+}
+CUSTOM = "custom"
+CURVE_POINTS = (2, 8)
+CURVE_TEMPS = (20.0, 105.0)
+MIN_PERCENT = (5, 100)
+
 Log = Callable[[str], None]
+
+
+# ---------------------------
+#   Model
+# ---------------------------
+@dataclass(frozen=True)
+class Model:
+    """A server: its BMC vendor, whether the web UI can drive its fans, where to start.
+
+    min_percent is a cautious starting point for the minimum speed (more
+    drives, more air); cpu_sensors are the names of the processor
+    temperatures of its BMC, used when the host shows none.
+    """
+
+    id: str
+    vendor: str | None
+    name: str
+    control: bool
+    min_percent: int = 20
+    cpu_sensors: tuple[str, ...] = ()
+
+
+_DELL_CPU = ("Temp", "CPU1 Temp", "CPU2 Temp")
+_HPE_CPU = ("02-CPU 1", "03-CPU 2")
+MODELS: dict[str, Model] = {
+    model.id: model
+    for model in (
+        Model("dell-r620", DELL, "PowerEdge R620", True, 15, _DELL_CPU),
+        Model("dell-r720", DELL, "PowerEdge R720", True, 15, _DELL_CPU),
+        Model("dell-r720xd", DELL, "PowerEdge R720xd", True, 20, _DELL_CPU),
+        Model("dell-t620", DELL, "PowerEdge T620", True, 10, _DELL_CPU),
+        Model("dell-r630", DELL, "PowerEdge R630", True, 15, _DELL_CPU),
+        Model("dell-r730", DELL, "PowerEdge R730", True, 15, _DELL_CPU),
+        Model("dell-r730xd", DELL, "PowerEdge R730xd", True, 20, _DELL_CPU),
+        Model("dell-t630", DELL, "PowerEdge T630", True, 10, _DELL_CPU),
+        Model("dell-other", DELL, "PowerEdge", True, 20, _DELL_CPU),
+        Model("hpe-ml350-gen9", HPE, "ProLiant ML350 Gen9", False, cpu_sensors=_HPE_CPU),
+        Model("hpe-ml350-gen10", HPE, "ProLiant ML350 Gen10", False, cpu_sensors=_HPE_CPU),
+        Model("hpe-dl380-gen9", HPE, "ProLiant DL380 Gen9", False, cpu_sensors=_HPE_CPU),
+        Model("hpe-dl380-gen10", HPE, "ProLiant DL380 Gen10", False, cpu_sensors=_HPE_CPU),
+        Model("hpe-other", HPE, "ProLiant", False, cpu_sensors=_HPE_CPU),
+        Model("other", None, "", False),
+    )
+}
 
 
 # ---------------------------
@@ -73,6 +151,167 @@ Log = Callable[[str], None]
 # ---------------------------
 class BmcError(Exception):
     """ipmitool failed, timed out or is missing."""
+
+
+# ---------------------------
+#   BmcConfigError
+# ---------------------------
+class BmcConfigError(ValueError):
+    """A configuration that cannot be used: problems like those of the settings ({field, code, params})."""
+
+    def __init__(self, problems: list[dict[str, Any]]) -> None:
+        """Keep the problems."""
+        self.problems = problems
+        super().__init__(", ".join(p["code"] for p in problems))
+
+
+# ---------------------------
+#   BmcConfig
+# ---------------------------
+@dataclass(frozen=True)
+class BmcConfig:
+    """Who drives the fans, and how: the model ("" found by itself), the CPU profile and its curve."""
+
+    model: str = ""
+    control: str = "bmc"
+    profile: str = "normal"
+    curve: tuple[tuple[float, float], ...] = PROFILES["normal"]
+    min_percent: int = 20
+
+    def points(self) -> tuple[tuple[float, float], ...]:
+        """The CPU curve in use: the profile's, or the user's own."""
+        return self.curve if self.profile == CUSTOM else PROFILES[self.profile]
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-ready data, the shape check_config reads."""
+        data = asdict(self)
+        data["curve"] = [list(point) for point in self.curve]
+        return data
+
+
+# ---------------------------
+#   _Problems
+# ---------------------------
+class _Problems:
+    """Collect the problems of a configuration."""
+
+    def __init__(self) -> None:
+        """No problem yet."""
+        self.items: list[dict[str, Any]] = []
+
+    def add(self, field_name: str, code: str, **params: Any) -> None:
+        """Record a problem."""
+        self.items.append({"field": field_name, "code": code, "params": params})
+
+
+# ---------------------------
+#   _number_in
+# ---------------------------
+def _number_in(value: Any, low: float, high: float) -> float | None:
+    """A number between low and high, or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if low <= number <= high else None
+
+
+# ---------------------------
+#   check_config
+# ---------------------------
+def check_config(data: Any) -> BmcConfig:
+    """Check a configuration document; BmcConfigError with every problem found."""
+    if not isinstance(data, Mapping):
+        raise BmcConfigError([{"field": "", "code": "invalid_document", "params": {}}])
+    check = _Problems()
+    defaults = BmcConfig()
+    model = data.get("model", defaults.model)
+    if model != "" and model not in MODELS:
+        check.add("model", "invalid_choice", choices=", ".join(MODELS))
+    control = data.get("control", defaults.control)
+    if control not in CONTROLS:
+        check.add("control", "invalid_choice", choices=", ".join(CONTROLS))
+    profile = data.get("profile", defaults.profile)
+    if profile not in (*PROFILES, CUSTOM):
+        check.add("profile", "invalid_choice", choices=", ".join((*PROFILES, CUSTOM)))
+    min_percent = data.get("min_percent", defaults.min_percent)
+    if (
+        isinstance(min_percent, bool)
+        or not isinstance(min_percent, int)
+        or not MIN_PERCENT[0] <= min_percent <= MIN_PERCENT[1]
+    ):
+        check.add("min_percent", "out_of_range", min=MIN_PERCENT[0], max=MIN_PERCENT[1])
+    curve = _check_curve(check, data.get("curve", [list(p) for p in defaults.curve]))
+    if check.items:
+        raise BmcConfigError(check.items)
+    return BmcConfig(str(model), str(control), str(profile), curve, int(min_percent))
+
+
+# ---------------------------
+#   _check_curve
+# ---------------------------
+def _check_curve(check: _Problems, value: Any) -> tuple[tuple[float, float], ...]:
+    """Read the user's CPU curve: CURVE_POINTS points [°C, %], warmer and not slower each time."""
+    if not isinstance(value, (list, tuple)) or not CURVE_POINTS[0] <= len(value) <= CURVE_POINTS[1]:
+        check.add("curve", "curve_points", min=CURVE_POINTS[0], max=CURVE_POINTS[1])
+        return ()
+    points: list[tuple[float, float]] = []
+    for index, point in enumerate(value):
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            check.add(f"curve.{index}", "invalid_document")
+            return ()
+        temp = _number_in(point[0], *CURVE_TEMPS)
+        percent = _number_in(point[1], 0, 100)
+        if temp is None:
+            check.add(f"curve.{index}.0", "out_of_range", min=CURVE_TEMPS[0], max=CURVE_TEMPS[1])
+            return ()
+        if percent is None:
+            check.add(f"curve.{index}.1", "out_of_range", min=0, max=100)
+            return ()
+        if points and (temp <= points[-1][0] or percent < points[-1][1]):
+            check.add(f"curve.{index}", "curve_order")
+            return ()
+        points.append((temp, percent))
+    return tuple(points)
+
+
+# ---------------------------
+#   curve_percent
+# ---------------------------
+def curve_percent(points: tuple[tuple[float, float], ...], temp: float) -> float:
+    """The fan speed (%) of a curve at a temperature: straight lines between the points, flat outside."""
+    if temp <= points[0][0]:
+        return points[0][1]
+    for (t1, p1), (t2, p2) in zip(points, points[1:], strict=False):
+        if temp <= t2:
+            return p1 + (p2 - p1) * (temp - t1) / (t2 - t1)
+    return points[-1][1]
+
+
+# ---------------------------
+#   detect_model
+# ---------------------------
+def detect_model(vendor: str | None, product: str) -> str:
+    """The model whose name is in the product name of the FRU data, else the vendor's other model."""
+    text = product.lower()
+    found = [m for m in MODELS.values() if m.vendor == vendor and m.name and m.name.lower() in text]
+    if found:
+        return max(found, key=lambda m: len(m.name)).id
+    return {DELL: "dell-other", HPE: "hpe-other"}.get(vendor or "", "other")
+
+
+# ---------------------------
+#   catalogue
+# ---------------------------
+def catalogue() -> dict[str, Any]:
+    """The models and the CPU profiles, for the IPMI tab."""
+    return {
+        "models": [
+            {"id": m.id, "vendor": m.vendor, "name": m.name, "control": m.control, "min_percent": m.min_percent}
+            for m in MODELS.values()
+        ],
+        "profiles": {name: [list(point) for point in points] for name, points in PROFILES.items()},
+        "limits": {"points": list(CURVE_POINTS), "temps": list(CURVE_TEMPS), "min_percent": list(MIN_PERCENT)},
+    }
 
 
 # ---------------------------
@@ -131,21 +370,28 @@ def parse_sensors(text: str) -> list[Reading]:
 
 
 # ---------------------------
+#   parse_fields
+# ---------------------------
+def parse_fields(text: str) -> dict[str, str]:
+    """The 'key : value' lines of ipmitool (mc info, fru print), keys in lower case; the first one wins."""
+    fields: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            fields.setdefault(key.strip().lower(), value.strip())
+    return fields
+
+
+# ---------------------------
 #   parse_vendor
 # ---------------------------
 def parse_vendor(text: str) -> tuple[str | None, str]:
     """The vendor (dell, hpe or None) and the product name in the output of 'ipmitool mc info'."""
+    fields = parse_fields(text)
     vendor: str | None = None
-    product = ""
-    for line in text.splitlines():
-        key, _, value = line.partition(":")
-        key, value = key.strip().lower(), value.strip()
-        if key == "manufacturer id":
-            with contextlib.suppress(ValueError):
-                vendor = VENDORS.get(int(value.split()[0]))
-        elif key == "product name":
-            product = value
-    return vendor, product
+    with contextlib.suppress(ValueError, IndexError):
+        vendor = VENDORS.get(int(fields.get("manufacturer id", "").split()[0]))
+    return vendor, fields.get("product name", "")
 
 
 # ---------------------------
@@ -191,20 +437,41 @@ class _State:
     error: str | None = None
     readings: list[Reading] = field(default_factory=list)
     read_at: float | None = None
+    cpu_temp: float | None = None
+    cpu_percent: float | None = None
 
 
 class Bmc:
     """The BMC of the host: its sensors, and its fans on a Dell server."""
 
-    def __init__(self, program: str = IPMITOOL_BIN, device: Path = IPMI_DEVICE, log: Log | None = None) -> None:
-        """Use program (ipmitool) on device (/dev/ipmi0); log what changes with log."""
+    def __init__(
+        self,
+        program: str = IPMITOOL_BIN,
+        device: Path = IPMI_DEVICE,
+        log: Log | None = None,
+        config_dir: Path | None = None,
+        cpu_temp: Callable[[], float | None] | None = None,
+        in_group: Callable[[], bool] | None = None,
+    ) -> None:
+        """Use program (ipmitool) on device (/dev/ipmi0); log what changes with log.
+
+        config_dir holds bmc.json (None: the configuration is not kept);
+        cpu_temp reads the processor temperature of the host (blocking);
+        in_group says whether BMC_PWM belongs to a fan group of the settings.
+        """
         self._program = program
         self._device = device
         self._log = log or (lambda _text: None)
+        self._path = config_dir / BMC_FILE if config_dir is not None else None
+        self.host_cpu_temp = cpu_temp or (lambda: None)
+        self.in_group = in_group or (lambda: False)
         self.vendor: str | None = None
         self.product = ""
+        self.firmware = ""
+        self.detected = "other"
         self.present = False
         self.state = _State()
+        self.config = self._load()
         # The fan controller writes from the event loop or from a worker
         # thread; the loop of this class sends what it asked.
         self._lock = threading.Lock()
@@ -212,15 +479,49 @@ class Bmc:
         self._task: asyncio.Task[None] | None = None
         self._clock: Callable[[], float] = time.monotonic
 
+    def _load(self) -> BmcConfig:
+        """Read bmc.json, or start from the defaults (the iDRAC keeps its fans)."""
+        if self._path is None:
+            return BmcConfig()
+        try:
+            return check_config(json.loads(self._path.read_text(encoding="utf-8")))
+        except FileNotFoundError:
+            return BmcConfig()
+        except Exception as err:  # unreadable or refused: never a failed start, the iDRAC keeps its fans
+            self._log(f"ERROR: cannot read {self._path}, the BMC keeps its fans: {err!r}")
+            return BmcConfig()
+
     @property
     def name(self) -> str:
         """iDRAC, iLO or BMC."""
         return VENDOR_NAMES.get(self.vendor or "", "BMC")
 
     @property
+    def model(self) -> Model:
+        """The model chosen, else the one found."""
+        return MODELS[self.config.model or self.detected]
+
+    @property
     def can_drive(self) -> bool:
         """Whether the web UI can set the speed of the fans of this BMC."""
-        return self.present and self.vendor == DELL
+        return self.present and self.vendor == DELL and self.model.vendor == DELL and self.model.control
+
+    @property
+    def drives_fans(self) -> bool:
+        """Whether the web UI is asked to drive the fans (not whether it does now)."""
+        return self.can_drive and self.config.control == "webui"
+
+    def set_config(self, data: Any) -> BmcConfig:
+        """Check and keep a new configuration; it is used within APPLY_S. Blocking (writes bmc.json)."""
+        config = check_config(data)
+        model = MODELS[config.model] if config.model else None
+        if self.present and model is not None and model.vendor is not None and model.vendor != self.vendor:
+            raise BmcConfigError([{"field": "model", "code": "bmc_model_vendor", "params": {"name": self.name}}])
+        if self._path is not None:
+            write_atomic(self._path, json.dumps(config.to_dict(), indent=2) + "\n")
+        with self._lock:
+            self.config = config
+        return config
 
     async def _run(self, *args: str) -> str:
         """Run ipmitool with args and return its output; BmcError on failure."""
@@ -243,21 +544,29 @@ class Bmc:
         return out.decode(errors="replace")
 
     async def start(self) -> None:
-        """Find the BMC, give a Dell its fans back and start reading the sensors.
+        """Find the BMC and the server, give a Dell its fans back and start reading the sensors.
 
         Nothing happens without /dev/ipmi0 or ipmitool: most hosts have no BMC.
         """
         if not self._device.exists() or shutil.which(self._program) is None:
             return
         try:
-            self.vendor, self.product = parse_vendor(await self._run("mc", "info"))
+            info = await self._run("mc", "info")
         except BmcError as err:
             self._log(f"WARNING: {self._device} is there, but the BMC does not answer: {err}")
             return
+        self.vendor, self.product = parse_vendor(info)
+        self.firmware = parse_fields(info).get("firmware revision", "")
+        # The server's own name (PowerEdge R730xd) is in the FRU data; the BMC's (iDRAC8) is the fallback.
+        with contextlib.suppress(BmcError):
+            fru = parse_fields(await self._run("fru", "print", "0"))
+            self.product = fru.get("product name") or fru.get("board product") or self.product
+        self.detected = detect_model(self.vendor, self.product)
         self.present = True
         what = "its fans can be driven (experimental)" if self.can_drive else "read only"
-        self._log(f"BMC found: {self.name} {self.product}".rstrip() + f", {what}")
-        if self.can_drive:
+        found = " ".join(part for part in (self.name, self.firmware, "on", self.product) if part)
+        self._log(f"BMC found: {found}, {what}")
+        if self.vendor == DELL:
             await self._auto()
         await self._poll()
         self._task = asyncio.create_task(self._loop(), name="bmc")
@@ -267,28 +576,28 @@ class Bmc:
         if self._task is not None:
             await cancel_and_wait(self._task)
             self._task = None
-        if self.can_drive and self.state.manual:
+        if self.vendor == DELL and self.state.manual:
             await self._auto()
 
     def write(self, value: int) -> None:
-        """Ask for this PWM value (0-255) on every fan; sent within APPLY_S."""
+        """What the drives of the fan group ask: a PWM value (0-255) on every fan."""
         with self._lock:
             self._desired = max(0, min(PWM_MAX, int(value)))
 
     def release(self) -> None:
-        """Give the fans back to the BMC; sent within APPLY_S, and at close."""
+        """The fan controller gives the fans back: the iDRAC takes them while they belong to a fan group."""
         with self._lock:
             self._desired = None
 
     async def _loop(self) -> None:
-        """Send what the fan controller asks, read the sensors every POLL_S."""
+        """Work out and send the speed every APPLY_S, read the sensors every POLL_S."""
         next_poll = self._clock() + POLL_S
         while True:
             await asyncio.sleep(APPLY_S)
             if self._clock() >= next_poll:
                 await self._poll()
                 next_poll = self._clock() + POLL_S
-            if self.can_drive:
+            if self.vendor == DELL:
                 await self._apply()
 
     async def _poll(self) -> None:
@@ -306,6 +615,34 @@ class Bmc:
         self.state.readings = readings
         self.state.read_at = self._clock()
 
+    def _cpu_temp(self) -> float | None:
+        """The processor temperature: the host's, else the hottest processor sensor of the BMC. Blocking."""
+        try:
+            temp = self.host_cpu_temp()
+        except Exception:  # an unreadable /sys file: the BMC's sensors are there for that
+            temp = None
+        if temp is not None:
+            return temp
+        names = self.model.cpu_sensors
+        found = [
+            r.value
+            for r in self.state.readings
+            if r.kind == "temp" and r.value is not None and (r.name in names or "cpu" in r.name.lower())
+        ]
+        return max(found) if found else None
+
+    def _cpu_level(self, temp: float | None) -> float | None:
+        """The speed the CPU curve asks, up at once and down by CPU_STEP_DOWN; None without a temperature."""
+        self.state.cpu_temp = temp
+        if temp is None:
+            self.state.cpu_percent = None
+            return None
+        wanted = curve_percent(self.config.points(), temp)
+        before = self.state.cpu_percent
+        level = wanted if before is None or wanted >= before else max(wanted, before - CPU_STEP_DOWN)
+        self.state.cpu_percent = level
+        return level
+
     def _handback_reason(self) -> str | None:
         """Why control must stay with the BMC now, or None."""
         if self.state.read_at is None or self._clock() - self.state.read_at > STALE_S:
@@ -313,27 +650,38 @@ class Bmc:
         hot = hot_sensor(self.state.readings, self.state.handback is not None)
         return None if hot is None else f"{hot.name} {hot.value:g} °C"
 
+    def _target(self, desired: int | None, cpu: float | None) -> tuple[int | None, str | None]:
+        """The speed to send (None: the iDRAC drives) and why the iDRAC has them, if it should."""
+        if not self.drives_fans:
+            return None, None
+        if desired is None and self.in_group():
+            # The fan controller is not running: the drives would not be followed.
+            return None, None
+        drives = percent_of(desired) if desired is not None else 0
+        if drives >= 100:
+            # Full speed is never handed back: it cools everything.
+            return 100, None
+        if cpu is None:
+            return None, "no_cpu_temp"
+        percent = round(max(self.config.min_percent, cpu, drives))
+        return percent, (self._handback_reason() if percent < 100 else None)
+
     async def _apply(self) -> None:
-        """Bring the fans to what is asked, or back to the iDRAC when the rules say so."""
+        """Bring the fans to the speed asked, or back to the iDRAC when the rules say so."""
         with self._lock:
             desired = self._desired
-        if desired is None:
-            reason = None
-            self.state.handback = None
-        else:
-            # Full speed is never handed back: it cools everything.
-            reason = self._handback_reason() if desired < PWM_MAX else None
-            if reason is not None and self.state.handback is None:
-                self._log(f"The fans go back to the {self.name}: {reason}")
-            elif reason is None and self.state.handback is not None:
-                self._log(f"The web UI drives the fans again (the {self.name} temperatures are back in range)")
-            self.state.handback = reason
+        cpu = self._cpu_level(await asyncio.to_thread(self._cpu_temp)) if self.drives_fans else None
+        percent, reason = self._target(desired, cpu)
+        if reason is not None and self.state.handback is None:
+            self._log(f"The fans go back to the {self.name}: {reason}")
+        elif reason is None and self.state.handback is not None:
+            self._log(f"The web UI drives the fans again ({self.state.handback} is over)")
+        self.state.handback = reason
         try:
-            if desired is None or reason is not None:
+            if percent is None or reason is not None:
                 if self.state.manual:
                     await self._auto()
                 return
-            percent = percent_of(desired)
             if not self.state.manual:
                 await self._run(*DELL_MANUAL)
                 self.state.manual = True
@@ -386,12 +734,21 @@ class Bmc:
         """What the status of the web UI shows about the BMC, or None without one."""
         if not self.present:
             return None
+        with self._lock:
+            desired = self._desired
         return {
             "name": self.name,
             "product": self.product,
-            "drives_fans": self.can_drive,
+            "firmware": self.firmware,
+            "model": self.model.id,
+            "can_drive": self.can_drive,
+            "drives_fans": self.drives_fans,
+            "in_group": self.in_group(),
             "manual": self.state.manual,
             "percent": self.state.percent,
+            "cpu_temp": self.state.cpu_temp,
+            "cpu_percent": None if self.state.cpu_percent is None else round(self.state.cpu_percent),
+            "drives_percent": None if desired is None else percent_of(desired),
             "handback": self.state.handback,
             "error": self.state.error,
             "readings": [
@@ -399,3 +756,9 @@ class Bmc:
                 for r in self.state.readings
             ],
         }
+
+    def describe(self) -> dict[str, Any] | None:
+        """The IPMI tab's data: the configuration, the model found, the catalogue; None without a BMC."""
+        if not self.present:
+            return None
+        return {"config": self.config.to_dict(), "detected": self.detected, "vendor": self.vendor, **catalogue()}

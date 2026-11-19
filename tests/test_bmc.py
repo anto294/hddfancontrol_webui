@@ -14,9 +14,15 @@ from hddfancontrol_webui.bmc import (
     BMC_PWM,
     DELL,
     HPE,
+    PROFILES,
     STALE_S,
     Bmc,
+    BmcConfigError,
     Reading,
+    catalogue,
+    check_config,
+    curve_percent,
+    detect_model,
     hot_sensor,
     parse_sensors,
     parse_vendor,
@@ -56,18 +62,20 @@ Power Supply 1   | 80         | Watts      | ok    | na        | na        | na 
 class FakeIpmi:
     """A fake ipmitool: records its arguments, answers from files of a folder."""
 
-    def __init__(self, folder: Path, info: str, sensors: str) -> None:
+    def __init__(self, folder: Path, info: str, sensors: str, fru: str = "") -> None:
         """Write the program and its answers in folder."""
         self.folder = folder
         self.calls = folder / "calls"
         (folder / "mcinfo").write_text(info)
         (folder / "sensor").write_text(sensors)
+        (folder / "fru").write_text(fru)
         self.program = folder / "ipmitool"
         self.program.write_text(
             "#!/bin/sh\n"
             f'echo "$*" >> "{self.calls}"\n'
             'case "$1" in\n'
             f'  mc) cat "{folder}/mcinfo" ;;\n'
+            f'  fru) if [ ! -s "{folder}/fru" ]; then echo "no FRU" >&2; exit 1; fi; cat "{folder}/fru" ;;\n'
             f'  sensor) if [ -f "{folder}/fail_sensor" ]; then echo boom >&2; exit 1; fi; cat "{folder}/sensor" ;;\n'
             f'  raw) if [ -f "{folder}/fail_raw" ]; then echo "Invalid command" >&2; exit 1; fi ;;\n'
             "esac\n"
@@ -93,11 +101,40 @@ class FakeIpmi:
             flag.unlink(missing_ok=True)
 
 
-def make(tmp_path: Path, info: str = DELL_INFO, sensors: str = DELL_SENSORS) -> tuple[Bmc, FakeIpmi, list[str]]:
-    """A Bmc on a fake ipmitool, and the lines it logged."""
-    fake = FakeIpmi(tmp_path, info, sensors)
+DELL_FRU = """FRU Device Description : Builtin FRU Device (ID 0)
+ Board Mfg             : DELL
+ Board Product         : PowerEdge R730xd
+ Product Manufacturer  : DELL
+ Product Name          : PowerEdge R730xd
+"""
+WEBUI = {"control": "webui", "profile": "normal", "min_percent": 20}
+
+
+def make(
+    tmp_path: Path,
+    info: str = DELL_INFO,
+    sensors: str = DELL_SENSORS,
+    fru: str = DELL_FRU,
+    cpu: list[float | None] | None = None,
+    group: list[bool] | None = None,
+) -> tuple[Bmc, FakeIpmi, list[str]]:
+    """A Bmc on a fake ipmitool, and the lines it logged; cpu[0] is the host's processor temperature, group[0] whether BMC_PWM has a fan group."""
+    fake = FakeIpmi(tmp_path, info, sensors, fru)
     logged: list[str] = []
-    return Bmc(str(fake.program), fake.device, logged.append), fake, logged
+    temps = cpu if cpu is not None else [40.0]
+    grouped = group if group is not None else [False]
+    bmc = Bmc(str(fake.program), fake.device, logged.append, cpu_temp=lambda: temps[0], in_group=lambda: grouped[0])
+    return bmc, fake, logged
+
+
+async def started(tmp_path: Path, config: dict[str, Any] | None = None, **kwargs: Any) -> tuple[Bmc, FakeIpmi, list[str]]:
+    """A started Bmc with this configuration, its first commands taken."""
+    bmc, fake, logged = make(tmp_path, **kwargs)
+    await bmc.start()
+    if config is not None:
+        bmc.set_config(config)
+    fake.take_calls()
+    return bmc, fake, logged
 
 
 def test_parse_sensors() -> None:
@@ -167,46 +204,112 @@ async def test_bmc_that_does_not_answer(tmp_path: Path) -> None:
     assert "does not answer" in logged[0]
 
 
-async def test_dell_drives_its_fans(tmp_path: Path) -> None:
-    """A Dell gets its fans back at start, then takes what the fan controller asks, and gives them back."""
+async def test_dell_found_and_left_to_the_idrac(tmp_path: Path) -> None:
+    """A Dell gets its fans back at start; by default the iDRAC keeps them, whatever the fan controller asks."""
     bmc, fake, logged = make(tmp_path)
     await bmc.start()
     try:
-        assert bmc.present and bmc.can_drive and bmc.name == "iDRAC"
-        assert fake.take_calls() == ["mc info", "raw 0x30 0x30 0x01 0x01", "sensor"]
-        assert "can be driven" in logged[0]
+        assert bmc.present and bmc.can_drive and not bmc.drives_fans and bmc.name == "iDRAC"
+        assert (bmc.product, bmc.firmware, bmc.detected) == ("PowerEdge R730xd", "2.86", "dell-r730xd")
+        assert fake.take_calls() == ["mc info", "fru print 0", "raw 0x30 0x30 0x01 0x01", "sensor"]
+        assert logged[0] == "BMC found: iDRAC 2.86 on PowerEdge R730xd, its fans can be driven (experimental)"
         device = bmc.hwmon()
         assert device is not None and device.name == "iDRAC"
         assert [(p.path, p.value, p.enable, p.rpm) for p in device.pwms] == [(BMC_PWM, None, 2, 3540)]
         assert [t.label for t in device.temps] == ["Inlet Temp", "Exhaust Temp", "Temp"]
-
         bmc.write(128)
         await bmc._apply()
-        assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x00", "raw 0x30 0x30 0x02 0xff 0x32"]
+        assert fake.take_calls() == [] and not bmc.state.manual
+    finally:
+        await bmc.close()
+
+
+async def test_dell_follows_the_cpu_and_the_drives(tmp_path: Path) -> None:
+    """The web UI runs the fans at the highest of the minimum, the CPU curve and the drives."""
+    cpu: list[float | None] = [40.0]
+    bmc, fake, _ = await started(tmp_path, WEBUI, cpu=cpu)
+    try:
+        await bmc._apply()
+        # 40 °C is under the normal curve: the minimum speed, 20 %.
+        assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x00", "raw 0x30 0x30 0x02 0xff 0x14"]
         await bmc._apply()
         assert fake.take_calls() == []  # nothing new to send
+        cpu[0] = 65.0
+        await bmc._apply()
+        assert fake.take_calls() == ["raw 0x30 0x30 0x02 0xff 0x26"]  # 37.5 % -> 38 %
+        bmc.write(128)
+        await bmc._apply()
+        assert fake.take_calls() == ["raw 0x30 0x30 0x02 0xff 0x32"]  # the drives ask more: 50 %
+        status = bmc.status()
+        assert status is not None and status["manual"] and status["drives_fans"]
+        assert (status["percent"], status["cpu_percent"], status["drives_percent"], status["cpu_temp"]) == (50, 38, 50, 65.0)
+        device = bmc.hwmon()
+        assert device is not None and (device.pwms[0].value, device.pwms[0].enable) == (128, 1)
         bmc.write(255)
         await bmc._apply()
         assert fake.take_calls() == ["raw 0x30 0x30 0x02 0xff 0x64"]
-        status = bmc.status()
-        assert status is not None and status["manual"] and status["percent"] == 100 and status["drives_fans"]
-        device = bmc.hwmon()
-        assert device is not None and (device.pwms[0].value, device.pwms[0].enable) == (255, 1)
-
+        # Without a fan group the CPU curve goes on when the controller lets go,
+        # and it comes down slowly.
         bmc.release()
+        cpu[0] = 30.0
         await bmc._apply()
-        assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x01"]
-        assert not bmc.state.manual
+        assert fake.take_calls() == ["raw 0x30 0x30 0x02 0xff 0x24"] and bmc.state.cpu_percent == 36.5
+        # Back to the iDRAC when the web UI no longer drives them.
+        bmc.set_config({**WEBUI, "control": "bmc"})
+        await bmc._apply()
+        assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x01"] and not bmc.state.manual
     finally:
         await bmc.close()
+
+
+async def test_dell_in_a_fan_group_goes_back_when_released(tmp_path: Path) -> None:
+    """Fans in a fan group are the iDRAC's while the fan controller does not drive them."""
+    group = [True]
+    bmc, fake, logged = await started(tmp_path, WEBUI, group=group)
+    await bmc._apply()
+    assert fake.take_calls() == [] and bmc.state.handback is None
+    bmc.write(100)
+    await bmc._apply()
+    assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x00", "raw 0x30 0x30 0x02 0xff 0x27"]
+    bmc.release()
+    await bmc._apply()
+    assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x01"]
+    group[0] = False
+    await bmc._apply()
+    assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x00", "raw 0x30 0x30 0x02 0xff 0x14"]
+    await bmc.close()
+    assert fake.take_calls() == ["raw 0x30 0x30 0x01 0x01"]
+    assert not any("go back" in line for line in logged)
+
+
+async def test_dell_cpu_temperature_from_the_bmc(tmp_path: Path) -> None:
+    """Without a processor temperature on the host, the BMC's; without either, the iDRAC drives."""
+    cpu: list[float | None] = [None]
+    bmc, fake, logged = await started(tmp_path, {**WEBUI, "profile": "turbo"}, cpu=cpu)
+    await bmc._apply()
+    assert bmc.state.cpu_temp == 48.0 and fake.take_calls()[-1] == "raw 0x30 0x30 0x02 0xff 0x21"  # turbo at 48 °C: 33 %
+    (fake.folder / "sensor").write_text("\n".join(line for line in DELL_SENSORS.splitlines() if not line.startswith("Temp ")))
+    await bmc._poll()
+    await bmc._apply()
+    assert bmc.state.handback == "no_cpu_temp" and fake.take_calls() == ["sensor", "raw 0x30 0x30 0x01 0x01"]
+    assert "go back to the iDRAC: no_cpu_temp" in logged[-1]
+
+    def broken() -> float | None:
+        raise OSError("gone")
+
+    bmc.host_cpu_temp = broken
+    assert bmc._cpu_temp() is None
+    cpu[0] = 50.0
+    bmc.host_cpu_temp = lambda: cpu[0]
+    await bmc._apply()
+    assert bmc.state.handback is None and "drives the fans again (no_cpu_temp is over)" in logged[-1]
+    await bmc.close()
 
 
 async def test_dell_hands_back_when_hot(tmp_path: Path) -> None:
     """A temperature near its limit gives the fans back to the iDRAC, but never full speed; they come back cooler."""
     hot = DELL_SENSORS.replace("Inlet Temp       | 23.000", "Inlet Temp       | 39.000")
-    bmc, fake, logged = make(tmp_path, sensors=hot)
-    await bmc.start()
-    fake.take_calls()
+    bmc, fake, logged = await started(tmp_path, WEBUI, sensors=hot)
     bmc.write(100)
     await bmc._apply()
     assert fake.take_calls() == []  # never taken: the iDRAC keeps them
@@ -238,6 +341,7 @@ async def test_dell_hands_back_when_the_sensors_stop(tmp_path: Path) -> None:
     now = [1000.0]
     bmc._clock = lambda: now[0]
     await bmc.start()
+    bmc.set_config(WEBUI)
     bmc.write(100)
     await bmc._apply()
     assert bmc.state.manual
@@ -261,8 +365,7 @@ async def test_dell_hands_back_when_the_sensors_stop(tmp_path: Path) -> None:
 
 async def test_dell_commands_that_fail(tmp_path: Path) -> None:
     """A refused command is logged; the speed is sent again at the next round; giving back fails without raising."""
-    bmc, fake, logged = make(tmp_path)
-    await bmc.start()
+    bmc, fake, logged = await started(tmp_path, WEBUI)
     fake.fail("raw")
     bmc.write(100)
     await bmc._apply()
@@ -287,13 +390,19 @@ async def test_slow_ipmitool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 async def test_hpe_is_read_only(tmp_path: Path) -> None:
-    """An iLO shows its temperatures and fans; no command is ever sent to its fans."""
-    bmc, fake, logged = make(tmp_path, HPE_INFO, HPE_SENSORS)
+    """An iLO shows its temperatures and fans; no command is ever sent to its fans, whatever the configuration."""
+    bmc, fake, logged = make(tmp_path, HPE_INFO, HPE_SENSORS, fru="Product Name : ProLiant ML350 Gen9\n")
     await bmc.start()
-    assert bmc.present and not bmc.can_drive and bmc.name == "iLO"
+    assert bmc.present and not bmc.can_drive and bmc.name == "iLO" and bmc.detected == "hpe-ml350-gen9"
     assert "read only" in logged[0]
+    bmc.set_config({**WEBUI, "model": "hpe-ml350-gen9"})
+    with pytest.raises(BmcConfigError) as refused:
+        bmc.set_config({**WEBUI, "model": "dell-r730"})
+    assert refused.value.problems[0]["code"] == "bmc_model_vendor"
+    bmc.write(100)
+    await bmc._apply()
     await bmc.close()
-    assert fake.take_calls() == ["mc info", "sensor"]
+    assert fake.take_calls() == ["mc info", "fru print 0", "sensor"]
     device = bmc.hwmon()
     assert device is not None and device.pwms == [] and len(device.temps) == 2
     status = bmc.status()
@@ -306,6 +415,7 @@ async def test_the_loop_sends_and_polls(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(bmc_module, "APPLY_S", 0.01)
     monkeypatch.setattr(bmc_module, "POLL_S", 0.0)
     await bmc.start()
+    bmc.set_config(WEBUI)
     fake.take_calls()
     bmc.write(51)
     for _ in range(100):
@@ -368,3 +478,69 @@ def test_settings_take_the_bmc_output() -> None:
     assert settings.pwms[0].path == BMC_PWM
     args = hddfancontrol_args(Settings(drives=("/dev/sda",), pwms=(Pwm(BMC_PWM, 38, 38),)), None)
     assert args[args.index("--pwm") + 1 : args.index("--drive-temp-range")] == []
+
+
+def test_check_config() -> None:
+    """The configuration of the IPMI tab: known values, a curve warmer and not slower at each point."""
+    config = check_config(
+        {"model": "dell-r730", "control": "webui", "profile": "custom", "curve": [[40, 10], [70, 100]], "min_percent": 15}
+    )
+    assert config.points() == ((40.0, 10.0), (70.0, 100.0)) and config.to_dict()["curve"] == [[40.0, 10.0], [70.0, 100.0]]
+    assert check_config({}).points() == PROFILES["normal"]
+    with pytest.raises(BmcConfigError):
+        check_config([])
+
+    def codes(data: dict[str, Any]) -> list[tuple[str, str]]:
+        with pytest.raises(BmcConfigError) as refused:
+            check_config(data)
+        return [(p["field"], p["code"]) for p in refused.value.problems]
+
+    assert codes({"model": "x", "control": "y", "profile": "z", "min_percent": 2}) == [
+        ("model", "invalid_choice"),
+        ("control", "invalid_choice"),
+        ("profile", "invalid_choice"),
+        ("min_percent", "out_of_range"),
+    ]
+    assert codes({"min_percent": True}) == [("min_percent", "out_of_range")]
+    assert codes({"curve": [[40, 10]]}) == [("curve", "curve_points")]
+    assert codes({"curve": "no"}) == [("curve", "curve_points")]
+    assert codes({"curve": [[40, 10], [50]]}) == [("curve.1", "invalid_document")]
+    assert codes({"curve": [[40, 10], [500, 20]]}) == [("curve.1.0", "out_of_range")]
+    assert codes({"curve": [[40, 10], [50, "a"]]}) == [("curve.1.1", "out_of_range")]
+    assert codes({"curve": [[40, 10], [40, 20]]}) == [("curve.1", "curve_order")]
+    assert codes({"curve": [[40, 50], [60, 20]]}) == [("curve.1", "curve_order")]
+
+
+def test_curve_and_models() -> None:
+    """Straight lines between the points and flat outside; the model from the FRU product name."""
+    points = ((40.0, 20.0), (60.0, 60.0), (80.0, 100.0))
+    assert [curve_percent(points, t) for t in (30, 40, 50, 70, 90)] == [20, 20, 40, 80, 100]
+    assert detect_model(DELL, "PowerEdge R730xd") == "dell-r730xd"
+    assert detect_model(DELL, "PowerEdge R730") == "dell-r730"
+    assert detect_model(DELL, "PowerEdge R940") == "dell-other"
+    assert detect_model(HPE, "ProLiant ML350 Gen10") == "hpe-ml350-gen10"
+    assert detect_model(HPE, "") == "hpe-other"
+    assert detect_model(None, "PowerEdge R730") == "other"
+    data = catalogue()
+    assert {m["id"] for m in data["models"] if m["control"]} <= {m["id"] for m in data["models"] if m["vendor"] == DELL}
+    assert set(data["profiles"]) == {"silent", "normal", "turbo"}
+
+
+async def test_config_is_kept(tmp_path: Path) -> None:
+    """bmc.json keeps the configuration across a restart; a bad file leaves the fans to the iDRAC."""
+    fake = FakeIpmi(tmp_path, DELL_INFO, DELL_SENSORS, DELL_FRU)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    first = Bmc(str(fake.program), fake.device, config_dir=config_dir)
+    assert first.describe() is None
+    await first.start()
+    first.set_config({**WEBUI, "model": "dell-r730", "min_percent": 30})
+    data = first.describe()
+    assert data is not None and data["detected"] == "dell-r730xd" and data["vendor"] == DELL
+    assert data["config"]["model"] == "dell-r730" and data["models"]
+    await first.close()
+    assert Bmc(str(fake.program), fake.device, config_dir=config_dir).config.min_percent == 30
+    (config_dir / "bmc.json").write_text("{bad")
+    logged: list[str] = []
+    assert Bmc(str(fake.program), fake.device, logged.append, config_dir=config_dir).config.control == "bmc"
+    assert "cannot read" in logged[0]

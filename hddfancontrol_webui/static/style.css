@@ -2460,3 +2460,26 @@ input.cron,
   direction: ltr;
   text-align: right;
 }
+
+/* IPMI tab (ipmi.js, EXPERIMENTAL): who drives the fans, the CPU profiles side by side */
+.preset-list.two,
+.preset-list.four {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.preset-list.four {
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+}
+
+#tab-ipmi h3 {
+  margin-top: 1rem;
+}
+
+#tab-ipmi > .actions {
+  margin-bottom: 16px;
+}
+
+.chart .point {
+  fill: var(--accent);
+}

@@ -20,6 +20,7 @@
   <script src="/static/history.js" defer></script>
   <script src="/static/settings.js" defer></script>
   <script src="/static/security.js" defer></script>
+  <script src="/static/ipmi.js" defer></script>
   <script src="/static/wizard.js" defer></script>
 </head>
 <body>
@@ -38,6 +39,7 @@
       <button role="tab" data-tab="smart" data-icon="smart" data-i18n="tab.smart"></button>
       <button role="tab" data-tab="history" data-icon="history" data-i18n="tab.history"></button>
       <button role="tab" data-tab="settings" data-icon="settings" data-i18n="tab.settings"></button>
+      <button role="tab" data-tab="ipmi" data-icon="server" data-i18n="tab.ipmi" hidden></button>
       <button role="tab" data-tab="pwmtest" data-icon="pwmtest" data-i18n="tab.pwmtest"></button>
       <button role="tab" data-tab="security" data-icon="security" data-i18n="tab.security"></button>
       <button role="tab" data-tab="logs" data-icon="logs" data-i18n="tab.logs"></button>
@@ -92,10 +94,12 @@
       </div>
       <!-- EXPERIMENTAL: the BMC of a server (bmc.py) -->
       <article class="card" id="bmc-card" hidden>
-        <h2 data-icon="chip" id="bmc-title"></h2>
+        <div class="card-head">
+          <h2 data-icon="server" id="bmc-title"></h2>
+          <button type="button" class="secondary" id="bmc-open" data-i18n="ipmi.open"></button>
+        </div>
         <p id="bmc-state"></p>
         <p class="error small" id="bmc-error"></p>
-        <table class="list" id="bmc-readings"></table>
       </article>
     </section>
 
@@ -428,6 +432,64 @@
           <span id="save-result" class="small"></span>
         </div>
       </form>
+    </section>
+
+    <!-- IPMI: the BMC of a server, EXPERIMENTAL (ipmi.js, bmc.py) -->
+    <section id="tab-ipmi" class="tab" hidden>
+      <p class="warning small" data-i18n="ipmi.experimental"></p>
+
+      <article class="card">
+        <h2 data-icon="server" data-i18n="ipmi.server"></h2>
+        <div class="facts" id="ipmi-facts"></div>
+        <div class="fields">
+          <label class="field"><span data-i18n="ipmi.brand"></span>
+            <select id="ipmi-brand">
+              <option value="dell">Dell</option>
+              <option value="hpe">HPE</option>
+              <option value="" data-i18n="ipmi.brand_other"></option>
+            </select></label>
+          <label class="field"><span data-i18n="ipmi.model"></span>
+            <select id="ipmi-model"></select>
+            <small class="error" id="ipmi-model-error"></small></label>
+        </div>
+        <p class="small" id="ipmi-model-note"></p>
+      </article>
+
+      <article class="card" id="ipmi-fans-card">
+        <h2 data-icon="fan" data-i18n="ipmi.fans"></h2>
+        <div class="preset-list two" role="radiogroup" id="ipmi-control"></div>
+        <div id="ipmi-webui">
+          <h3 data-i18n="ipmi.profile"></h3>
+          <div class="preset-list four" role="radiogroup" id="ipmi-profiles"></div>
+          <div id="ipmi-chart" class="chart curve" aria-hidden="true"></div>
+          <div id="ipmi-points"></div>
+          <div class="fields narrow">
+            <label class="field"><span data-i18n="ipmi.min_percent"></span>
+              <input type="number" id="ipmi-min" min="5" max="100" step="1">
+              <small class="muted" id="ipmi-min-hint"></small>
+              <small class="error" id="ipmi-min-error"></small></label>
+          </div>
+          <p class="small" id="ipmi-drives"></p>
+          <p class="muted small" data-i18n="ipmi.safety"></p>
+        </div>
+      </article>
+
+      <div class="actions">
+        <button type="button" id="ipmi-save" data-i18n="action.save"></button>
+        <span id="ipmi-result" class="small"></span>
+      </div>
+
+      <article class="card">
+        <h2 data-icon="overview" data-i18n="ipmi.now"></h2>
+        <p id="ipmi-state"></p>
+        <div class="facts" id="ipmi-live"></div>
+        <p class="error small" id="ipmi-error"></p>
+      </article>
+
+      <article class="card">
+        <h2 data-icon="thermometer" data-i18n="ipmi.sensors"></h2>
+        <table class="list" id="ipmi-readings"></table>
+      </article>
     </section>
 
     <!-- PWM test -->
