@@ -78,3 +78,8 @@ Settings tab.
 
 Names (`labels.json`), the bay map (`bays.json`) and the BMC configuration (`bmc.json`)
 are saved on their own endpoints and never restart fan control.
+
+In the bay map editor (Drives tab) the bays move like blocks: drag one by its grip onto
+another and the two swap their drives, or press one grip and then the other (the way for a
+keyboard). It uses pointer events, not HTML drag and drop, which touch screens lack. Nothing
+is saved until **Save the map**.
