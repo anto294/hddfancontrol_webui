@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- **Move the bays like blocks.** In **Drives → Bay map**, drag a bay by
+  its grip onto another and the two swap their drives, with the mouse or
+  a finger; pressing one grip and then the other does the same, also from
+  the keyboard. Nothing is saved until **Save the map**.
 - **Ask for support of your hardware from the web UI.** When fans,
   sensors or a server are not supported, **Fans → Hardware not
   supported?** (also a button in the "No PWM output" banner) prepares a

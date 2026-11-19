@@ -371,9 +371,83 @@ function renderBayEditor() {
     const current = before[index] || "";
     const select = el("select", { "aria-label": t("bays.empty", { number: index + 1 }) }, el("option", { value: "", text: "—" }));
     for (const choice of choices) select.append(el("option", { value: choice.id, text: choice.text, selected: choice.ids.includes(current) }));
-    slots.push(el("div", { class: "bay" }, el("span", { class: "bay-number muted", text: String(index + 1) }), select));
+    const grip = el("button", { type: "button", class: "bay-grip secondary", title: t("bays.move"), "aria-label": t("bays.move_bay", { number: index + 1 }) }, icon("grip"));
+    slots.push(el("div", { class: "bay" }, el("div", { class: "bay-head" }, el("span", { class: "bay-number muted", text: String(index + 1) }), grip), select));
   }
+  bayMove.picked = null;
   box.replaceChildren(...slots);
+}
+
+// Bays move like blocks: drag one by its grip onto another and the two swap
+// their drives. Pointer events, not HTML drag and drop, which touch screens
+// lack. A grip pressed without dragging (or with the keyboard) picks its bay;
+// the next grip pressed swaps with it, or drops the pick when it is the same.
+const bayMove = { from: null, over: null, moved: false, picked: null };
+
+// The bay of the editor under the pointer, if any.
+function bayAt(event) {
+  const node = document.elementFromPoint(event.clientX, event.clientY);
+  return node ? node.closest("#bay-editor .bay") : null;
+}
+
+// Two bays exchange their drives.
+function swapBays(a, b) {
+  const first = a.querySelector("select");
+  const second = b.querySelector("select");
+  [first.value, second.value] = [second.value, first.value];
+  for (const tile of [a, b]) {
+    tile.classList.remove("swapped");
+    // Read the layout so the animation starts again on a second swap.
+    void tile.offsetWidth;
+    tile.classList.add("swapped");
+  }
+}
+
+// Only this bay (or none) has the class.
+function markBay(tile, name) {
+  for (const node of $("bay-editor").querySelectorAll(`.${name}`)) if (node !== tile) node.classList.remove(name);
+  if (tile) tile.classList.add(name);
+}
+
+function bayPointerDown(event) {
+  const grip = event.target.closest(".bay-grip");
+  if (!grip || event.button !== 0) return;
+  bayMove.from = grip.closest(".bay");
+  bayMove.moved = false;
+  grip.setPointerCapture(event.pointerId);
+}
+
+function bayPointerMove(event) {
+  if (!bayMove.from) return;
+  const over = bayAt(event);
+  if (over !== bayMove.from) bayMove.moved = true;
+  if (!bayMove.moved) return;
+  bayMove.from.classList.add("dragging");
+  bayMove.over = over && over !== bayMove.from ? over : null;
+  markBay(bayMove.over, "drop-target");
+}
+
+function bayPointerUp() {
+  if (!bayMove.from) return;
+  if (bayMove.over) swapBays(bayMove.from, bayMove.over);
+  bayMove.from.classList.remove("dragging");
+  markBay(null, "drop-target");
+  bayMove.from = null;
+  bayMove.over = null;
+}
+
+function bayGripClick(event) {
+  const grip = event.target.closest(".bay-grip");
+  if (!grip) return;
+  // A drag ends with a click on the grip it started from: it was not a pick.
+  if (bayMove.moved) {
+    bayMove.moved = false;
+    return;
+  }
+  const tile = grip.closest(".bay");
+  if (bayMove.picked && bayMove.picked !== tile) swapBays(bayMove.picked, tile);
+  bayMove.picked = bayMove.picked ? null : tile;
+  markBay(bayMove.picked, "picked");
 }
 
 async function saveBays() {
@@ -413,4 +487,10 @@ document.addEventListener("DOMContentLoaded", () => {
   for (const id of ["bay-rows", "bay-cols"]) $(id).addEventListener("input", renderBayEditor);
   $("bay-edit").addEventListener("toggle", () => $("bay-edit").open && renderBayEditor());
   $("bay-save").addEventListener("click", saveBays);
+  const editor = $("bay-editor");
+  editor.addEventListener("pointerdown", bayPointerDown);
+  editor.addEventListener("pointermove", bayPointerMove);
+  editor.addEventListener("pointerup", bayPointerUp);
+  editor.addEventListener("pointercancel", bayPointerUp);
+  editor.addEventListener("click", bayGripClick);
 });

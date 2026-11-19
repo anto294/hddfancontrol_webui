@@ -1807,6 +1807,53 @@ input.cron,
   font-size: 0.7rem;
 }
 
+/* The bay editor: bays move like blocks by their grip (drives.js bayMove). */
+.bay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+}
+
+.bay-grip {
+  padding: 0.1rem;
+  min-height: 0;
+  line-height: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.bay.dragging {
+  opacity: 0.5;
+}
+
+.bay.dragging .bay-grip {
+  cursor: grabbing;
+}
+
+.bay.drop-target,
+.bay.picked {
+  border-color: var(--accent);
+  outline: 2px dashed var(--accent);
+  outline-offset: 1px;
+}
+
+.bay.swapped {
+  animation: bay-swapped 0.4s ease-out;
+}
+
+@keyframes bay-swapped {
+  from {
+    transform: scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bay.swapped {
+    animation: none;
+  }
+}
+
 .bay-temp {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
