@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import stat
 import time
 from dataclasses import replace
@@ -764,3 +765,20 @@ async def test_a_sample_from_the_future_is_stale(fake_sys: Path, fast: None) -> 
     await fans.stop()
     assert not fancontrol._is_stale(-30.0, 120.0) and fancontrol._is_stale(-61.0, 120.0)
     assert fancontrol._is_stale(None, 120.0) and fancontrol._is_stale(121.0, 120.0)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_writer_with_an_enable_file_it_cannot_read(fake_sys: Path) -> None:
+    """An enable file that exists but cannot be read is still switched to manual; giving it back means full speed.
+
+    Its old mode is unknown, so restore cannot put it back: writing only the
+    old value would leave the fan in manual mode at a speed the chip had
+    picked for that moment, for good.
+    """
+    enable = fake_sys / "class/hwmon/hwmon2/pwm1_enable"
+    enable.chmod(0o200)  # writable, not readable
+    writer = PwmWriter(fake_sys)
+    writer.write(PWM1, 40)
+    writer.restore()
+    enable.chmod(0o644)
+    assert read(fake_sys, "pwm1_enable") == "1" and read(fake_sys, "pwm1") == "255"

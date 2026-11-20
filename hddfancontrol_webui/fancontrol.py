@@ -403,7 +403,11 @@ class PwmWriter:
         enable = self._read(f"{path}_enable")
         original = self._original.get(path)
         if original is None:
-            original = (enable, self._read(path))
+            # An enable file that exists but cannot be read: its mode is unknown, so it is
+            # saved as manual, which restore gives back as full speed (never the old value
+            # alone, which would leave the fan at the speed of that moment for good).
+            unknown = enable is None and os.path.lexists(enable_file)
+            original = (str(ENABLE_MANUAL) if unknown else enable, self._read(path))
             self._original[path] = original
             self._store_state()
         if enable is None and not os.path.lexists(enable_file):

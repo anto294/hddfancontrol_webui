@@ -63,7 +63,9 @@ control.
   `is_pwm_path` (`/sys/class/hwmon/hwmonN/pwmN`).
 - `restore()` gives every output its mode back. An output that was already in manual
   mode gets 255: its old value may be one a killed run left, and full speed is the safe
-  one.
+  one. So does an output whose `pwmN_enable` exists but cannot be read: its mode is
+  unknown, and its old value alone would leave it in manual mode at the speed of that
+  moment.
 - At the final stop with `RESTORE_FAN_SETTINGS=false`, the fans stay at full speed
   instead. Every other stop (apply, a mode change) always restores; otherwise the next
   run would save "manual, 255" as the chip's own state and the fans would never go back

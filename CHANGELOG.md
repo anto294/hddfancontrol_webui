@@ -48,6 +48,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the container was killed (out of memory, `docker kill`) a fan it had
   set but no longer drives stayed at its last speed until a reboot. At
   the next start it now gets its own mode back.
+- **A fan whose mode cannot be read is given back at full speed.** On a
+  driver whose `pwmN_enable` cannot be read, a fan was left at a fixed
+  speed when fan control ended; it now goes to full speed, the safe side.
 
 ### Changed
 
