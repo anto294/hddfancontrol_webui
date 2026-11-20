@@ -21,7 +21,10 @@ or with the chip of every fan missing: the alerts and the history need the
 temperatures, and a fan that comes back finds them.
 
 `templog.py` reads only the last line of that log, and only when its size or mtime
-changed; it keeps the last sample across the daily rotation. In a line hddfancontrol
+changed; it keeps the last sample across the daily rotation. A line with a temperature
+that is no finite number (`NaN`, an infinity) is no sample at all (`parse_line`): `NaN`
+would pass every comparison with a maximum, so the line ends in the stale failsafe
+rather than in a drive left out. In a line hddfancontrol
 writes every drive first, then every extra hwmon input; an interface name such as
 `ata` gives one entry per drive, so the drives are every value but the last
 `len(hwmons)`.

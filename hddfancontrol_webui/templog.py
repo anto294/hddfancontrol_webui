@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 from datetime import UTC, datetime
@@ -36,14 +37,23 @@ TAIL_BYTES = 16384
 #   parse_line
 # ---------------------------
 def parse_line(line: str) -> dict[str, Any] | None:
-    """Parse one line of the log into {time, temps}, or None if it is not a sample."""
+    """Parse one line of the log into {time, temps}, or None if it is not a sample.
+
+    A temperature that is no finite number (NaN, an infinity) makes the
+    whole line no sample: NaN would pass every comparison with a maximum,
+    and dropping only that drive would let its fans slow down. With no
+    sample, fan control runs into its stale failsafe instead.
+    """
     try:
         data = json.loads(line)
         time = datetime.fromisoformat(data["time_utc"].replace("Z", "+00:00"))
         temps: dict[str, float | None] = {}
         for measure in data["measures"]:
             value = measure["temp_celcius"]
-            temps[str(measure["device"])] = None if value is None else float(value)
+            temp = None if value is None else float(value)
+            if temp is not None and not math.isfinite(temp):
+                return None
+            temps[str(measure["device"])] = temp
     except (ValueError, KeyError, TypeError, AttributeError):
         return None
     if time.tzinfo is None:
