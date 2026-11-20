@@ -35,12 +35,13 @@ jobs:
             platform: linux/arm64
     env:
       TAG: ${{ github.event.release.tag_name }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out the release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.release.tag_name }}
+          # No token left in .git for the build steps: only the upload step gets one.
+          persist-credentials: false
 
       - name: Validate tag and derive version
         run: |
@@ -77,8 +78,10 @@ jobs:
         run: |
           sed -i "s/^version = \"0.0.0\"/version = \"$VERSION\"/" pyproject.toml
           grep -q "^version = \"$VERSION\"" pyproject.toml
-          python -m pip install --upgrade build
-          python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+          # Only the hashed tools of build-requirements.txt, and no isolated
+          # environment that would fetch setuptools again without a hash.
+          python -m pip install --require-hashes --only-binary :all: --no-deps -r packaging/build-requirements.txt
+          python -m build --wheel --no-isolation --outdir "$RUNNER_TEMP/dist"
 
       - name: Pack the tarball
         run: |
@@ -98,4 +101,7 @@ jobs:
           subject-path: ${{ runner.temp }}/${{ env.NAME }}.tar.gz
 
       - name: Attach to the release
+        env:
+          # The write token, in this step alone.
+          GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$RUNNER_TEMP/$NAME.tar.gz" "$RUNNER_TEMP/$NAME.tar.gz.sha256" --clobber

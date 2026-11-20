@@ -104,3 +104,13 @@ elsewhere.
 Bandit, ruff with the `S` rules, CodeQL, hadolint and shellcheck run on every push. The
 tests cover the gateway in isolation (it imports nothing that needs root) and the image
 (the gateway runs as its user).
+
+## Release
+
+The bare metal tarball holds a wheel that `install.sh` runs as root, so the release
+workflow (`release.yml`) builds it only from tools pinned with their hashes:
+`packaging/build-requirements.txt` (`build`, `packaging`, `pyproject-hooks`,
+`setuptools`), installed with `--require-hashes --only-binary :all:`, then
+`python -m build --no-isolation`, which fetches nothing more. The checkout keeps no
+token (`persist-credentials: false`), and the write token (`GH_TOKEN`) is given to the
+upload step alone. `tests/test_packaging.py` checks all three.

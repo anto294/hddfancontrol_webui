@@ -9,6 +9,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **The bare metal tarball is built only from pinned tools.** The release
+  workflow installed its build tools at their latest version without
+  checking them; they now come at an exact version with their checksums,
+  and the token that can change a release is given only to the step that
+  uploads the files.
 - **A `/config` the gateway could write no longer stays in use.** When the
   folder could not be closed to the web UI's own user (an ACL, NFS with
   root squash), the web side only moved its login data elsewhere, while

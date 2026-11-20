@@ -221,6 +221,12 @@ rebase: both branches are published. Why: the testers of `:experimental` must ge
 fix and function of `main` too (the support request first of all), and a branch that
 drifts apart costs more to bring back the longer it waits. (2026-11-19)
 
+**The release builds from hashed tools, and only its upload step holds the token.**
+Why: a new release of `build` or `setuptools` (taken unpinned before) ran in the job
+that holds `contents: write`; it could change the wheel that `install.sh` runs as root,
+and the provenance attestation would have signed the changed tarball all the same.
+Dependabot proposes the updates of the pinned tools. (2026-11-20)
+
 ## Support
 
 **Hardware we do not own is supported from what its owner sends, through a guided
