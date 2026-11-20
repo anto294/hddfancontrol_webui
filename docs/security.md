@@ -35,10 +35,20 @@ each write.
 
 ## A request, step by step
 
+Before any middleware, the listener (`tls.DualListener`, with TLS on or off) closes a
+connection from an address outside `WEBUI_ALLOW` at accept, before reading a byte or
+making a handshake (`admit_address`, logged once an hour). It keeps at most
+`MAX_CONNECTIONS_PER_ADDRESS` (64) open connections per address and `MAX_CONNECTIONS`
+(512) in all, closing the rest at once, and drops a connection whose first request
+(headers, and a body by its `Content-Length`) is not complete `REQUEST_TIMEOUT_S`
+(30 s) after its first byte: aiohttp waits for headers for ever, so silent
+connections could run the gateway out of file descriptors, `/healthz` included.
+
 The gateway's middlewares run in this order:
 
 1. **`network_filter`**: the client address must be in `WEBUI_ALLOW` (private, loopback,
    link-local and CGNAT networks by default); otherwise a bare 403, logged once an hour.
+   The listener already refused such an address; this is the same rule again.
 2. **`host_check`**: the `Host` header must be an IP address, `localhost`, a dotless
    name, a name under `LOCAL_SUFFIXES` (`.lan`, `.local`, `.home.arpa`, `.ts.net`…) or
    one of `WEBUI_HOSTS`. This stops DNS rebinding. `/healthz` answers any name.

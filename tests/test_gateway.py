@@ -693,3 +693,43 @@ async def test_serve_until_sigterm(tmp_path: Path, unused_tcp_port: int) -> None
                 raise AssertionError("the gateway did not answer")
         os.kill(os.getpid(), signal.SIGTERM)
         await asyncio.wait_for(task, 10)
+
+
+async def test_serve_refuses_strangers_before_reading(
+    tmp_path: Path, unused_tcp_port: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An address outside WEBUI_ALLOW is closed at accept, before a byte or a handshake, and logged once; also without TLS."""
+    import os
+    import signal
+
+    real = gateway_module.allowed
+    monkeypatch.setattr(
+        gateway_module, "allowed", lambda address, networks: address != "127.0.0.1" and real(address, networks)
+    )
+    lines: list[str] = []
+    env = {
+        "HFC_CORE_SOCKET": str(tmp_path / "s"),
+        "HFC_WEB_DIR": str(tmp_path),
+        "WEBUI_PASSWORD": "a-long-password",
+        "ENABLE_TLS": "false",
+    }
+    app, _, _, context = gateway_module.build(env, lines.append)
+    assert context is None
+    task = asyncio.create_task(gateway_module._serve(app, "127.0.0.1", unused_tcp_port, context))
+    for _ in range(100):
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
+            break
+        except OSError:
+            await asyncio.sleep(0.02)
+    else:
+        raise AssertionError("the gateway did not listen")
+    writer.write(b"GET /login HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    try:
+        assert await asyncio.wait_for(reader.read(), 5) == b""  # not even a 403: nothing was read
+    except ConnectionResetError:
+        pass
+    writer.close()
+    assert sum("Refused 127.0.0.1" in line for line in lines) == 1
+    os.kill(os.getpid(), signal.SIGTERM)
+    await asyncio.wait_for(task, 10)

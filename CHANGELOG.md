@@ -9,6 +9,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **Connections from outside the allowed networks are closed at once.**
+  Addresses outside `WEBUI_ALLOW` were refused only after their request
+  was read, and an incomplete request was waited for without end: a
+  client could hold thousands of silent connections until the web UI
+  answered nobody, its health check included. Now such an address is
+  closed before anything is read, each address may keep 64 connections
+  open (512 in all), and a request must arrive complete within 30
+  seconds. The fans were never affected.
 - **The bare metal tarball is built only from pinned tools.** The release
   workflow installed its build tools at their latest version without
   checking them; they now come at an exact version with their checksums,

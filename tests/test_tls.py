@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 import ssl
 import stat
@@ -104,6 +105,126 @@ async def test_silent_connection_times_out(tmp_path: Path, monkeypatch: pytest.M
     await listener.start()
     reader, writer = await asyncio.open_connection("127.0.0.1", listener.port)
     assert await asyncio.wait_for(reader.read(), 5) == b""
+    writer.close()
+    await listener.close()
+    await server.shutdown()
+
+
+async def test_refused_addresses_are_closed_before_anything_is_read() -> None:
+    """An address admit() refuses is closed at once: no byte is read, no TLS handshake, the server never sees it."""
+    seen: list[str] = []
+    handled: list[str] = []
+
+    async def handler(request: web.Request) -> web.Response:
+        handled.append(request.path)
+        return web.Response(text="ok")
+
+    def admit(address: str) -> bool:
+        seen.append(address)
+        return False
+
+    server = web.Server(handler)
+    listener = DualListener(server, "127.0.0.1", 0, None, admit=admit)
+    await listener.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", listener.port)
+    writer.write(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+    with contextlib.suppress(ConnectionResetError):
+        assert await asyncio.wait_for(reader.read(), 5) == b""
+    writer.close()
+    assert seen == ["127.0.0.1"] and handled == []
+    await listener.close()
+    await server.shutdown()
+
+
+async def test_plain_http_without_tls() -> None:
+    """Without a context the listener serves plain HTTP only, with the same limits."""
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.Response(text=f"secure={request.secure}")
+
+    server = web.Server(handler)
+    listener = DualListener(server, "127.0.0.1", 0, None)
+    await listener.start()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"http://127.0.0.1:{listener.port}/") as response:
+            assert await response.text() == "secure=False"
+    await listener.close()
+    await server.shutdown()
+
+
+async def test_connections_are_limited_per_address_and_in_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Past MAX_CONNECTIONS_PER_ADDRESS (or MAX_CONNECTIONS) a new connection is closed at once; a closed one frees its place."""
+    monkeypatch.setattr(tls, "MAX_CONNECTIONS_PER_ADDRESS", 2)
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
+    server = web.Server(handler)
+    listener = DualListener(server, "127.0.0.1", 0, None)
+    await listener.start()
+    port = listener.port
+    held = [await asyncio.open_connection("127.0.0.1", port) for _ in range(2)]
+    await asyncio.sleep(0.1)
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    with contextlib.suppress(ConnectionResetError):
+        assert await asyncio.wait_for(reader.read(), 5) == b""
+    writer.close()
+    held[0][1].close()
+    for _ in range(100):
+        if listener.open_connections() < 2:
+            break
+        await asyncio.sleep(0.02)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"http://127.0.0.1:{port}/") as response:
+            assert await response.text() == "ok"
+    monkeypatch.setattr(tls, "MAX_CONNECTIONS_PER_ADDRESS", 100)
+    monkeypatch.setattr(tls, "MAX_CONNECTIONS", 1)  # the second held connection fills it
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    with contextlib.suppress(ConnectionResetError):
+        assert await asyncio.wait_for(reader.read(), 5) == b""
+    writer.close()
+    held[1][1].close()
+    for _ in range(100):
+        if listener.open_connections() == 0:
+            break
+        await asyncio.sleep(0.02)
+    assert listener.open_connections() == 0
+    await listener.close()
+    await server.shutdown()
+
+
+async def test_the_first_request_must_come_in_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A first request still incomplete after REQUEST_TIMEOUT_S is dropped; a slow answer to a complete one is not."""
+    monkeypatch.setattr(tls, "REQUEST_TIMEOUT_S", 0.2)
+
+    async def handler(request: web.Request) -> web.Response:
+        body = await request.read()
+        await asyncio.sleep(0.4)  # longer than the timeout: the request itself was complete
+        return web.Response(text=f"got {len(body)}")
+
+    server = web.Server(handler)
+    listener = DualListener(server, "127.0.0.1", 0, None)
+    await listener.start()
+    port = listener.port
+    # Headers that never end.
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"GET / HTTP/1.1\r\nHost: x\r\n")
+    with contextlib.suppress(ConnectionResetError):
+        assert await asyncio.wait_for(reader.read(), 5) == b""
+    writer.close()
+    # A body shorter than its Content-Length.
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc")
+    with contextlib.suppress(ConnectionResetError):
+        assert await asyncio.wait_for(reader.read(), 5) == b""
+    writer.close()
+    # Complete, in two pieces: answered after the timeout all the same.
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nConnection: close\r\n\r\n")
+    await asyncio.sleep(0.05)
+    writer.write(b"abc")
+    answer = await asyncio.wait_for(reader.read(), 5)
+    assert answer.startswith(b"HTTP/1.1 200") and answer.endswith(b"got 3")
     writer.close()
     await listener.close()
     await server.shutdown()

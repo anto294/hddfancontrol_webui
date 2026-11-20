@@ -521,18 +521,32 @@ def _failed_login(request: web.Request, address: str) -> None:
 # ---------------------------
 @web.middleware
 async def network_filter(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Answer only the addresses of WEBUI_ALLOW; the others get a bare 403, logged once an hour."""
-    if allowed(request.remote, request.app[ALLOW]):
+    """Answer only the addresses of WEBUI_ALLOW; the others get a bare 403, logged once an hour.
+
+    _serve already closes their connections at accept (admit_address):
+    this is the same rule again, for any other way a request comes in.
+    """
+    if admit_address(request.app, request.remote or ""):
         return await handler(request)
-    address = request.remote or "?"
-    refused = request.app[REFUSED]
+    return web.Response(status=403, text="Forbidden")
+
+
+# ---------------------------
+#   admit_address
+# ---------------------------
+def admit_address(app: web.Application, address: str) -> bool:
+    """Whether a client address is in WEBUI_ALLOW (or loopback); a refused one is logged once an hour."""
+    if allowed(address, app[ALLOW]):
+        return True
+    address = address or "?"
+    refused = app[REFUSED]
     now = time.monotonic()
     if now - refused.get(address, -REFUSED_LOG_PERIOD) >= REFUSED_LOG_PERIOD:
         if len(refused) > LOGIN_MAX_ADDRESSES:
             refused.clear()
         refused[address] = now
-        request.app[LOG](f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
-    return web.Response(status=403, text="Forbidden")
+        app[LOG](f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
+    return False
 
 
 # ---------------------------
@@ -1029,6 +1043,10 @@ def main() -> None:  # pragma: no cover  # the process entry point; build and _s
 async def _serve(app: web.Application, host: str, port: int, context: ssl.SSLContext | None, access_log: bool = False) -> None:
     """Serve until SIGTERM or SIGINT; with TLS, one port answers both HTTPS and HTTP (DualListener).
 
+    Without TLS the same listener serves plain HTTP: either way an address
+    outside WEBUI_ALLOW is closed at accept, before a byte is read or a
+    handshake made, and the connections are limited per address and in all.
+
     With access_log (WEBUI_ACCESS_LOG) every request of a browser or a
     script is logged; off by default, since the page polls every few
     seconds and would bury everything else.
@@ -1041,14 +1059,11 @@ async def _serve(app: web.Application, host: str, port: int, context: ssl.SSLCon
         loop.add_signal_handler(signum, stop.set)
     listener: DualListener | None = None
     try:
-        if context is None:
-            await web.TCPSite(runner, host, port).start()
-        else:
-            server = runner.server
-            if server is None:  # setup() made it
-                raise RuntimeError("the server was not made")
-            listener = DualListener(server, host, port, context)
-            await listener.start()
+        server = runner.server
+        if server is None:  # setup() made it
+            raise RuntimeError("the server was not made")
+        listener = DualListener(server, host, port, context, admit=lambda address: admit_address(app, address))
+        await listener.start()
         await stop.wait()
     finally:
         for signum in (signal.SIGINT, signal.SIGTERM):

@@ -183,6 +183,13 @@ from a web page. (0.8.0–0.9.0, 2026-11-17)
 **Past 100 failed logins overall, slow down instead of refusing.** Why: a refusal for
 everyone would let an attacker lock the owner out. (0.9.0, 2026-11-17)
 
+**`WEBUI_ALLOW` is applied at accept, and connections are limited.** One listener
+(`DualListener`) serves both with and without TLS. Why: as a middleware, the filter
+came after the first byte, the TLS handshake and the headers, and aiohttp sets no
+deadline for headers: a client outside the allowed networks could hold thousands of
+one-byte connections until the gateway ran out of file descriptors and the container
+turned unhealthy. (2026-11-20)
+
 **Refuse an address, only slow down its IPv6 /64.** Why: the /64 was the client before,
 so ten wrong passwords from one host of a SLAAC or ULA LAN (and every `fe80::` address)
 locked out every other host of it, the owner too; and a right password of the owner
