@@ -14,6 +14,7 @@ from aiohttp import web
 from aiohttp.abc import AbstractResolver, ResolveResult
 from aiohttp.test_utils import TestServer
 
+from hddfancontrol_webui import fancontrol
 from hddfancontrol_webui import notify as notify_module
 from hddfancontrol_webui.alerts import Alerts, render
 from hddfancontrol_webui.hardware import Hardware
@@ -267,6 +268,35 @@ def test_conditions_hot_drive_at_the_ceiling(
     monkeypatch.setattr("hddfancontrol_webui.monitor.FRESH_SAMPLE_SECONDS", 10**9)
     monkeypatch.setattr("hddfancontrol_webui.fancontrol.DRIVE_CEILING", 39.0)  # the sample says 40
     assert monitor.conditions({})["hot:sda"] == ("drive_hot", {"drive": "sda", "temp": "40", "max": "39"})
+    monitor.history.close()
+
+
+def test_a_failed_probe_does_not_end_the_hot_alert(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A null reading of a hot drive (a probe that failed during a scrub) keeps drive_hot for NULL_HOLD_INTERVALS, like the fans.
+
+    Without the hold, the alert ended at the null and a new urgent one
+    started at the next sample.
+    """
+    from datetime import datetime, timedelta
+
+    monitor = conditions_monitor(tmp_path, fake_sys, fake_dev, drive_temp_min=30, drive_temp_max=40, target_temp=35)
+    monkeypatch.setattr("hddfancontrol_webui.monitor.FRESH_SAMPLE_SECONDS", 10**9)
+    assert "hot:sda" in monitor.conditions({})
+    log = tmp_path / "temps.jsonl"
+    first = datetime.fromisoformat(json.loads(log.read_text().splitlines()[-1])["time_utc"])
+    interval = monitor._settings().interval_s
+
+    def sample(seconds: float) -> None:
+        when = (first + timedelta(seconds=seconds)).isoformat()
+        line = {"time_utc": when, "measures": [{"device": "sda", "temp_celcius": None}]}
+        log.write_text(log.read_text() + json.dumps(line) + "\n")
+
+    sample(interval)  # one failed probe: still hot
+    assert monitor.conditions({})["hot:sda"][1]["temp"] == "40"
+    sample(interval * (fancontrol.NULL_HOLD_INTERVALS + 2))  # asleep for good: the alert may end
+    assert "hot:sda" not in monitor.conditions({})
     monitor.history.close()
 
 

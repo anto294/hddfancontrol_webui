@@ -65,7 +65,7 @@ day ago (`LONG_TEST_GUARD`), since it would abort it.
 
 | Kind | When |
 | --- | --- |
-| `drive_hot` | A drive at its maximum, or at the 65/80 °C ceiling; it ends 2 °C lower |
+| `drive_hot` | A drive at its maximum, or at the 65/80 °C ceiling; it ends 2 °C lower. A null reading keeps the last one for `NULL_HOLD_INTERVALS` intervals (`DriveTemps`, as for the fans), so a failed probe does not end it |
 | `fan_stalled` | 0 RPM for `FAN_STALL_SECONDS` (120 s) at a speed where the fan surely turns (halfway between stop and start) |
 | `fan_wear` | At the same PWM, the RPM of a chosen fan over the last week dropped by `WEAR_DROP` (15 %) from its baseline (the first week of its history, taken once that history is two weeks old (`WEAR_BASELINE_AGE`) and then kept, so a slow drop over months still shows); checked daily. With `history_days` under 14 the purge never lets a history get that old, so the check never starts: the settings page says so under the field |
 | `smart_failing`, `smart_warning`, `smart_error` | The SMART verdict, worrying attributes, or SMART that cannot be read |

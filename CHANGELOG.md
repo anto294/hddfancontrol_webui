@@ -76,6 +76,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **A failed temperature reading no longer ends a "drive hot" alert.**
+  When hddfancontrol could not read a hot drive once (common during a
+  scrub), the alert ended and a new urgent one started at the next
+  reading. The last temperature is now kept for a few readings, as fan
+  control already did.
 - **A host of the LAN can no longer lock you out of the login.** With
   IPv6, ten wrong passwords from any host of the same network refused
   every other host of it, yours too, for 15 minutes. Now only the
