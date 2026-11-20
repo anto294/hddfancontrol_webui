@@ -430,6 +430,7 @@ async function resetSettings() {
     state.settings = data.settings;
     state.settingsSource = data.source;
     renderSettings();
+    showProblems([]); // the errors of an earlier save belong to values that are gone
     result.textContent = t("settings.reset_done");
     result.className = "small ok";
   } catch (error) {
@@ -520,6 +521,9 @@ async function importSettings(file) {
     return;
   }
   renderSettings();
+  // The errors of an earlier save belong to values the backup replaced.
+  showProblems([]);
+  $("save-result").textContent = "";
   result.textContent = t("settings.imported");
   result.className = "small ok";
   pollStatus();

@@ -105,6 +105,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **Old error messages go away after importing a backup or going back to
+  the environment.** The errors of a save that had been refused stayed
+  under the fields, with "Some values are not valid", although the
+  import or the reset had worked.
 - **A failed temperature reading no longer ends a "drive hot" alert.**
   When hddfancontrol could not read a hot drive once (common during a
   scrub), the alert ended and a new urgent one started at the next
