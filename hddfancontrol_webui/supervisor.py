@@ -272,7 +272,16 @@ class Daemon:
             try:
                 extra: dict[str, Any] = {}
                 if self._user is not None:
-                    extra = {"user": self._user[0], "group": self._user[1], "extra_groups": [], "umask": 0o077}
+                    # Another user (the gateway): no stdin and a session of its own, so it can never
+                    # reach a terminal the core was started from (TIOCSTI into a root shell).
+                    extra = {
+                        "user": self._user[0],
+                        "group": self._user[1],
+                        "extra_groups": [],
+                        "umask": 0o077,
+                        "stdin": asyncio.subprocess.DEVNULL,
+                        "start_new_session": True,
+                    }
                 proc = await asyncio.create_subprocess_exec(
                     self.binary,
                     *args,

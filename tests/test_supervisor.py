@@ -513,6 +513,41 @@ async def test_full_speed_while_hddfancontrol_is_down(
     assert (fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1_enable").read_text().strip() == "5"
 
 
+async def test_a_daemon_run_as_another_user_gets_no_terminal(
+    make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gateway (user=) reads nothing from the core's stdin and runs in a session of its own.
+
+    Started by hand from a root shell, a gateway taken over could
+    otherwise push keystrokes into that terminal (TIOCSTI). The change of
+    user needs root: here it is recorded and left out, the rest runs for real.
+    """
+    import os
+
+    real = asyncio.create_subprocess_exec
+    changes: list[dict[str, Any]] = []
+
+    async def as_me(*args: Any, **kwargs: Any) -> Any:
+        changes.append({key: kwargs.pop(key) for key in ("user", "group", "extra_groups") if key in kwargs})
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(supervisor_module.asyncio, "create_subprocess_exec", as_me)
+    logs = LogBuffer(echo=False)
+    body = (
+        "import os\n"
+        "print('stdin', os.path.realpath('/proc/self/fd/0'), flush=True)\n"
+        "print('session', os.getsid(0) == os.getpid(), flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    daemon = Daemon("gateway", make_script("gateway", body), logs, user=(os.getuid(), os.getgid()))
+    daemon.start([])
+    await wait_for(lambda: any(line["text"].startswith("session") for line in logs.since(0)))
+    await daemon.stop()
+    texts = [line["text"] for line in logs.since(0)]
+    assert "stdin /dev/null" in texts and "session True" in texts
+    assert changes[0] == {"user": os.getuid(), "group": os.getgid(), "extra_groups": []}
+
+
 async def test_daemon_hook_errors_are_logged(make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch) -> None:
     """A failing hook is logged and the daemon keeps restarting."""
     real = asyncio.sleep

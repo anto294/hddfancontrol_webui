@@ -17,8 +17,9 @@ drives or the rest of `/config`. This split must never be weakened: no new port 
 core, no root work triggered by a request the gateway did not authenticate, no code in
 the gateway that needs root.
 
-The gateway is started by the core through a `Daemon` with its user and group, a
-filtered environment (`privsep.GATEWAY_ENV`: no `NOTIFY_URL`, for example),
+The gateway is started by the core through a `Daemon` with its user and group (no
+supplementary groups, umask 077, stdin from `/dev/null` and a session of its own, so it
+can never reach a terminal the core was started from), a filtered environment (`privsep.GATEWAY_ENV`: no `NOTIFY_URL`, for example),
 `HOME=/nonexistent`, no `PYTHONPATH` and `python -I`, the package root passed as an
 argument. The notification address does not reach it through the API either: every
 answer that holds the settings (`GET`, `PUT` and `DELETE /api/settings`, so the backup

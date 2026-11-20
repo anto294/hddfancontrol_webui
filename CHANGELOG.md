@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **The web side can no longer reach the terminal it was started from.**
+  When the web UI was started by hand from a root shell, its unprivileged
+  web side shared that terminal. It now gets no input and a session of
+  its own.
 - **The notification token is no longer shown.** The settings returned the
   notification address in full, with its Gotify token or ntfy topic, to
   the page and in the settings backup. It is now shown with those parts
