@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **The hardware support request no longer carries serial numbers.** Its
+  log lines named the drives by their `/dev/disk/by-id` names, which hold
+  the serial number, although the form promises none. They now show the
+  kernel name (`sda`) instead.
 - **Changing the password always ends a stolen session.** The sessions
   were cleared in the background thread that saves the new password,
   while the web server kept using them: a session used at that very

@@ -67,6 +67,10 @@ SUPPORT_LOG_LINES = 30
 # colons that has "::" or three colons or more (a time such as 10:17:02 has two).
 _SUPPORT_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _SUPPORT_IPV6 = re.compile(r"[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:]*")
+# A /dev/disk/by-id name (with or without its folder): most hold the drive's serial number.
+_SUPPORT_BY_ID = re.compile(
+    r"(?:/dev/disk/by-id/)?\b(?:ata|nvme|scsi|sata|wwn|usb|mmc|virtio|ieee1394|cciss|memstick)-[^\s,;'\"()\[\]{}<>]+"
+)
 # Files that only exist inside a container.
 CONTAINER_MARKS = (Path("/.dockerenv"), Path("/run/.containerenv"))
 
@@ -368,6 +372,19 @@ def mask_addresses(text: str) -> str:
 
 
 # ---------------------------
+#   mask_drives
+# ---------------------------
+def mask_drives(text: str, names: dict[str, str]) -> str:
+    """Replace the /dev/disk/by-id names of a text (serial numbers) with the kernel name of names, or <drive>."""
+    by_name = {path.rsplit("/", 1)[-1]: kernel for path, kernel in names.items() if path.startswith("/dev/disk/by-id/")}
+
+    def drive(match: re.Match[str]) -> str:
+        return by_name.get(match.group(0).rsplit("/", 1)[-1], "<drive>")
+
+    return _SUPPORT_BY_ID.sub(drive, text)
+
+
+# ---------------------------
 #   get_support
 # ---------------------------
 async def get_support(request: web.Request) -> web.Response:
@@ -375,10 +392,13 @@ async def get_support(request: web.Request) -> web.Response:
 
     The fields are named as the form's (hardware_support.yml): system, host
     (the same lines as the form's shell block) and logs. Nothing leaves the
-    host here: the page shows it all, and the user decides to send it.
+    host here: the page shows it all, and the user decides to send it. The
+    log lines lose their addresses and the serial numbers in the by-id
+    names of the drives, as the form promises.
     """
     app = request.app
     host = await asyncio.to_thread(app[HARDWARE].report)
+    names = await asyncio.to_thread(app[HARDWARE].kernel_names)
     runs_in = "Docker image" if any(mark.exists() for mark in CONTAINER_MARKS) else "bare metal"
     lines = [line for line in app[SUPERVISOR].logs.since(0) if line["source"] in SUPPORT_SOURCES]
     logs = "\n".join(f"[{line['source']}] {line['text']}" for line in lines[-SUPPORT_LOG_LINES:])
@@ -386,7 +406,7 @@ async def get_support(request: web.Request) -> web.Response:
         {
             "system": f"{runs_in} {VERSION}, kernel {os.uname().release}",
             "host": host,
-            "logs": mask_addresses(logs),
+            "logs": mask_addresses(mask_drives(logs, names)),
         }
     )
 

@@ -26,7 +26,7 @@ from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app, mask_addresses
+from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app, mask_addresses, mask_drives
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -595,6 +595,29 @@ async def test_support(make_client: ClientMaker) -> None:
     assert data["host"].startswith("== board")
     assert "[sensors] Loaded nct6775" in data["logs"] and "gateway" not in data["logs"]
     assert "[webui] Listening on <address> and <address>" in data["logs"]
+
+
+async def test_support_hides_the_serial_numbers(make_client: ClientMaker) -> None:
+    """A drive's /dev/disk/by-id name holds its serial number: the support request gives its kernel name, or <drive>."""
+    client = await make_client()
+    logs = client.server.app[SUPERVISOR].logs
+    logs.add(
+        "hddfancontrol", f"Starting: hddfancontrol daemon --drives {DRIVE} /dev/disk/by-id/ata-GONE_SERIAL9 --interval 20s"
+    )
+    logs.add("fan-control", "Own limits: ata-ST4000VN006-3CW104_ZW627CWW 30/40/50, nvme-eui.0025385b71b0a1c2 40/50/60")
+    logs.add("webui", "The fan chip moved: /dev/disk/by-path/pci-0000:00:17.0-ata-1 stays")
+    data = (await (await client.get("/api/support")).json())["logs"]
+    assert "ZW627CWW" not in data and "GONE_SERIAL9" not in data and "0025385b71b0a1c2" not in data
+    assert "--drives sda <drive> --interval" in data
+    assert "Own limits: sda 30/40/50, <drive> 40/50/60" in data
+    assert "/dev/disk/by-path/pci-" in data  # no serial in a path name
+
+
+def test_mask_drives() -> None:
+    """Every by-id name goes, with or without its folder; known ones become their kernel name."""
+    names = {"/dev/disk/by-id/wwn-0x5000c500a1b2c3d4": "sdb"}
+    text = "wwn-0x5000c500a1b2c3d4, /dev/disk/by-id/scsi-SATA_X_Y1, (usb-Kingston_ABC-0:0) and sda"
+    assert mask_drives(text, names) == "sdb, <drive>, (<drive>) and sda"
 
 
 def test_mask_addresses() -> None:

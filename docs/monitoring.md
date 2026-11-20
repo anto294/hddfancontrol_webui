@@ -127,7 +127,10 @@ button in the "No PWM output" banner):
 - `GET /api/support` adds the system (Docker image or bare metal, version, kernel) and
   the last `SUPPORT_LOG_LINES` (30) log lines of `SUPPORT_SOURCES` (sensors,
   hddfancontrol, fan-control, webui; never the gateway's or the audit's, which name
-  users and addresses). Addresses are masked anyway (`mask_addresses`).
+  users and addresses). Addresses are masked anyway (`mask_addresses`), and so are the
+  `/dev/disk/by-id` names of the drives, which hold their serial numbers (the
+  `hddfancontrol` command line, the own limits of the fan control): each becomes its
+  kernel name (`sda`), or `<drive>` when it is not on the host (`mask_drives`).
 - The page shows it all first. **Open on GitHub** opens the form with its `system`,
   `host` and `logs` fields filled in by their ids; past `SUPPORT_MAX_URL` (7500
   characters) the link drops the oldest log lines, then the end of the host part, and
