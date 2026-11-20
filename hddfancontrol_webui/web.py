@@ -620,7 +620,10 @@ async def post_sensor_scan(request: web.Request) -> web.Response:
     if state["sensors"].state == "running":
         return _json_error(409, "busy")
     state["sensors"] = SensorReport(state="running")
-    state["sensors"] = await request.app[SENSOR_SCAN]()
+    try:
+        state["sensors"] = await request.app[SENSOR_SCAN]()
+    except Exception as err:  # never left "running": every later scan would answer busy
+        state["sensors"] = SensorReport(state="done", detect_error=repr(err), finished_at=datetime.now(UTC).isoformat())
     return web.json_response(state["sensors"].to_dict())
 
 

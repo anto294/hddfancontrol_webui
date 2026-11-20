@@ -25,6 +25,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   as a drive (fans at full speed, a false "drive hot" alert), or a hot
   drive be ignored for one interval. Samples of an earlier run of
   hddfancontrol are now ignored until it writes a new one.
+- **A failed sensor scan no longer blocks the next ones.** An unexpected
+  error during **Scan again** left the scan "running" for ever, and every
+  later scan was refused as busy. It now ends with the error shown.
 
 ### Changed
 

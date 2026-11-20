@@ -103,7 +103,10 @@ but never because of a label.
 Start, in the background so the web UI answers at once:
 
 1. The sensor modules (`sensors-detect`), unless `LOAD_SENSOR_MODULES=false`. A failure
-   never keeps the fans from being controlled.
+   never keeps the fans from being controlled. A scan always ends as `done`, at start
+   and when the page asks for one again (`POST /api/sensors/scan`): a program that
+   hangs is killed at `RUN_TIMEOUT` (300 s) and reported, and an unexpected error
+   lands in `detect_error`, so a later scan is never refused as `busy`.
 2. `Supervisor.start`: hddfancontrol, hd-idle, the fan controller.
 3. `Monitor.start`: recording, SMART, alerts.
 

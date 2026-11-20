@@ -40,7 +40,7 @@ ClientMaker = Callable[..., Awaitable[Client]]
 def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker) -> ClientMaker:
     """Build a client on an app with fake hardware and programs."""
 
-    async def make(peers: frozenset[int] | None = None, load_modules: bool = True) -> Client:
+    async def make(peers: frozenset[int] | None = None, load_modules: bool = True, sensor_scan: Any = None) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
         log_path = config / "templog" / "temps.jsonl"
@@ -72,7 +72,15 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
             return SensorReport(state="done")
 
         app = create_app(
-            supervisor, hardware, temp_log, history, monitor, Labels(config), scan, peers=peers, load_modules=load_modules
+            supervisor,
+            hardware,
+            temp_log,
+            history,
+            monitor,
+            Labels(config),
+            sensor_scan or scan,
+            peers=peers,
+            load_modules=load_modules,
         )
 
         async def stop(app: web.Application) -> None:
@@ -218,6 +226,20 @@ async def test_no_sensor_scan_when_loading_modules_is_off(make_client: ClientMak
     client = await make_client(load_modules=False)
     scan = await client.post("/api/sensors/scan", headers=FETCH)
     assert scan.status == 409 and (await scan.json())["error"] == "scan_disabled"
+
+
+async def test_a_failed_sensor_scan_never_stays_running(make_client: ClientMaker) -> None:
+    """A scan that raises ends as done with its error: the next scan is not refused as busy."""
+
+    async def broken() -> SensorReport:
+        raise RuntimeError("scan broken")
+
+    client = await make_client(sensor_scan=broken)
+    scan = await client.post("/api/sensors/scan", headers=FETCH)
+    data = await scan.json()
+    assert scan.status == 200 and data["state"] == "done" and "scan broken" in data["detect_error"]
+    again = await client.post("/api/sensors/scan", headers=FETCH)
+    assert again.status == 200
 
 
 async def test_labels_api(make_client: ClientMaker) -> None:
