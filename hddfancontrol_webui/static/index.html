@@ -84,9 +84,17 @@
         </article>
         <article class="card">
           <h2 data-icon="chip" data-i18n="overview.control"></h2>
-          <table class="list" id="control"></table>
+          <!-- What drives the fans, the programs that run, then the host. -->
+          <h3 class="control-group" data-icon="fan" data-i18n="overview.regulation"></h3>
+          <table class="list" id="control-fans"></table>
+          <h3 class="control-group" data-icon="restart" data-i18n="overview.services"></h3>
+          <table class="list" id="control-services"></table>
           <div class="actions">
             <button id="restart" class="secondary" data-icon="restart" data-i18n="action.restart"></button>
+          </div>
+          <div id="control-host-group" hidden>
+            <h3 class="control-group" data-icon="chip" data-i18n="overview.host"></h3>
+            <table class="list" id="control-host"></table>
           </div>
         </article>
       </div>

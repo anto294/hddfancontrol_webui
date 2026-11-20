@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- **The Control card of the Overview in three groups.** Fan control (state,
+  mode, the hottest drive and the speed each fan was given), Services
+  (hddfancontrol and hd-idle, with the **Restart** button under them) and
+  Host (processor time, load and temperature), instead of one long list.
+
 ## [0.11.0] - 2026-11-19
 
 ### Added

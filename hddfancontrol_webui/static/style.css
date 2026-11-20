@@ -2513,3 +2513,21 @@ input.cron,
   height: auto;
   max-height: 40vh;
 }
+
+/* The groups of the control card: smaller headings, the first one at the top. */
+.control-group {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.card > h2 + .control-group {
+  margin-top: 0;
+}
+
+/* The three tables line up: the names take the same width in each. */
+#control-fans td:first-child,
+#control-services td:first-child,
+#control-host td:first-child {
+  width: 45%;
+}

@@ -61,7 +61,7 @@ for `data-theme="dark"`.
 
 | Tab | What |
 | --- | --- |
-| Overview | Control state, CPU, drives with bars and trends, fans, the bay map with animated drives (spinning platters, a head and a LED driven by real I/O; moving electrons for SSDs) |
+| Overview | The Control card in three groups (fan control: state, mode, the speeds given; services: the programs and **Restart**; host: CPU), drives with bars and trends, fans, the bay map with animated drives (spinning platters, a head and a LED driven by real I/O; moving electrons for SSDs) |
 | Fans | Every PWM output, its speed, RPM and name; manual control; the hardware support request |
 | Drives | SMART per drive, self-tests |
 | History | Charts of temperatures, PWM and RPM, CSV export |

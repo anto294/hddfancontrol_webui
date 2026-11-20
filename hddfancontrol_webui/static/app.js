@@ -454,10 +454,9 @@ function renderOverview() {
   const known = shown.filter((pwm) => pwm.value !== null);
   setStat("stat-fans", known.length ? fmtPct(known.reduce((sum, pwm) => sum + pwm.value, 0) / known.length) : "–");
 
-  const control = $("control");
-  control.replaceChildren();
-  control.append(row(t("overview.mode"), t(`mode.${status.mode}`)));
-  control.append(row(t("settings.control_mode"), t(`mode.${status.control_mode}`)));
+  // Fan control: the state, the mode, and what it decided.
+  const control = $("control-fans");
+  control.replaceChildren(row(t("overview.mode"), t(`mode.${status.mode}`)), row(t("settings.control_mode"), t(`mode.${status.control_mode}`)));
   if ((status.fans.mode === "auto" || status.fans.mode === "curve") && status.fans.auto.speed !== null) {
     control.append(row(t("overview.hottest"), fmtTemp(status.fans.auto.hottest)));
     // With fan groups each fan has its own speed.
@@ -465,22 +464,28 @@ function renderOverview() {
       control.append(row(t("overview.fan_speed", { fan: pwmLabel(path) }), ltr(`${Math.round(speed * 100)} %`)));
     }
   }
-  for (const [name, daemon] of Object.entries(status.daemons)) {
-    const text = t(`daemon.${daemon.state}`) + (daemon.restarts ? ` · ${t("overview.restarts", { count: daemon.restarts })}` : "");
-    control.append(row(name, text));
-  }
+  // The programs, next to the button that restarts them.
+  $("control-services").replaceChildren(
+    ...Object.entries(status.daemons).map(([name, daemon]) =>
+      row(name, t(`daemon.${daemon.state}`) + (daemon.restarts ? ` · ${t("overview.restarts", { count: daemon.restarts })}` : "")),
+    ),
+  );
+  // The host: processor time, load, temperature.
+  const host = $("control-host");
+  host.replaceChildren();
   const cpu = state.hardware.cpu;
   if (cpu) {
     if (state.cpuUsage !== null) {
       const usage = state.cpuUsage;
-      control.append(row(t("overview.cpu_usage"), el("span", { class: "cpu-usage" }, bar(usage, usage < 0.5 ? "cool" : usage < 0.85 ? "warm" : "hot"), ltr(`${Math.round(usage * 100)} %`))));
+      host.append(row(t("overview.cpu_usage"), el("span", { class: "cpu-usage" }, bar(usage, usage < 0.5 ? "cool" : usage < 0.85 ? "warm" : "hot"), ltr(`${Math.round(usage * 100)} %`))));
     }
     if (cpu.load.length === 3) {
       const text = cpu.load.map((value) => value.toFixed(2)).join(" · ") + (cpu.count ? ` (${t("overview.cpu_count", { count: cpu.count })})` : "");
-      control.append(row(t("overview.cpu_load"), text));
+      host.append(row(t("overview.cpu_load"), text));
     }
-    if (cpu.temp !== null) control.append(row(t("overview.cpu_temp"), el("span", { title: cpu.temp_path, text: fmtTemp(cpu.temp) })));
+    if (cpu.temp !== null) host.append(row(t("overview.cpu_temp"), el("span", { title: cpu.temp_path, text: fmtTemp(cpu.temp) })));
   }
+  $("control-host-group").hidden = !host.children.length;
 }
 
 // An arrow when a drive got warmer or cooler by TREND_MIN_DELTA in TREND_SECONDS.
