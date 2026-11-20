@@ -31,6 +31,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **A host of the LAN can no longer lock you out of the login.** With
+  IPv6, ten wrong passwords from any host of the same network refused
+  every other host of it, yours too, for 15 minutes. Now only the
+  address that sent them is refused; the rest of its network is just
+  slowed down a little.
 - **A broken or full log output can no longer stop the fans' safety.**
   The lines of the log were written to the container's output on the
   same thread as fan control. When that output was gone, an error at the

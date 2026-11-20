@@ -424,17 +424,35 @@ async def test_dot_segments_never_pass_as_public(make_gateway: GatewayMaker) -> 
     assert (await gw.client.get("/static/i18n/en.json")).status == 200  # the public files still are
 
 
-def test_login_limiter_counts_an_ipv6_64_as_one_client() -> None:
-    """The addresses of one IPv6 /64 share a count; IPv4 addresses each have their own."""
+def test_login_limiter_refuses_an_address_and_only_slows_its_64() -> None:
+    """An IPv6 address is refused alone; its /64 (often a whole LAN) is counted too, but only slowed down, never refused.
+
+    A host of the LAN that guesses must not lock its neighbours out, nor
+    can it guess at full speed by taking a new address of the /64 for
+    every ten tries. A right password of one address resets that address
+    alone.
+    """
     limiter = LoginLimiter(max_failures=2, window=10)
-    limiter.failed("fd00:1:2:3::1")
-    limiter.failed("fd00:1:2:3::ffff")
-    assert limiter.blocked("fd00:1:2:3:aaaa::5") and not limiter.blocked("fd00:1:2:4::1")
+    attacker, owner = "fd00:1:2:3::1", "fd00:1:2:3::2"
+    assert limiter.delay(owner) == 0
+    limiter.failed(attacker)
+    limiter.failed(attacker)
+    assert limiter.blocked(attacker) and limiter.blocked("fd00:1:2:3:0:0:0:1")  # the same address, written otherwise
+    assert not limiter.blocked(owner) and limiter.delay(owner) > 0
+    assert limiter.delay("fd00:1:2:4::1") == 0 and not limiter.blocked("fd00:1:2:4::1")
+    limiter.succeeded(owner)
+    assert limiter.blocked(attacker) and limiter.delay(owner) > 0
+    limiter.succeeded(attacker)
+    assert not limiter.blocked(attacker)
+    # The slowdown grows with the failures of the /64, up to LOGIN_SLOW_MAX.
+    first = limiter.delay(owner)
+    for n in range(40):
+        limiter.failed(f"fd00:1:2:3::{n + 10:x}")
+    assert first < limiter.delay(owner) <= gateway_module.LOGIN_SLOW_MAX
     limiter.failed("192.168.1.10")
     limiter.failed("192.168.1.10")
     assert limiter.blocked("192.168.1.10") and not limiter.blocked("192.168.1.11")
-    limiter.succeeded("fd00:1:2:3::9")
-    assert not limiter.blocked("fd00:1:2:3::1")
+    assert limiter.blocked("::ffff:192.168.1.10") and limiter.delay("192.168.1.11") == 0
     assert LoginLimiter.client("not an address") == "not an address"
 
 

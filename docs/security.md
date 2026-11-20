@@ -49,9 +49,12 @@ The gateway's middlewares run in this order:
    page are served. That page moves the browser to HTTPS from its own `location`, never
    from the `Host` header.
 5. **`authentication`**: without credentials only the setup works (with the one-time
-   code from the log); then a session cookie or HTTP Basic. `LoginLimiter` refuses a
-   client after 10 failures in 15 minutes (an IPv4 address or an IPv6 /64), allows one
-   check at a time per client, and past 100 failures overall slows down only the
+   code from the log); then a session cookie or HTTP Basic. `LoginLimiter` refuses an
+   address after 10 failures in 15 minutes (`LOGIN_MAX_FAILURES`, `LOGIN_WINDOW`) and
+   allows one check at a time per address. An IPv6 /64 that sent as many is only slowed
+   down (every address of it waits 2 s, doubled for every 10 more failures, at most
+   30 s): a LAN often shares one /64, and a host that takes a new address for each try
+   still cannot guess at full speed. Past 100 failures overall it slows down only the
    clients that failed. Nobody is ever locked out by others.
 6. **`csrf`**: every request that is not a GET needs `X-Requested-With: fetch` (a
    header other sites cannot send without a preflight) and a matching `Origin`.

@@ -85,10 +85,11 @@ PUBLIC_PATHS = (
     "/static/manifest.webmanifest",
 )
 PUBLIC_PREFIXES = ("/static/i18n/",)
-# After this many wrong passwords (or setup codes) from one client within
-# LOGIN_WINDOW seconds, that client is refused without checking until the
-# window ends. A client is an IPv4 address or an IPv6 /64: a host holds as
-# many addresses of its /64 as it likes.
+# After this many wrong passwords (or setup codes) from one address within
+# LOGIN_WINDOW seconds, that address is refused without checking until the
+# window ends. An IPv6 /64 that sent as many is slowed down instead (see
+# LoginLimiter.delay): a host holds as many addresses of its /64 as it
+# likes, but a whole LAN often shares one, and nobody may lock the owner out.
 LOGIN_MAX_FAILURES = 10
 LOGIN_WINDOW = 900.0
 LOGIN_MAX_ADDRESSES = 10000
@@ -160,11 +161,14 @@ class TooManyAttempts(Exception):
 #   LoginLimiter
 # ---------------------------
 class LoginLimiter:
-    """Count the wrong passwords of each client and of all of them: refuse a client past its limit, slow down past the global one.
+    """Count the wrong passwords of each address, IPv6 /64 and of all of them.
 
-    The scrypt checks already run one at a time; this stops one client from
-    guessing for hours, and from keeping the checks busy for everyone else.
-    Behind a reverse proxy every client has the address of the proxy.
+    An address past its limit is refused; a /64 past it, or all clients
+    past the global limit, are slowed down only. The scrypt checks already
+    run one at a time; this stops one client from guessing for hours, and
+    from keeping the checks busy for everyone else, without letting a
+    neighbour of the same /64 lock the owner out. Behind a reverse proxy
+    every client has the address of the proxy.
     """
 
     def __init__(
@@ -175,6 +179,8 @@ class LoginLimiter:
         self._max_global = max_global
         self._window = window
         self._failures: dict[str, list[float]] = {}
+        # The failures of each IPv6 /64, which only slow down its addresses.
+        self._networks: dict[str, list[float]] = {}
         self._global: list[float] = []
         # The clients with a password check waiting or running.
         self._busy: set[str] = set()
@@ -193,10 +199,10 @@ class LoginLimiter:
 
     @staticmethod
     def client(address: str) -> str:
-        """The client an address belongs to: itself for IPv4 (or a name), its /64 for IPv6.
+        """The client an address belongs to: the address itself, written one way (or the name given).
 
         An IPv4-mapped address (::ffff:a.b.c.d, from a dual-stack socket) is
-        the IPv4 client, as in allowed(): its /64 would hold every IPv4 host.
+        the IPv4 client, as in allowed().
         """
         try:
             ip = ipaddress.ip_address(address)
@@ -204,17 +210,27 @@ class LoginLimiter:
             return address
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
             return str(ip.ipv4_mapped)
-        if ip.version == 6:
-            return str(ipaddress.ip_network(f"{ip}/64", strict=False))
-        return address
+        return str(ip)
 
-    def _recent(self, key: str, now: float) -> list[float]:
-        """The failures of a client within the window."""
-        recent = [t for t in self._failures.get(key, []) if now - t < self._window]
+    @staticmethod
+    def network(address: str) -> str | None:
+        """The IPv6 /64 of an address, or None (IPv4, IPv4-mapped, a name)."""
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            return None
+        if not isinstance(ip, ipaddress.IPv6Address) or ip.ipv4_mapped is not None:
+            return None
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+
+    def _recent(self, key: str, now: float, table: dict[str, list[float]] | None = None) -> list[float]:
+        """The failures of a client (or, with table, of a /64) within the window."""
+        table = self._failures if table is None else table
+        recent = [t for t in table.get(key, []) if now - t < self._window]
         if recent:
-            self._failures[key] = recent
+            table[key] = recent
         else:
-            self._failures.pop(key, None)
+            table.pop(key, None)
         return recent
 
     def _recent_global(self, now: float) -> int:
@@ -227,38 +243,51 @@ class LoginLimiter:
         return len(self._recent(self.client(address), time.monotonic())) >= self._max
 
     def delay(self, address: str) -> float:
-        """How long the next password check of address waits: 0 below the global limit or for a client without failures.
+        """How long the next password check of address waits; the longer of the global and the /64 delay.
 
-        Past the limit, the delay doubles every LOGIN_SLOW_STEP failures,
-        from LOGIN_SLOW_BASE to LOGIN_SLOW_MAX seconds. When the table of
-        clients is full, a client it does not hold may have failed too:
-        it waits like one that did.
+        Global: 0 below the global limit or for a client without failures;
+        past it, the delay doubles every LOGIN_SLOW_STEP failures, from
+        LOGIN_SLOW_BASE to LOGIN_SLOW_MAX seconds. When the table of
+        clients is full, a client it does not hold may have failed too: it
+        waits like one that did. /64: once its addresses sent max_failures
+        wrong passwords, every address of it waits LOGIN_SLOW_BASE, doubled
+        for every max_failures more, at most LOGIN_SLOW_MAX: a guesser that
+        takes a new address for each try is slowed, its neighbours never
+        refused.
         """
         now = time.monotonic()
+        waits = [0.0]
+        if (network := self.network(address)) is not None:
+            excess = len(self._recent(network, now, self._networks)) - self._max
+            if excess >= 0:
+                waits.append(min(LOGIN_SLOW_MAX, LOGIN_SLOW_BASE * 2 ** (excess // self._max)))
         excess = self._recent_global(now) - self._max_global
-        if excess < 0:
-            return 0.0
-        key = self.client(address)
-        if not self._recent(key, now) and len(self._failures) < LOGIN_MAX_ADDRESSES:
-            return 0.0
-        return float(min(LOGIN_SLOW_MAX, LOGIN_SLOW_BASE * 2 ** (excess // LOGIN_SLOW_STEP)))
+        if excess >= 0 and (self._recent(self.client(address), now) or len(self._failures) >= LOGIN_MAX_ADDRESSES):
+            waits.append(min(LOGIN_SLOW_MAX, LOGIN_SLOW_BASE * 2 ** (excess // LOGIN_SLOW_STEP)))
+        return float(max(waits))
 
     def failed(self, address: str) -> bool:
         """Count a wrong password of address; True when it is the one that starts slowing down the checks."""
         now = time.monotonic()
         self._global.append(now)
         stopped = self._recent_global(now) == self._max_global
-        key = self.client(address)
-        if key not in self._failures and len(self._failures) >= LOGIN_MAX_ADDRESSES:
-            for other in list(self._failures):
-                self._recent(other, now)
-            if len(self._failures) >= LOGIN_MAX_ADDRESSES:
-                return stopped  # the global count still holds this one
-        self._failures.setdefault(key, []).append(now)
+        network = self.network(address)
+        if network is not None:
+            self._count(self._networks, network, now)
+        self._count(self._failures, self.client(address), now)
         return stopped
 
+    def _count(self, table: dict[str, list[float]], key: str, now: float) -> None:
+        """Add a failure of key to table, unless the table is full of recent failures (the global count still holds it)."""
+        if key not in table and len(table) >= LOGIN_MAX_ADDRESSES:
+            for other in list(table):
+                self._recent(other, now, table)
+            if len(table) >= LOGIN_MAX_ADDRESSES:
+                return
+        table.setdefault(key, []).append(now)
+
     def succeeded(self, address: str) -> None:
-        """Forget the failures of the client of address after a right password."""
+        """Forget the failures of address after a right password; not those of its /64, which may hold a guesser."""
         self._failures.pop(self.client(address), None)
 
 

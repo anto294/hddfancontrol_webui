@@ -183,6 +183,12 @@ from a web page. (0.8.0–0.9.0, 2026-11-17)
 **Past 100 failed logins overall, slow down instead of refusing.** Why: a refusal for
 everyone would let an attacker lock the owner out. (0.9.0, 2026-11-17)
 
+**Refuse an address, only slow down its IPv6 /64.** Why: the /64 was the client before,
+so ten wrong passwords from one host of a SLAAC or ULA LAN (and every `fe80::` address)
+locked out every other host of it, the owner too; and a right password of the owner
+reset the count of the guesser. Counting the /64 still keeps a host from taking a new
+address for every ten tries at full speed. (2026-11-20)
+
 **HTTPS on by default, self-signed when no certificate is given, no HSTS.** HTTP and
 HTTPS share one port. Why: encrypted by default without any setup; HSTS would lock users
 out of a self-signed certificate for good. (0.7.0/0.9.0, 2026-11-17)
