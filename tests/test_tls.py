@@ -228,3 +228,75 @@ async def test_the_first_request_must_come_in_time(monkeypatch: pytest.MonkeyPat
     writer.close()
     await listener.close()
     await server.shutdown()
+
+
+async def test_every_request_must_come_in_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The deadline holds for each request of a connection, chunked bodies too; the wait between requests is not one."""
+    monkeypatch.setattr(tls, "REQUEST_TIMEOUT_S", 0.3)
+
+    async def handler(request: web.Request) -> web.Response:
+        body = await request.read()
+        return web.Response(text=f"got {len(body)}")
+
+    server = web.Server(handler)
+    listener = DualListener(server, "127.0.0.1", 0, None)
+    await listener.start()
+    port = listener.port
+
+    async def answer(reader: asyncio.StreamReader) -> bytes:
+        head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 5)
+        length = int(next(line.split(b":")[1] for line in head.split(b"\r\n") if line.lower().startswith(b"content-length")))
+        return await asyncio.wait_for(reader.readexactly(length), 5)
+
+    async def dropped(reader: asyncio.StreamReader) -> bool:
+        with contextlib.suppress(ConnectionResetError):
+            return await asyncio.wait_for(reader.read(), 5) == b""
+        return True
+
+    # A chunked body, complete in pieces (with a trailer): answered.
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n")
+    await asyncio.sleep(0.05)
+    writer.write(b"2;ext=1\r\nde\r\n0\r\nX-Trailer: 1\r\n\r\n")
+    assert await answer(reader) == b"got 5"
+    # The connection then waits longer than the deadline between two requests: that is not one.
+    await asyncio.sleep(0.5)
+    writer.write(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+    assert await answer(reader) == b"got 0"
+    # A second request that never ends is dropped like a first one.
+    writer.write(b"GET / HTTP/1.1\r\nHost: x\r\n")
+    assert await dropped(reader)
+    writer.close()
+    # A chunked body that never ends: dropped.
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nab")
+    assert await dropped(reader)
+    writer.close()
+    # Two requests sent at once (pipelined): both answered.
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nhiGET / HTTP/1.1\r\nHost: x\r\n\r\n")
+    assert await answer(reader) == b"got 2" and await answer(reader) == b"got 0"
+    writer.close()
+    await listener.close()
+    await server.shutdown()
+
+
+def test_request_watch_framing() -> None:
+    """Requests are told complete by their framing; one it cannot follow stops the watch (aiohttp refuses it)."""
+    watch = tls._RequestWatch()
+    assert watch.feed(b"GET / HTTP/1.1\r\nHost: x\r") == [True] and watch.busy
+    assert watch.feed(b"\n\r\n") == [False] and not watch.busy
+    # Byte by byte, a chunked body with a trailer.
+    events: list[bool] = []
+    for byte in b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nwiki\r\n0\r\nA: b\r\n\r\n":
+        events += watch.feed(bytes([byte]))
+    assert events == [True, False]
+    bad = tls._RequestWatch()
+    bad.feed(b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
+    assert bad.off
+    long_head = tls._RequestWatch()
+    long_head.feed(b"GET / HTTP/1.1\r\nX: " + b"a" * (tls.MAX_HEAD_BYTES + 1))
+    assert long_head.off
+    long_line = tls._RequestWatch()
+    long_line.feed(b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n" + b"1" * (tls.MAX_LINE_BYTES + 1))
+    assert long_line.off
