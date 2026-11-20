@@ -64,6 +64,8 @@ fi
 
 wheel=$(find "$HERE" -maxdepth 1 -name "hddfancontrol_webui-*.whl" | head -n 1)
 [ -n "$wheel" ] || die "no wheel next to install.sh: run it from the extracted release"
+[ -f "$HERE/requirements.txt" ] && [ -d "$HERE/wheels" ] \
+    || die "no requirements.txt and wheels/ next to install.sh: run it from the extracted release"
 
 # The gateway (the part the network reaches) runs as this user, not root.
 if ! getent passwd hddfancontrol-webui >/dev/null; then
@@ -80,7 +82,12 @@ install -m 0755 "$HERE"/bin/hddfancontrol "$HERE"/bin/hd-idle "$HERE"/bin/sdparm
 # A new venv each time, so an update never mixes old and new packages.
 rm -rf "$PREFIX/venv"
 python3 -m venv "$PREFIX/venv"
-"$PREFIX/venv/bin/pip" install --quiet --disable-pip-version-check "$wheel"
+# Only what the tarball holds, nothing from PyPI: the dependencies at the versions and
+# hashes of requirements.txt (pure Python wheels, nothing is built as root), then the
+# program itself.
+"$PREFIX/venv/bin/pip" install --quiet --disable-pip-version-check --no-index \
+    --find-links "$HERE/wheels" --require-hashes -r "$HERE/requirements.txt"
+"$PREFIX/venv/bin/pip" install --quiet --disable-pip-version-check --no-index --no-deps "$wheel"
 
 install -d -m 0755 "$ETC"
 [ -f "$ETC/env" ] || install -m 0600 "$HERE/env.example" "$ETC/env"

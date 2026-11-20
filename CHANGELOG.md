@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **The bare metal install downloads nothing.** `install.sh` installed
+  aiohttp and its dependencies from PyPI as root, at whatever versions
+  were current. The tarball now carries them, at fixed versions checked
+  against their hashes, and the install uses only those.
 - **Refused requests can no longer flood the log.** Each refused address or
   host name was logged once an hour, but a client sending a new made-up
   name with every request still got one line each. At most 20 such lines

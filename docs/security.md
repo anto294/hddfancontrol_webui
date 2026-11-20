@@ -143,4 +143,12 @@ workflow (`release.yml`) builds it only from tools pinned with their hashes:
 `setuptools`), installed with `--require-hashes --only-binary :all:`, then
 `python -m build --no-isolation`, which fetches nothing more. The checkout keeps no
 token (`persist-credentials: false`), and the write token (`GH_TOKEN`) is given to the
-upload step alone. `tests/test_packaging.py` checks all three.
+upload step alone.
+
+The Python dependencies are in the tarball too: `packaging/requirements.txt` pins
+aiohttp and everything it needs at exact versions with the hash of their pure Python
+wheel (`py3-none-any`, so one set serves every architecture and Python from 3.11). The
+release downloads them with `--require-hashes` into `wheels/`, and `install.sh`
+installs them with `--no-index --find-links wheels --require-hashes`, then the program's
+wheel with `--no-index --no-deps`: nothing comes from PyPI, and nothing is built from
+source, as root on the host. `tests/test_packaging.py` checks all of this.

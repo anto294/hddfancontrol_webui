@@ -83,6 +83,14 @@ jobs:
           python -m pip install --require-hashes --only-binary :all: --no-deps -r packaging/build-requirements.txt
           python -m build --wheel --no-isolation --outdir "$RUNNER_TEMP/dist"
 
+      - name: Download the Python dependencies
+        run: |
+          # The pure Python wheels of packaging/requirements.txt, checked against their
+          # hashes: install.sh installs them from the tarball, never from PyPI.
+          python -m pip download --require-hashes --only-binary :all: --no-deps \
+            --platform any --python-version 3.11 --implementation py --abi none \
+            -r packaging/requirements.txt -d "$RUNNER_TEMP/wheels"
+
       - name: Pack the tarball
         run: |
           NAME="hddfancontrol-webui-$VERSION-linux-${{ matrix.arch }}"
@@ -90,7 +98,8 @@ jobs:
           mkdir -p "$DIR/bin"
           install -m 0755 "$RUNNER_TEMP"/bin/hddfancontrol "$RUNNER_TEMP"/bin/hd-idle "$RUNNER_TEMP"/bin/sdparm "$DIR/bin/"
           file "$DIR"/bin/* | tee /dev/stderr | grep -q "statically linked"
-          cp "$RUNNER_TEMP"/dist/*.whl packaging/install.sh packaging/hddfancontrol-webui.service packaging/env.example LICENSE README.md "$DIR/"
+          cp "$RUNNER_TEMP"/dist/*.whl packaging/install.sh packaging/requirements.txt packaging/hddfancontrol-webui.service packaging/env.example LICENSE README.md "$DIR/"
+          cp -r "$RUNNER_TEMP/wheels" "$DIR/wheels"
           tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/$NAME.tar.gz" "$NAME"
           (cd "$RUNNER_TEMP" && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
           echo "NAME=$NAME" >> "$GITHUB_ENV"

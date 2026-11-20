@@ -257,6 +257,13 @@ that holds `contents: write`; it could change the wheel that `install.sh` runs a
 and the provenance attestation would have signed the changed tarball all the same.
 Dependabot proposes the updates of the pinned tools. (2026-11-20)
 
+**The bare metal tarball carries its Python dependencies, hashed, as pure Python
+wheels.** Why: `install.sh` ran `pip install` as root against PyPI, taking the latest
+release of every transitive dependency (and building a source package when no wheel
+fitted). The pure wheels of aiohttp and its dependencies serve every architecture and
+Python version at once; their C speedups are not needed for one page on a LAN.
+(2026-11-20)
+
 ## Support
 
 **Hardware we do not own is supported from what its owner sends, through a guided

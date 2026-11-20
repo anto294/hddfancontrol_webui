@@ -38,7 +38,8 @@ updates:
     commit-message:
       prefix: "Python"
 
-  # The hashed build tools of the release workflow (packaging/build-requirements.txt).
+  # The hashed build tools of the release workflow (packaging/build-requirements.txt)
+  # and the hashed dependencies of the bare metal tarball (packaging/requirements.txt).
   - package-ecosystem: pip
     directory: /packaging
     schedule:
