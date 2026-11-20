@@ -266,6 +266,25 @@ async def test_csrf(make_gateway: GatewayMaker) -> None:
     assert (await gw.client.post("/api/restart", headers=FETCH)).status == 200
 
 
+async def test_requests_of_other_sites_never_reach_the_api(make_gateway: GatewayMaker) -> None:
+    """A browser marks a request sent by a page of another site (another port of the NAS too): no API, no metrics, even a GET.
+
+    An <img> of another app on the same host could otherwise keep manual
+    control alive by asking for the status. The pages of the web UI, a
+    link typed or followed, and scripts (no header) are not concerned.
+    """
+    gw = await logged_in(make_gateway)
+    for site in ("same-site", "cross-site"):
+        for method, path in (("GET", "/api/status"), ("GET", "/metrics"), ("POST", "/api/restart")):
+            response = await gw.client.request(method, path, headers={**FETCH, "Sec-Fetch-Site": site})
+            assert response.status == 403 and (await response.json())["error"] == "csrf", (site, path)
+    assert gw.seen == []
+    for site in ("same-origin", "none"):
+        assert (await gw.client.get("/api/status", headers={"Sec-Fetch-Site": site})).status == 200
+    assert (await gw.client.get("/api/status")).status == 200
+    assert (await gw.client.get("/login", headers={"Sec-Fetch-Site": "cross-site"})).status == 200  # a page may be linked
+
+
 async def test_basic_auth_and_metrics(make_gateway: GatewayMaker) -> None:
     """Scripts and Prometheus send Basic credentials."""
     gw = await make_gateway(CREDENTIALS)

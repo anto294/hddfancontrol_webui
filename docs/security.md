@@ -67,7 +67,11 @@ The gateway's middlewares run in this order:
    still cannot guess at full speed. Past 100 failures overall it slows down only the
    clients that failed. Nobody is ever locked out by others.
 6. **`csrf`**: every request that is not a GET needs `X-Requested-With: fetch` (a
-   header other sites cannot send without a preflight) and a matching `Origin`.
+   header other sites cannot send without a preflight) and a matching `Origin`. The API
+   and `/metrics` refuse any request, GETs too, that the browser marks as sent by
+   another site (`Sec-Fetch-Site: same-site` or `cross-site`, `FOREIGN_SITES`):
+   `SameSite=Strict` counts sites, not ports, so another app of the same NAS could
+   otherwise keep manual control alive with an `<img>` of `/api/status`.
 
 Then the gateway answers its own endpoints (`/api/login`, `/api/logout`, `/api/setup`,
 `/api/auth`) and pages, or forwards `/api/…` and `/metrics` to the core with

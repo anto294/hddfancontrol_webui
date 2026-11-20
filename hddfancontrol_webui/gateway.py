@@ -107,6 +107,8 @@ LOGIN_SLOW_STEP = 25
 LOGIN_SLOW_MAX = 30.0
 # How many global failures are remembered: enough for the delay to reach its maximum.
 LOGIN_GLOBAL_KEEP = 1000
+# Sec-Fetch-Site values of a request sent by a page of another site: never served by the API.
+FOREIGN_SITES = ("same-site", "cross-site")
 # What plain HTTP still serves with FORCE_HTTPS: the health check, and the page that moves the browser to HTTPS.
 HTTP_PATHS = ("/healthz", "/static/https.js", "/static/style.css")
 # The networks allowed by default: loopback, private, link-local, carrier-grade NAT
@@ -686,7 +688,17 @@ async def csrf(request: web.Request, handler: Handler) -> web.StreamResponse:
     A change needs the X-Requested-With header, which a page of another
     site cannot send without a CORS preflight (never accepted here), and,
     when the browser sends one, an Origin that matches the host.
+
+    The API and /metrics also refuse any request, a GET too, that the
+    browser marks as sent by another site (Sec-Fetch-Site same-site or
+    cross-site): SameSite=Strict counts sites, not ports, so a page of
+    another app of the NAS could otherwise read nothing but still keep
+    manual control alive through GET /api/status. Pages may be linked.
     """
+    if (request.path.startswith("/api/") or request.path == "/metrics") and request.headers.get(
+        "Sec-Fetch-Site"
+    ) in FOREIGN_SITES:
+        return json_error(403, "csrf")
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return await handler(request)
     if request.headers.get(CSRF_HEADER) != "fetch":

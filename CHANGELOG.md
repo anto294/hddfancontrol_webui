@@ -9,6 +9,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **Pages of other sites can no longer reach the API, even to read.**
+  Another web app on the same NAS (another port is the same "site" for
+  cookies) could keep manual control from ending by asking for the
+  status in the background. The browser marks such requests, and the
+  web UI now refuses them.
 - **The hardware support request no longer carries serial numbers.** Its
   log lines named the drives by their `/dev/disk/by-id` names, which hold
   the serial number, although the form promises none. They now show the
