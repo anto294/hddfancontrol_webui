@@ -108,7 +108,7 @@ async def test_smart_reading_in_the_background(tmp_path: Path, fake_sys: Path, f
     assert monitor._smart_task is first and monitor.smart_refreshing
     release.set()
     assert first is not None
-    await first
+    await asyncio.wait_for(first, 5)  # the reading ends, with its error logged
     assert not monitor.smart_refreshing and any("smartctl broken" in line for line in lines)
     release.clear()
     monitor.refresh_smart_soon()
