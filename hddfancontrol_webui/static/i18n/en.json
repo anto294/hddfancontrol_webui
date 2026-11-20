@@ -224,6 +224,7 @@
   "pwmtest.cancelled": "Cancelled",
   "pwmtest.stopped_hot": "The test was stopped: a drive reached its maximum temperature. The fans are back under control.",
   "pwmtest.stopped_stale": "The test was stopped: no recent drive temperature came in. The fans are back under control.",
+  "pwmtest.stopped_error": "The test was stopped: the drive temperatures could not be watched (see the log). The fans are back under control.",
   "pwmtest.review": "Values copied. Check them and save.",
   "security.title": "Username and password",
   "security.state_none": "The web UI is open. Set a username and a password to protect it.",

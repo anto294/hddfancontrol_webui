@@ -124,8 +124,12 @@ runs it per output, with the outputs taken in manual mode first (`PwmWriter.take
 some drivers, such as nct6775, refuse a value while the chip drives the output), and
 reads the result from its output (`_THRESHOLDS`). Meanwhile hddfancontrol keeps
 measuring and `_watch_test` cancels the test when a drive reaches its maximum or the
-temperatures stop coming (`test.stopped_by`). Each output is cut at `PWM_TEST_MAX_S`
-(600 s). Other changes answer `Busy` during a test.
+temperatures stop coming (`test.stopped_by`: `hot`, `stale`). An unexpected error of the
+watch itself stops the test too (`error`, `PWM_TEST_STOPPED_ERROR`): without the watch a
+hot drive would go unseen. Whatever ends the test, `_after_test` always runs: an error of
+the watch is logged in the `finally` of `_run_pwm_test`, never raised past it, so the
+outputs are given back, the test stops counting as running and the daemons start again.
+Each output is cut at `PWM_TEST_MAX_S` (600 s). Other changes answer `Busy` during a test.
 
 ## Spin down
 

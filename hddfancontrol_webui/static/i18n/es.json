@@ -224,6 +224,7 @@
   "pwmtest.cancelled": "Cancelado",
   "pwmtest.stopped_hot": "Se detuvo la prueba: un disco llegó a su temperatura máxima. Los ventiladores vuelven a estar bajo control.",
   "pwmtest.stopped_stale": "Se detuvo la prueba: no llegaron temperaturas recientes de los discos. Los ventiladores vuelven a estar bajo control.",
+  "pwmtest.stopped_error": "Se detuvo la prueba: no se pudieron vigilar las temperaturas de los discos (mira el registro). Los ventiladores vuelven a estar bajo control.",
   "pwmtest.review": "Valores copiados. Revísalos y guarda.",
   "security.title": "Usuario y contraseña",
   "security.state_none": "La interfaz web está abierta. Define un usuario y una contraseña para protegerla.",

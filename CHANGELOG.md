@@ -7,6 +7,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- **A PWM test always ends.** If the watch of the drive temperatures
+  failed during a PWM test, the test stayed "running" for ever: every
+  change answered Busy, the tested output stayed at the last value of the
+  test and hddfancontrol did not start again. Now an error of the watch
+  stops the test ("the drive temperatures could not be watched"), and the
+  outputs are given back and everything starts again in every case.
+
 ### Changed
 
 - **The Control card of the Overview in three groups.** Fan control (state,

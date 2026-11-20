@@ -636,3 +636,37 @@ async def test_each_output_has_a_time_limit(
     await wait_for(lambda: not supervisor.test.running, 4)
     assert supervisor.test.results[PWM1] == {"status": "failed", "error": "timeout"}
     await supervisor.stop()
+
+
+async def test_pwm_test_ends_when_its_watch_fails(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unexpected error of the watch stops the test, and the outputs are still given back.
+
+    The test must never stay running: every change would answer Busy and the
+    output would stay in manual mode at the last value of pwm-test.
+    """
+    sample: dict[str, Any] = {"time": datetime.now(UTC).isoformat(), "temps": {"sda": 40.0}}
+    supervisor = watched_supervisor(tmp_path, fake_sys, make_script, lambda: sample)
+    monkeypatch.setattr(supervisor_module, "PWM_TEST_MAX_S", 3.0)
+
+    async def broken(*args: Any) -> Any:
+        raise RuntimeError("watch broken")
+
+    restored: list[bool] = []
+    restore = supervisor.fans.writer.restore
+
+    def counted() -> None:
+        restored.append(True)
+        restore()
+
+    monkeypatch.setattr(supervisor.fans, "watch_drives", broken)
+    monkeypatch.setattr(supervisor.fans.writer, "restore", counted)
+    await supervisor.start_pwm_test([PWM1])
+    await wait_for(lambda: not supervisor.test.running, 6)
+    assert supervisor.test.stopped_by == "error"
+    assert supervisor.test.results[PWM1]["status"] == "cancelled"
+    assert restored
+    assert any("watch broken" in line["text"] for line in supervisor.logs.since(0))
+    await supervisor.restart()  # not Busy
+    await supervisor.stop()

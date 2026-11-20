@@ -63,6 +63,8 @@ MODE_READ_ONLY = "read_only"
 PWM_TEST_MAX_S = 600.0
 # The temperatures are old, and the PWM test stops, after 3 intervals and at least this.
 PWM_TEST_STALE_MIN_S = 120.0
+# test.stopped_by when the watch itself failed (the others are the safety reasons of fancontrol: hot, stale).
+PWM_TEST_STOPPED_ERROR = "error"
 
 
 # ---------------------------
@@ -698,7 +700,10 @@ class Supervisor:
             raise
         finally:
             if watch is not None:
-                await asyncio.shield(cancel_and_wait(watch))
+                try:
+                    await asyncio.shield(cancel_and_wait(watch))
+                except Exception as err:  # the outputs must be given back whatever the watch did
+                    log(f"ERROR: the watch of the PWM test failed: {err!r}")
             await asyncio.shield(self._after_test(log))
 
     async def _watch_test(self, task: asyncio.Task[Any], log: Callable[[str], None]) -> None:
@@ -719,7 +724,13 @@ class Supervisor:
         stale_after = max(3 * interval, PWM_TEST_STALE_MIN_S)
         while True:
             await asyncio.sleep(interval)
-            reason, hottest = await self.fans.watch_drives(settings, temps, started, stale_after)
+            try:
+                reason, hottest = await self.fans.watch_drives(settings, temps, started, stale_after)
+            except Exception as err:  # when in doubt the test stops: the fans go back to their control
+                log(f"ERROR: the drive temperatures cannot be watched ({err!r}): the PWM test stops")
+                self.test.stopped_by = PWM_TEST_STOPPED_ERROR
+                task.cancel()
+                return
             if reason is None:
                 continue
             if reason == SAFETY_HOT:

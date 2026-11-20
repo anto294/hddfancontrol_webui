@@ -224,6 +224,7 @@
   "pwmtest.cancelled": "已取消",
   "pwmtest.stopped_hot": "测试已停止：有硬盘达到最高温度。风扇已恢复受控。",
   "pwmtest.stopped_stale": "测试已停止：没有收到最近的硬盘温度。风扇已恢复受控。",
+  "pwmtest.stopped_error": "测试已停止：无法监视硬盘温度（见日志）。风扇已恢复受控。",
   "pwmtest.review": "数值已填入，请检查后保存。",
   "security.title": "用户名和密码",
   "security.state_none": "网页界面未受保护。请设置用户名和密码来保护它。",

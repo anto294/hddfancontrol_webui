@@ -224,6 +224,7 @@
   "pwmtest.cancelled": "Annullato",
   "pwmtest.stopped_hot": "Il test è stato interrotto: un disco ha raggiunto la temperatura massima. Le ventole sono di nuovo sotto controllo.",
   "pwmtest.stopped_stale": "Il test è stato interrotto: non arrivano temperature recenti dei dischi. Le ventole sono di nuovo sotto controllo.",
+  "pwmtest.stopped_error": "Il test è stato interrotto: non è stato possibile sorvegliare le temperature dei dischi (vedi il log). Le ventole sono di nuovo sotto controllo.",
   "pwmtest.review": "Valori copiati. Controllali e salva.",
   "security.title": "Nome utente e password",
   "security.state_none": "L'interfaccia web è aperta. Imposta nome utente e password per proteggerla.",
