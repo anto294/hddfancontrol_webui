@@ -534,20 +534,26 @@ function renderHeader() {
 async function pollStatus() {
   try {
     state.status = await api("GET", "/api/status");
-    renderHeader();
-    renderBanners();
-    renderOverview();
-    renderFansState();
-    renderPwmTest();
-    renderSmartState();
-    wizardOnStatus();
-    // A sensor scan just ended: the chips it loaded show up in the hardware.
-    const scanning = state.status.sensors.state === "running";
-    if (state.scanning && !scanning) pollHardware();
-    state.scanning = scanning;
   } catch (error) {
     if (error.message !== "unauthorized") $("banners").replaceChildren(banner("error", t("error.network")));
+    return;
   }
+  // A bug in one part of the page is no network problem: it goes to the console,
+  // and the other parts (the banners of the safety rules first) still render.
+  for (const render of [renderHeader, renderBanners, renderOverview, renderFansState, renderPwmTest, renderSmartState, wizardOnStatus, followScan]) {
+    try {
+      render();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+}
+
+// A sensor scan just ended: the chips it loaded show up in the hardware.
+function followScan() {
+  const scanning = state.status.sensors.state === "running";
+  if (state.scanning && !scanning) pollHardware();
+  state.scanning = scanning;
 }
 
 // Turn the counters of this snapshot and of the one before into rates.
