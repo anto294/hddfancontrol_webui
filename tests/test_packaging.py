@@ -118,3 +118,14 @@ def test_the_user_is_removed_only_with_its_files() -> None:
     assert "userdel" in purge and purge.index('rm -rf "$ETC" "$DATA"') < purge.index("userdel")
     keep = script.split("    --uninstall)", 1)[1].split(";;", 1)[0]
     assert "userdel" not in keep
+
+
+def test_upstream_watches_every_pinned_program() -> None:
+    """upstream.yml checks hddfancontrol, hd-idle and sdparm, the three programs the Dockerfile pins by hand."""
+    workflow = (ROOT / ".github" / "workflows" / "upstream.yml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    pinned = [arg for arg in re.findall(r"^ARG ([A-Z]+_VERSION)=", dockerfile, flags=re.MULTILINE) if arg != "APP_VERSION"]
+    assert len(pinned) == 3
+    for arg in pinned:
+        assert arg in workflow, arg
+    assert "SDPARM_SHA256" in workflow and "sources.debian.org/api/src/sdparm" in workflow

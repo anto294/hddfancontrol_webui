@@ -139,6 +139,11 @@ tests cover the gateway in isolation (it imports nothing that needs root) and th
 
 ## Release
 
+hddfancontrol, hd-idle and sdparm are pinned in the Dockerfile (a commit for the first
+two, a SHA-256 for sdparm). `upstream.yml` opens an issue every week when one of them
+has a newer release: from GitHub for the first two, from Debian's sources for sdparm,
+whose source the Dockerfile takes from Debian's pool.
+
 The bare metal tarball holds a wheel that `install.sh` runs as root, so the release
 workflow (`release.yml`) builds it only from tools pinned with their hashes:
 `packaging/build-requirements.txt` (`build`, `packaging`, `pyproject-hooks`,
