@@ -23,7 +23,7 @@ from hddfancontrol_webui.labels import Labels
 from hddfancontrol_webui.monitor import Monitor
 from hddfancontrol_webui.notify import NotifyError
 from hddfancontrol_webui.sensors import SensorReport
-from hddfancontrol_webui.settings import SettingsStore
+from hddfancontrol_webui.settings import NOTIFY_MASK, SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
 from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app, mask_addresses, mask_drives
@@ -55,6 +55,7 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         load_modules: bool = True,
         sensor_scan: Any = None,
         smart_reader: Any = None,
+        env: dict[str, str] | None = None,
     ) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
@@ -66,7 +67,7 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         temp_log = TempLog(log_path)
         fans = FanController(PwmWriter(fake_sys), temp_log.latest, lambda _: None)
         supervisor = Supervisor(
-            SettingsStore(config, {}),
+            SettingsStore(config, env or {}),
             logs,
             log_path,
             fans,
@@ -352,6 +353,32 @@ async def test_read_only_api(make_client: ClientMaker) -> None:
     assert manual.status == 409 and (await manual.json())["error"] == "read_only"
     test = await client.post("/api/pwm-test", json={"paths": [PWM1]}, headers=FETCH)
     assert test.status == 409 and (await test.json())["error"] == "read_only"
+
+
+async def test_notify_url_never_leaves_the_core_in_clear(make_client: ClientMaker) -> None:
+    """Every answer with the settings masks notify_url; the masked value sent back keeps the saved address."""
+    secret = "https://gotify.lan/message?token=AbC123"
+    client = await make_client(env={"NOTIFY_URL": "https://ntfy.sh/env-topic-42"})
+    data = await (await client.get("/api/settings")).json()
+    assert data["source"] == "environment" and data["settings"]["notify_url"] == f"https://ntfy.sh/{NOTIFY_MASK}"
+    saved = await client.put("/api/settings", json={"notify_url": secret, "notify_format": "gotify"}, headers=FETCH)
+    assert saved.status == 200 and "AbC123" not in await saved.text()
+    supervisor = client.app[SUPERVISOR]
+    assert supervisor.settings.notify_url == secret
+    # The page saves without touching the field: the document it got goes back as it is.
+    shown = (await (await client.get("/api/settings")).json())["settings"]
+    assert shown["notify_url"] == f"https://gotify.lan/message?token={NOTIFY_MASK}"
+    again = await client.put("/api/settings", json={**shown, "notify_repeat_h": 2}, headers=FETCH)
+    assert again.status == 200 and supervisor.settings.notify_url == secret and supervisor.settings.notify_repeat_h == 2
+    edited = await client.put(
+        "/api/settings", json={**shown, "notify_url": shown["notify_url"].replace("gotify", "evil")}, headers=FETCH
+    )
+    assert edited.status == 400 and (await edited.json())["problems"][0]["code"] == "notify_url_masked"
+    assert supervisor.settings.notify_url == secret
+    cleared = await client.put("/api/settings", json={**shown, "notify_url": ""}, headers=FETCH)
+    assert cleared.status == 200 and supervisor.settings.notify_url == ""
+    reset = await client.delete("/api/settings", headers=FETCH)
+    assert (await reset.json())["settings"]["notify_url"] == f"https://ntfy.sh/{NOTIFY_MASK}"
 
 
 async def test_notify_test_api(make_client: ClientMaker) -> None:

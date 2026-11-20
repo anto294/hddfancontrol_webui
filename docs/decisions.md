@@ -183,6 +183,14 @@ from a web page. (0.8.0–0.9.0, 2026-11-17)
 **Past 100 failed logins overall, slow down instead of refusing.** Why: a refusal for
 everyone would let an attacker lock the owner out. (0.9.0, 2026-11-17)
 
+**`notify_url` leaves the core masked, and comes back masked.** Why: it carries a Gotify
+token or an ntfy topic that anyone who knows it can read, and the gateway (and anyone
+with a session) got it in clear from `GET /api/settings`, although the gateway's
+environment was kept free of `NOTIFY_URL` for that reason. Sending the mask back to keep
+the address means the page and the backups never need the secret. Only ntfy's topic is
+masked in the path, since there it is the secret; the paths of the other formats stay
+visible. (2026-11-20)
+
 **Notifications never go to the NAS itself or to link-local addresses; private networks
 stay allowed.** Loopback, link-local, unspecified and multicast addresses are refused,
 checked on the address the connection itself uses. Why: the POST leaves from root's

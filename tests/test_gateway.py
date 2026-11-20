@@ -769,3 +769,73 @@ async def test_serve_refuses_strangers_before_reading(
     assert sum("Refused 127.0.0.1" in line for line in lines) == 1
     os.kill(os.getpid(), signal.SIGTERM)
     await asyncio.wait_for(task, 10)
+
+
+async def test_the_gateway_only_ever_sees_notify_url_masked(
+    aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: Any
+) -> None:
+    """Through the gateway, with the real core behind it, the token of notify_url never comes back; the round trip keeps it."""
+    from hddfancontrol_webui.fancontrol import FanController, PwmWriter
+    from hddfancontrol_webui.hardware import Hardware
+    from hddfancontrol_webui.history import History
+    from hddfancontrol_webui.labels import Labels
+    from hddfancontrol_webui.monitor import Monitor
+    from hddfancontrol_webui.sensors import SensorReport
+    from hddfancontrol_webui.settings import SettingsStore
+    from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
+    from hddfancontrol_webui.templog import TempLog
+    from hddfancontrol_webui.web import create_app
+
+    secret = "https://ntfy.example/alerts-topic-s3cret?auth=tk_s3cret"
+    config = tmp_path / "config"
+    log_path = config / "templog" / "temps.jsonl"
+    log_path.parent.mkdir(parents=True)
+    temp_log = TempLog(log_path)
+    supervisor = Supervisor(
+        SettingsStore(config, {"NOTIFY_URL": secret}),
+        LogBuffer(echo=False),
+        log_path,
+        FanController(PwmWriter(fake_sys), temp_log.latest, lambda _: None),
+        hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+    )
+    hardware = supervisor.hardware
+    assert hardware is not None
+    history = History(config / "history.db")
+
+    async def read(device: str) -> dict[str, Any]:
+        return {}
+
+    async def scan() -> SensorReport:
+        return SensorReport(state="done")
+
+    monitor = Monitor(history, temp_log, hardware, lambda: supervisor.settings, read)
+    core = create_app(supervisor, hardware, temp_log, history, monitor, Labels(config), scan, peers=None)
+    socket_path = tmp_path / "core.sock"
+    runner = web.AppRunner(core)
+    await runner.setup()
+    await web.UnixSite(runner, str(socket_path)).start()
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    gateway = create_gateway(
+        lambda: aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(socket_path))),
+        AuthStore(web_dir, CREDENTIALS),
+        lambda _: None,
+        allow=parse_allow(None),
+    )
+    client: Client = await aiohttp_client(gateway)
+    assert (await client.post("/api/login", json=GOOD, headers=FETCH)).status == 200
+    try:
+        answer = await client.get("/api/settings")
+        text = await answer.text()
+        assert answer.status == 200 and "s3cret" not in text
+        shown = json.loads(text)["settings"]
+        assert shown["notify_url"].startswith("https://ntfy.example/")
+        saved = await client.put("/api/settings", json=shown, headers=FETCH)
+        assert saved.status == 200 and "s3cret" not in await saved.text()
+        assert supervisor.settings.notify_url == secret
+    finally:
+        await supervisor.stop()
+        history.close()
+        await runner.cleanup()

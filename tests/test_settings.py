@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from hddfancontrol_webui.settings import (
+    NOTIFY_MASK,
     SOURCE_ENV,
     SOURCE_FILE,
     Hwmon,
@@ -20,6 +21,8 @@ from hddfancontrol_webui.settings import (
     from_dict,
     hddfancontrol_args,
     hdidle_args,
+    mask_notify_url,
+    restore_notify_url,
 )
 
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -343,6 +346,47 @@ def test_notifications() -> None:
         assert from_dict({"notify_url": good}).notify_url == good
     doc = env_document({"NOTIFY_URL": "http://gotify.lan/message?token=a", "NOTIFY_FORMAT": "Gotify", "NOTIFY_LANGUAGE": "IT"})
     assert doc == {"notify_url": "http://gotify.lan/message?token=a", "notify_format": "gotify", "notify_language": "it"}
+
+
+def test_notify_url_is_masked() -> None:
+    """The secrets of a notification address are hidden: user and password, query values, the fragment, an ntfy topic."""
+    mask = NOTIFY_MASK
+    assert mask_notify_url("https://ntfy.sh/my-secret-topic", "ntfy") == f"https://ntfy.sh/{mask}"
+    assert (
+        mask_notify_url("https://ntfy.example.com/ntfy/alerts?auth=tk_123&x", "ntfy")
+        == f"https://ntfy.example.com/ntfy/{mask}?auth={mask}&{mask}"
+    )
+    assert (
+        mask_notify_url("https://gotify.lan:8443/message?token=AbC", "gotify")
+        == f"https://gotify.lan:8443/message?token={mask}"
+    )
+    assert mask_notify_url("http://anto:pw@hooks.lan/x#frag", "json") == f"http://{mask}@hooks.lan/x#{mask}"
+    assert mask_notify_url("http://192.168.1.10:8080/hook", "json") == "http://192.168.1.10:8080/hook"
+    assert mask_notify_url("https://ntfy.sh/", "ntfy") == "https://ntfy.sh/" and mask_notify_url("", "ntfy") == ""
+    shown = Settings(notify_url="https://gotify.lan/message?token=AbC", notify_format="gotify").masked_dict()
+    assert shown["notify_url"] == f"https://gotify.lan/message?token={mask}" and shown["notify_format"] == "gotify"
+
+
+def test_a_masked_notify_url_sent_back_keeps_the_saved_one() -> None:
+    """The masked value sent back keeps the address in force; another one replaces it, an empty one clears it.
+
+    A value that still holds the mask but is not the mask of the address in
+    force (edited by hand, or from another installation's backup) is
+    refused: saving it would store a broken address.
+    """
+    current = Settings(notify_url="https://gotify.lan/message?token=AbC", notify_format="gotify")
+    masked = mask_notify_url(current.notify_url, current.notify_format)
+    # Also when the format changes in the same save: the mask the page got counts.
+    kept = restore_notify_url({"notify_url": masked, "notify_format": "json"}, current)
+    assert kept == {"notify_url": current.notify_url, "notify_format": "json"}
+    assert restore_notify_url({"notify_url": " " + masked + " "}, current)["notify_url"] == current.notify_url
+    assert restore_notify_url({"notify_url": "https://other.lan/x"}, current)["notify_url"] == "https://other.lan/x"
+    assert restore_notify_url({"notify_url": ""}, current)["notify_url"] == ""
+    assert restore_notify_url({"drives": []}, current) == {"drives": []}
+    assert restore_notify_url([], current) == []
+    with pytest.raises(SettingsError) as refused:
+        restore_notify_url({"notify_url": f"https://evil.lan/message?token={NOTIFY_MASK}"}, current)
+    assert refused.value.problems == [{"field": "notify_url", "code": "notify_url_masked", "params": {}}]
 
 
 def test_fan_groups_and_drive_limits() -> None:

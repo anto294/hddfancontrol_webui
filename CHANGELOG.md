@@ -9,6 +9,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **The notification token is no longer shown.** The settings returned the
+  notification address in full, with its Gotify token or ntfy topic, to
+  the page and in the settings backup. It is now shown with those parts
+  hidden (`•••`); saving without touching the field, or importing a
+  backup, keeps the saved address, and typing a new one replaces it.
 - **Notifications can no longer be aimed at the NAS itself.** The
   notification address accepted `localhost`, `127.0.0.1` or the cloud's
   metadata address `169.254.169.254`, and **Send a test message** told

@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .const import FAN_CMD_NOOP, SETTINGS_FILE, TRUE_WORDS
 from .cron import CronError, parse
@@ -40,6 +40,8 @@ NOTIFY_LANGUAGES = ("en", "it", "es", "fr", "zh", "hi", "ar")
 MAX_REPEAT_H = 168
 MAX_URL_LENGTH = 500
 # The host, then nothing or a path, query or fragment: no overlap, so no slow backtracking.
+# What replaces the secrets of notify_url in every answer of the API (mask_notify_url).
+NOTIFY_MASK = "•••"
 _URL = re.compile(r"^https?://[^\s/?#]+(?:[/?#]\S*)?$")
 
 SOURCE_ENV = "environment"
@@ -197,6 +199,12 @@ class Settings:
     def to_dict(self) -> dict[str, Any]:
         """Return the settings as JSON-ready data, the shape from_dict reads."""
         return asdict(self)
+
+    def masked_dict(self) -> dict[str, Any]:
+        """to_dict with notify_url masked (mask_notify_url): what leaves the core."""
+        data = self.to_dict()
+        data["notify_url"] = mask_notify_url(self.notify_url, self.notify_format)
+        return data
 
 
 # ---------------------------
@@ -555,6 +563,56 @@ def _smart_schedule(data: Mapping[str, Any]) -> Mapping[str, Any]:
     if number < 168:
         return {"smart_schedule": "0 0 * * *" if number < 48 else f"0 0 */{number // 24} * *"}
     return {"smart_schedule": "0 0 * * 0"}
+
+
+# ---------------------------
+#   mask_notify_url
+# ---------------------------
+def mask_notify_url(url: str, fmt: str) -> str:
+    """The address with its secrets replaced by NOTIFY_MASK: what the API shows.
+
+    Masked: the user and password, the value of each query parameter (the
+    token of Gotify), the fragment, and for ntfy the topic (the last part
+    of the path), which anyone who knows it can read. Shown: the scheme,
+    host, port and the rest of the path. The same address and format
+    always give the same mask, so restore_notify_url can recognise it.
+    """
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    netloc = parts.netloc
+    if "@" in netloc:
+        netloc = NOTIFY_MASK + "@" + netloc.rsplit("@", 1)[1]
+    path = parts.path
+    if fmt == "ntfy" and path.strip("/"):
+        head, _, _ = path.rstrip("/").rpartition("/")
+        path = f"{head}/{NOTIFY_MASK}"
+    query = "&".join(
+        f"{key}={NOTIFY_MASK}" if sep else NOTIFY_MASK
+        for key, sep, _ in (item.partition("=") for item in parts.query.split("&") if item)
+    )
+    fragment = NOTIFY_MASK if parts.fragment else ""
+    return urlunsplit((parts.scheme, netloc, path, query, fragment))
+
+
+# ---------------------------
+#   restore_notify_url
+# ---------------------------
+def restore_notify_url(data: Any, current: Settings) -> Any:
+    """A settings document with a masked notify_url put back to the address in force; raise SettingsError for a broken one.
+
+    The page shows the masked address and sends it back when it is not
+    changed: that keeps current.notify_url (compared with its mask in the
+    format in force, the one the page got). Any other value replaces the
+    address, an empty one clears it. A value that holds NOTIFY_MASK but is
+    not that mask (edited by hand, another installation's backup) would
+    store a broken address: notify_url_masked.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("notify_url"), str) or NOTIFY_MASK not in data["notify_url"]:
+        return data
+    if data["notify_url"].strip() != mask_notify_url(current.notify_url, current.notify_format):
+        raise SettingsError([{"field": "notify_url", "code": "notify_url_masked", "params": {}}])
+    return {**data, "notify_url": current.notify_url}
 
 
 # ---------------------------

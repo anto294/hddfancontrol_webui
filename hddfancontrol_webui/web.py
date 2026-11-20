@@ -52,7 +52,7 @@ from .labels import LabelError, Labels
 from .monitor import Monitor
 from .notify import NOTIFY_FORBIDDEN, NotifyError
 from .sensors import SensorReport, scan_sensor_modules
-from .settings import SettingsError, from_dict
+from .settings import SettingsError, from_dict, restore_notify_url
 from .supervisor import Busy, ReadOnly, Supervisor
 from .templog import TempLog
 
@@ -471,12 +471,19 @@ async def get_cron(request: web.Request) -> web.Response:
 
 
 # ---------------------------
+#   _settings_answer
+# ---------------------------
+def _settings_answer(supervisor: Supervisor) -> web.Response:
+    """The settings in force, with notify_url masked (its token never leaves the core), and where they come from."""
+    return web.json_response({"settings": supervisor.settings.masked_dict(), "source": supervisor.source})
+
+
+# ---------------------------
 #   get_settings
 # ---------------------------
 async def get_settings(request: web.Request) -> web.Response:
     """The settings in force and where they come from."""
-    supervisor = request.app[SUPERVISOR]
-    return web.json_response({"settings": supervisor.settings.to_dict(), "source": supervisor.source})
+    return _settings_answer(request.app[SUPERVISOR])
 
 
 # ---------------------------
@@ -486,7 +493,7 @@ async def put_settings(request: web.Request) -> web.Response:
     """Check, save and apply new settings."""
     supervisor = request.app[SUPERVISOR]
     try:
-        settings = from_dict(await _read_json(request))
+        settings = from_dict(restore_notify_url(await _read_json(request), supervisor.settings))
     except SettingsError as err:
         return _json_error(400, "invalid_settings", err.problems)
     try:
@@ -498,7 +505,7 @@ async def put_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the settings: %s", err)
         return _json_error(500, "save_failed")
-    return web.json_response({"settings": supervisor.settings.to_dict(), "source": supervisor.source})
+    return _settings_answer(supervisor)
 
 
 # ---------------------------
@@ -514,7 +521,7 @@ async def delete_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot delete the settings: %s", err)
         return _json_error(500, "save_failed")
-    return web.json_response({"settings": supervisor.settings.to_dict(), "source": supervisor.source})
+    return _settings_answer(supervisor)
 
 
 # ---------------------------
