@@ -124,6 +124,51 @@ SETTINGS = from_dict(
 )
 
 
+async def test_a_failing_log_never_keeps_the_fans_slow(fake_sys: Path, fast: None) -> None:
+    """A log that raises (stdout gone: BrokenPipeError) never stops the loop nor the full speed of a failure, nor restore."""
+
+    def broken(text: str) -> None:
+        raise BrokenPipeError(32, "Broken pipe")
+
+    state: dict[str, Any] = {"fail": False}
+
+    def latest() -> dict[str, Any]:
+        if state["fail"]:
+            raise RuntimeError("log unreadable")
+        return sample({"sda": 30.0, "sdb": 30.0, "coretemp": 30.0})
+
+    value = fake_sys / "class/hwmon/hwmon2/pwm1"
+    fans = FanController(PwmWriter(fake_sys), latest, broken)
+    fans.start_control(SETTINGS)
+    await asyncio.sleep(0.1)
+    assert fans.active and value.read_text().strip() != "255"
+    state["fail"] = True
+    for _ in range(100):
+        if fans.error is not None:
+            break
+        await asyncio.sleep(0.01)
+    assert fans.error is not None and value.read_text().strip() == "255"
+    assert fans._task is not None and not fans._task.done()  # the loop goes on
+    await fans.stop()
+    assert read(fake_sys, "pwm1_enable") == "5"
+
+
+async def test_stop_restores_even_when_the_loop_failed(fake_sys: Path) -> None:
+    """A control task that ended with an error raises it at stop, after the fans were given back."""
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+    fans.writer.write(PWM1, 40)
+    fans.mode = "curve"
+
+    async def boom() -> None:
+        raise RuntimeError("loop died")
+
+    fans._task = asyncio.create_task(boom())
+    await asyncio.sleep(0)
+    with pytest.raises(RuntimeError):
+        await fans.stop()
+    assert read(fake_sys, "pwm1_enable") == "5" and fans.mode is None
+
+
 async def test_auto_mode_drives_the_fans(fake_sys: Path, fast: None) -> None:
     """The hottest drive, not the hwmon input, sets the speed."""
     latest = sample({"sda": 35.0, "sdb": None, "coretemp": 90.0})

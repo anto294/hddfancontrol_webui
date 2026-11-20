@@ -526,7 +526,7 @@ class FanController:
         """
         self.writer = writer
         self._latest = latest
-        self._log = log
+        self._log_to = log
         self._drive_names = drive_names or dict
         self._names: dict[str, str] = {}
         self._names_at = -NAMES_REFRESH_S
@@ -576,6 +576,13 @@ class FanController:
         latest = self._latest()
         self._lost = latest["time"] if latest else ""
 
+    def _log(self, text: str) -> None:
+        """Log a line; a log that fails (stdout gone) never stops a loop or a write of the fans."""
+        try:
+            self._log_to(text)
+        except Exception as err:  # the fans come first: the line is lost, the loop goes on
+            _LOGGER.debug("Cannot log %r: %r", text, err)
+
     def set_manual(self, path: str, value: int) -> None:
         """Set one PWM output in manual control."""
         with self._manual_lock:
@@ -595,11 +602,18 @@ class FanController:
         off leave the fans at full speed instead. A stop to restart (apply,
         a mode change) always gives them back: forgetting what was saved
         there would make the next run save "manual, 255" as the chip's own
-        state, and the fans would never go back to the chip.
+        state, and the fans would never go back to the chip. A loop that
+        ended with an error raises it here, after the fans were given back.
         """
         task, self._task = self._task, None
-        if task is not None:
-            await cancel_and_wait(task)
+        try:
+            if task is not None:
+                await cancel_and_wait(task)
+        finally:
+            self._give_back_fans(final)
+
+    def _give_back_fans(self, final: bool) -> None:
+        """The second half of stop(): restore every output (or full speed at a final stop without restore) and reset."""
         with self._manual_lock:
             controlled = self.mode in ("curve", "auto")
             self.mode = None
@@ -626,21 +640,24 @@ class FanController:
             self._log(f"Cannot write {pwm.path}: {err}")
 
     def _full_speed(self, paths: list[str]) -> None:
-        """Put these outputs at full speed, whatever fails. Used when the control loop fails."""
+        """Put these outputs at full speed, whatever fails, then log what failed. Used when the control loop fails."""
+        failed = []
         for path in dict.fromkeys(paths):
             try:
                 self.writer.write(path, PWM_MAX)
             except Exception as err:  # the other fans must still be written
-                self._log(f"Cannot write {path}: {err}")
+                failed.append(f"Cannot write {path}: {err}")
+        for line in failed:
+            self._log(line)
 
     def _failed(self, err: Exception, paths: list[str]) -> None:
-        """An unexpected error in a control loop: log it once and run every fan at full speed."""
+        """An unexpected error in a control loop: run every fan at full speed, then log it once."""
         text = f"{type(err).__name__}: {err}"
-        if text != self.error:
-            self._log(f"ERROR: fan control failed, every fan goes to full speed: {text}")
-            _LOGGER.exception("Fan control failed")
-        self.error = text
         self._full_speed(paths)
+        logged, self.error = self.error, text
+        if text != logged:
+            self._log(f"ERROR: fan control failed, every fan goes to full speed: {text}")
+            _LOGGER.error("Fan control failed", exc_info=err)
 
     async def _refresh_names(self) -> None:
         """Read again the kernel name of every /dev path of a drive, every NAMES_REFRESH_S, in a thread (it reads /dev)."""
@@ -742,6 +759,9 @@ class FanController:
         lost = self._lost is not None
         if lost or _is_stale(age, stale_after):
             failsafe = lost or not waiting
+            # The fans first, the log after: nothing may come between a failsafe and full speed.
+            for pwm in settings.pwms:
+                self._write(pwm, 1.0)
             if failsafe and not self.auto.failsafe:
                 why = "hddfancontrol stopped" if lost else "no recent drive temperature"
                 self._log(f"WARNING: {why}, fans at full speed")
@@ -749,8 +769,6 @@ class FanController:
             self.auto.hottest = None
             self.auto.speed = 1.0
             self.auto.speeds = {p.path: 1.0 for p in settings.pwms}
-            for pwm in settings.pwms:
-                self._write(pwm, 1.0)
         else:
             if self.auto.failsafe:
                 self._log("Drive temperatures are back, fan control resumes")

@@ -268,7 +268,10 @@ def main() -> None:
     # Everything the core writes in /config (history, settings, labels) is root's alone.
     os.umask(0o077)
     core = build()
-    asyncio.run(serve(core))
+    try:
+        asyncio.run(serve(core))
+    finally:
+        core.supervisor.logs.close()  # the last lines (the fans given back) reach docker logs
 
 
 if __name__ == "__main__":

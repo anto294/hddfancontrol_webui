@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import queue
 import re
 import sys
 import threading
@@ -59,6 +60,8 @@ MODE_MANUAL = "manual"
 MODE_READ_ONLY = "read_only"
 
 
+# Lines waiting for stdout at most; more are dropped from stdout (never from the buffer).
+ECHO_QUEUE = 1000
 # The PWM test of one output takes a few minutes; past this it is stopped.
 PWM_TEST_MAX_S = 600.0
 # The temperatures are old, and the PWM test stops, after 3 intervals and at least this.
@@ -95,7 +98,12 @@ class LogBuffer:
     """The last lines of every process, numbered so a client asks only for new ones.
 
     Every line also goes to stdout with its source, so docker logs keeps
-    showing what the upstream image showed.
+    showing what the upstream image showed. A thread of its own writes
+    them, from a queue of at most ECHO_QUEUE lines: add() runs on the
+    event loop, next to the fan control, and must never wait for a stdout
+    that is full (a log FIFO nobody reads) nor fail with one that is gone
+    (BrokenPipeError). Lines that do not fit are dropped from stdout only,
+    and counted in the next line that gets through.
     """
 
     def __init__(self, maxlen: int = LOG_BUFFER_LINES, echo: bool = True) -> None:
@@ -106,6 +114,9 @@ class LogBuffer:
         # Lines come from the event loop and from worker threads (the hooks of
         # Daemon run in one): numbering and reading must not interleave.
         self._lock = threading.Lock()
+        self._queue: queue.Queue[str | None] = queue.Queue(maxsize=ECHO_QUEUE)
+        self._dropped = 0
+        self._writer: threading.Thread | None = None
 
     @property
     def last_seq(self) -> int:
@@ -119,7 +130,40 @@ class LogBuffer:
             self._seq += 1
             self._lines.append({"seq": self._seq, "time": datetime.now(UTC).isoformat(), "source": source, "text": text})
         if self._echo:
-            print(f"[{source}] {text}", file=sys.stdout, flush=True)
+            self._echo_line(f"[{source}] {text}")
+
+    def _echo_line(self, line: str) -> None:
+        """Queue a line for stdout without waiting; drop it when the queue is full."""
+        with self._lock:
+            if self._writer is None:
+                self._writer = threading.Thread(target=self._write_echo, name="log-echo", daemon=True)
+                self._writer.start()
+            if self._dropped:
+                line = f"{line} ({self._dropped} earlier lines were not echoed: stdout was too slow)"
+            try:
+                self._queue.put_nowait(line)
+            except queue.Full:
+                self._dropped += 1
+            else:
+                self._dropped = 0
+
+    def _write_echo(self) -> None:
+        """The echo thread: write each queued line to stdout until close(); a failing stdout loses the line, nothing else."""
+        while (line := self._queue.get()) is not None:
+            try:
+                print(line, file=sys.stdout, flush=True)
+            except (OSError, ValueError):  # stdout gone or closed: the line stays in the buffer
+                pass
+
+    def close(self, timeout: float = 2.0) -> None:
+        """Let the echo thread write what is queued, for at most timeout seconds (at exit)."""
+        with self._lock:
+            writer = self._writer
+        if writer is None:
+            return
+        with contextlib.suppress(queue.Full):
+            self._queue.put(None, timeout=timeout)
+        writer.join(timeout)
 
     def since(self, seq: int) -> list[dict[str, Any]]:
         """Return the lines newer than seq that are still kept."""

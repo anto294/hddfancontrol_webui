@@ -144,6 +144,13 @@ These hold in every mode, whatever the settings. They must never be weakened.
 | Control ends (stop, apply, exit) | Every output gets its previous mode back |
 | The chip of a chosen fan is missing | Only that fan is left alone (its old path may belong to another chip); the others are controlled and the drives watched |
 
+The fans are always written before the line that says so is logged, and a log that
+fails is dropped (`FanController._log`): a full or broken stdout must never come
+between a failure and full speed. `stop()` gives the outputs back in a `finally`, even
+when the loop it cancels ended with an error. `LogBuffer` echoes to stdout from a
+thread of its own, through a queue of `ECHO_QUEUE` (1000) lines that drops what does
+not fit, so `add()` never waits on the event loop.
+
 The settings themselves are capped: drive temperatures up to 80 °C, the limits of one
 SATA/SAS drive up to 70 °C.
 

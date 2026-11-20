@@ -26,6 +26,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **A broken or full log output can no longer stop the fans' safety.**
+  The lines of the log were written to the container's output on the
+  same thread as fan control. When that output was gone, an error at the
+  wrong moment ended fan control with the fans left at their last speed;
+  when it was full, everything waited, the safety rules too. The lines
+  now go out from a separate thread (dropped from the container's output,
+  never from the **Logs** tab, when it cannot keep up), the fans are set
+  to full speed before the reason is logged, and they are given back at
+  a stop even after such an error.
 - **A missing fan chip no longer stops all fan control.** When the chip of
   one chosen fan was missing at start (its module loaded late by an Init
   Script, or renamed by a kernel update), no fan was controlled and the

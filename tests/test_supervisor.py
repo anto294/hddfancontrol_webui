@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -93,7 +94,35 @@ def test_log_buffer(capsys: pytest.CaptureFixture[str]) -> None:
         logs.add("x", f"line {i}\n")
     assert [line["text"] for line in logs.since(0)] == ["line 1", "line 2"]
     assert logs.since(3) == [] and logs.last_seq == 3
+    logs.close()  # the echo thread writes what is queued
     assert "[x] line 2" in capsys.readouterr().out
+
+
+def test_log_echo_never_raises_nor_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stdout gone (BrokenPipeError) or full (a FIFO nobody reads): add() returns at once, and keeps every line itself."""
+    import threading
+
+    release = threading.Event()
+
+    class Stuck:
+        """A stdout whose write waits until released, then fails."""
+
+        def write(self, text: str) -> int:
+            release.wait(5)
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(supervisor_module.sys, "stdout", Stuck())
+    logs = LogBuffer(maxlen=5000)
+    began = time.monotonic()
+    for i in range(3000):
+        logs.add("x", f"line {i}")
+    assert time.monotonic() - began < 2
+    assert logs.last_seq == 3000 and logs.since(2999)[0]["text"] == "line 2999"
+    release.set()
+    logs.close(2)
 
 
 async def test_curve_mode(setup: tuple[Supervisor, Path]) -> None:

@@ -154,6 +154,15 @@ leave an empty settings file, and only root needs to read them. A corrupt
 port.** Why: the container must be privileged, so the process the network reaches
 must not be root. Never weakened; see [security.md](security.md). (0.8.0, 2026-11-17)
 
+**The log echo never waits.** `LogBuffer` writes stdout from a thread with a queue of
+`ECHO_QUEUE` lines, dropping lines from stdout (never from the buffer) when it is
+full, and the fan controller writes the fans before it logs and ignores a log that
+fails. Why: `print` ran on the event loop, next to the failsafe: a stdout that blocks
+(a log FIFO nobody reads) froze every safety rule, and one that fails
+(`BrokenPipeError`) killed the control loop between a failure and full speed. A line
+missing in `docker logs` is a small price; it stays in the **Logs** tab.
+(2026-11-20)
+
 **A `/config` that cannot be closed to the gateway means no gateway.** Why: the core
 runs as root on what it finds there; a gateway taken over that could write
 `pwm-state.json` would make root write any file (the path was not checked), and one
