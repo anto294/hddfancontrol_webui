@@ -383,8 +383,14 @@ def test_notify_url_is_masked() -> None:
         mask_notify_url("https://gotify.lan:8443/message?token=AbC", "gotify")
         == f"https://gotify.lan:8443/message?token={mask}"
     )
-    assert mask_notify_url("http://anto:pw@hooks.lan/x#frag", "json") == f"http://{mask}@hooks.lan/x#{mask}"
-    assert mask_notify_url("http://192.168.1.10:8080/hook", "json") == "http://192.168.1.10:8080/hook"
+    # A webhook (json) keeps its token in the path (Slack, Discord): the whole path goes.
+    assert mask_notify_url("http://anto:pw@hooks.lan/x#frag", "json") == f"http://{mask}@hooks.lan/{mask}#{mask}"
+    assert mask_notify_url("https://hooks.slack.com/services/T0/B0/XXXX", "json") == f"https://hooks.slack.com/{mask}"
+    assert (
+        mask_notify_url("https://discord.com/api/webhooks/123/tok-en?wait=true", "json")
+        == f"https://discord.com/{mask}?wait={mask}"
+    )
+    assert mask_notify_url("http://192.168.1.10:8080/", "json") == "http://192.168.1.10:8080/"
     assert mask_notify_url("https://ntfy.sh/", "ntfy") == "https://ntfy.sh/" and mask_notify_url("", "ntfy") == ""
     shown = Settings(notify_url="https://gotify.lan/message?token=AbC", notify_format="gotify").masked_dict()
     assert shown["notify_url"] == f"https://gotify.lan/message?token={mask}" and shown["notify_format"] == "gotify"

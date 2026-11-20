@@ -74,7 +74,7 @@ for `data-theme="dark"`.
 | Security | Credentials |
 | Logs | The last lines of every source |
 
-The notification address comes masked (`•••` for its token, password or ntfy topic):
+The notification address comes masked (`•••` for its token, password, ntfy topic or the path of a JSON webhook):
 the field shows it so, with a note, and sends it back unchanged to keep it; a click
 selects it all, so typing replaces it. A backup holds it masked too, and importing one
 keeps the address in force.

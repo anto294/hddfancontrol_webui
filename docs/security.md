@@ -24,8 +24,9 @@ can never reach a terminal the core was started from), a filtered environment (`
 argument. The notification address does not reach it through the API either: every
 answer that holds the settings (`GET`, `PUT` and `DELETE /api/settings`, so the backup
 too) masks the user and password, the query values (the Gotify token), the fragment and
-the ntfy topic with `NOTIFY_MASK` (`settings.mask_notify_url`); scheme, host, port and
-the rest of the path stay visible. The masked value sent back keeps the address in
+the ntfy topic with `NOTIFY_MASK` (`settings.mask_notify_url`), and the whole path of
+a JSON webhook (Slack and Discord keep their token there); scheme, host, port and the
+other paths stay visible. The masked value sent back keeps the address in
 force (`restore_notify_url`), another value replaces it, an empty one clears it, and a
 value that still holds the mask but is not it is refused (`notify_url_masked`). It may write only `/config/web` (credentials, its self-signed certificate).
 Root never writes in or follows anything inside that folder.
