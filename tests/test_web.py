@@ -134,6 +134,8 @@ async def test_settings_api(make_client: ClientMaker) -> None:
     assert broken.status == 400 and (await broken.json())["error"] == "invalid_json"
     deep = await client.put("/api/settings", data="[" * 60000, headers={**FETCH, "Content-Type": "application/json"})
     assert deep.status == 400 and (await deep.json())["error"] == "invalid_json"  # not a 500 with a traceback
+    huge = await client.put("/api/settings", data="9" * 60000, headers={**FETCH, "Content-Type": "application/json"})
+    assert huge.status == 400 and (await huge.json())["error"] == "invalid_json"
 
     ghost = {"drives": [DRIVE], "pwms": [{"path": "/sys/class/hwmon/hwmon9/pwm1", "start": 200, "stop": 75}]}
     refused = await client.put("/api/settings", json=ghost, headers=FETCH)
@@ -508,6 +510,14 @@ async def test_audit_log(make_client: ClientMaker) -> None:
     await client.post("/api/restart%0Afake", headers=headers)
     lines = [line["text"] for line in client.app[SUPERVISOR].logs.since(0) if line["source"] == "audit"]
     assert lines[3] == "POST /api/restart%0Afake by 'anto' from 192.168.1.5: 404" and len(lines) == 4
+
+    async def broken() -> None:
+        raise RuntimeError("broken")
+
+    client.app[SUPERVISOR].restart = broken  # type: ignore[method-assign]  # an unexpected error of a handler
+    assert (await client.post("/api/restart", headers=headers)).status == 500
+    lines = [line["text"] for line in client.app[SUPERVISOR].logs.since(0) if line["source"] == "audit"]
+    assert lines[4] == "POST /api/restart by 'anto' from 192.168.1.5: 500"
 
 
 def test_audit_log_counts_repeats() -> None:

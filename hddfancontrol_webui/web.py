@@ -158,7 +158,7 @@ def _peer_uid(request: web.Request) -> int | None:
 # ---------------------------
 @web.middleware
 async def core_guard(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Answer only the users of PEERS (the gateway, and root), and log every change in the audit log.
+    """Answer only the users of PEERS (the gateway, and root), and log every change in the audit log, failed ones too.
 
     The socket's mode already keeps other users out; this checks the peer
     of each connection again, in case the file mode is ever loosened.
@@ -172,6 +172,10 @@ async def core_guard(request: web.Request, handler: Handler) -> web.StreamRespon
         response = await handler(request)
     except web.HTTPException as exc:
         _audit(request, exc.status)
+        raise
+    except Exception:
+        # aiohttp answers 500 for it: a change that failed is a change tried, and is logged too.
+        _audit(request, 500)
         raise
     _audit(request, response.status)
     return response

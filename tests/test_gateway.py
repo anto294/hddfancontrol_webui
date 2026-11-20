@@ -220,6 +220,9 @@ async def test_login_flow_and_forwarding(make_gateway: GatewayMaker) -> None:
     assert (await (await client.get("/api/auth")).json())["username"] == ""  # nothing before the login
     assert (await client.post("/api/login", json={"username": "anto", "password": "no"}, headers=FETCH)).status == 401
     assert (await client.post("/api/login", json=[], headers=FETCH)).status == 400
+    # An integer past Python's limit of digits is a ValueError of the parser: a 400, not a 500 with a traceback.
+    huge = await client.post("/api/login", data="9" * 60000, headers={**FETCH, "Content-Type": "application/json"})
+    assert huge.status == 400 and (await huge.json())["error"] == "invalid_json"
     ok = await client.post("/api/login", json=GOOD, headers=FETCH)
     cookie = ok.headers["Set-Cookie"]
     assert ok.status == 200 and "HttpOnly" in cookie and "SameSite=Strict" in cookie

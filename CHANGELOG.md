@@ -17,6 +17,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   does not start at all in that case (the fans are still controlled, and
   the log says why); a folder with the sticky bit (mode 1777) is closed
   too; and the saved fan state only ever names PWM outputs and numbers.
+- **The log can no longer be flooded through the login page.** A login
+  request whose body held a huge number answered 500 and logged a long
+  traceback, before any login and without a limit: some forty requests
+  pushed the audit and every other line out of the **Security** tab, and
+  filled the Docker log. It is now refused as invalid. A change that
+  fails with an unexpected error is now written to the audit log too.
 
 ### Fixed
 

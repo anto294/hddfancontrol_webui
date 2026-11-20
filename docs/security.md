@@ -64,7 +64,10 @@ forge who it is.
 
 In the core, `core_guard` refuses a peer whose user id (`SO_PEERCRED`) is not the
 gateway's or root's, and writes every non-GET request to the audit log with the user
-and client the gateway gave. `settings.from_dict` is the only gate for values: drive
+and client the gateway gave, with its status: a 500 from an unexpected error too.
+A body that is no valid JSON (also one nested too deep, or an integer past Python's
+limit of digits) is a 400 `invalid_json` in both processes (`httputil.read_json`),
+never a 500 whose traceback would fill the log before any login. `settings.from_dict` is the only gate for values: drive
 paths, `pwmN` files under `/sys/class/hwmon`, hwmon inputs and chips under `/sys`, no
 `..`, everything checked before it reaches a command line or a file.
 
