@@ -7,84 +7,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-### Security
+## [0.11.1] - 2026-11-20
 
-- **A path or name ending in a line break is refused.** A drive such as
-  `/dev/sda` followed by a line break was accepted in the settings and
-  reached the command lines of hddfancontrol and hd-idle.
-- **Uninstalling keeps the web UI's user while its files stay.**
-  `install.sh --uninstall` removed the `hddfancontrol-webui` user but kept
-  its login data, which then belonged to no one, and a system account
-  created later could get them. The user is now removed only by
-  `--purge`, after its files.
-- **The bare metal install downloads nothing.** `install.sh` installed
-  aiohttp and its dependencies from PyPI as root, at whatever versions
-  were current. The tarball now carries them, at fixed versions checked
-  against their hashes, and the install uses only those.
-- **Refused requests can no longer flood the log.** Each refused address or
-  host name was logged once an hour, but a client sending a new made-up
-  name with every request still got one line each. At most 20 such lines
-  are now written per hour; the rest are counted in one line.
-- **The web side can no longer reach the terminal it was started from.**
-  When the web UI was started by hand from a root shell, its unprivileged
-  web side shared that terminal. It now gets no input and a session of
-  its own.
-- **The notification token is no longer shown.** The settings returned the
-  notification address in full, with its Gotify token, ntfy topic or
-  webhook token (Slack, Discord), to the page and in the settings backup. It is now shown with those parts
-  hidden (`•••`); saving without touching the field, or importing a
-  backup, keeps the saved address, and typing a new one replaces it.
-- **Notifications can no longer be aimed at the NAS itself.** The
-  notification address accepted `localhost`, `127.0.0.1` or the cloud's
-  metadata address `169.254.169.254`, and **Send a test message** told
-  whether something answered there: a way to probe services that only
-  the NAS can reach. Such addresses are now refused, also when a name
-  leads to them. Servers on your LAN are still fine; for one running on
-  the NAS itself, use its LAN address.
-- **The password of a notification address no longer reaches the log.**
-  An address such as `https://user:password@host/` was logged whole when
-  a message failed. Only the host and port are logged now.
-- **Pages of other sites can no longer reach the API, even to read.**
-  Another web app on the same NAS (another port is the same "site" for
-  cookies) could keep manual control from ending by asking for the
-  status in the background. The browser marks such requests, and the
-  web UI now refuses them.
-- **The hardware support request no longer carries serial numbers.** Its
-  log lines named the drives by their `/dev/disk/by-id` names, which hold
-  the serial number, although the form promises none. They now show the
-  kernel name (`sda`) instead.
-- **Changing the password always ends a stolen session.** The sessions
-  were cleared in the background thread that saves the new password,
-  while the web server kept using them: a session used at that very
-  moment could survive the change. They are now ended once the change is
-  saved, in step with the requests.
-- **Connections from outside the allowed networks are closed at once.**
-  Addresses outside `WEBUI_ALLOW` were refused only after their request
-  was read, and an incomplete request was waited for without end: a
-  client could hold thousands of silent connections until the web UI
-  answered nobody, its health check included. Now such an address is
-  closed before anything is read, each address may keep 64 connections
-  open (512 in all), and each request must arrive complete within 30
-  seconds. The fans were never affected.
-- **The bare metal tarball is built only from pinned tools.** The release
-  workflow installed its build tools at their latest version without
-  checking them; they now come at an exact version with their checksums,
-  and the token that can change a release is given only to the step that
-  uploads the files.
-- **A `/config` the gateway could write no longer stays in use.** When the
-  folder could not be closed to the web UI's own user (an ACL, NFS with
-  root squash), the web side only moved its login data elsewhere, while
-  the root side kept its files there. A web side taken over could then
-  make root write any file through the saved fan state. Now the web UI
-  does not start at all in that case (the fans are still controlled, and
-  the log says why); a folder with the sticky bit (mode 1777) is closed
-  too; and the saved fan state only ever names PWM outputs and numbers.
-- **The log can no longer be flooded through the login page.** A login
-  request whose body held a huge number answered 500 and logged a long
-  traceback, before any login and without a limit: some forty requests
-  pushed the audit and every other line out of the **Security** tab, and
-  filled the Docker log. It is now refused as invalid. A change that
-  fails with an unexpected error is now written to the audit log too.
+### Changed
+
+- **Settings warn when the history is too short for the fan wear check.**
+  Under 14 days of history the check never starts, since it compares
+  each fan with its first week once its history is two weeks old; the
+  field now says so.
+- **The Control card of the Overview in three groups.** Fan control (state,
+  mode, the hottest drive and the speed each fan was given), Services
+  (hddfancontrol and hd-idle, with the **Restart** button under them) and
+  Host (processor time, load and temperature), instead of one long list.
 
 ### Fixed
 
@@ -164,16 +98,84 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   driver whose `pwmN_enable` cannot be read, a fan was left at a fixed
   speed when fan control ended; it now goes to full speed, the safe side.
 
-### Changed
+### Security
 
-- **Settings warn when the history is too short for the fan wear check.**
-  Under 14 days of history the check never starts, since it compares
-  each fan with its first week once its history is two weeks old; the
-  field now says so.
-- **The Control card of the Overview in three groups.** Fan control (state,
-  mode, the hottest drive and the speed each fan was given), Services
-  (hddfancontrol and hd-idle, with the **Restart** button under them) and
-  Host (processor time, load and temperature), instead of one long list.
+- **A path or name ending in a line break is refused.** A drive such as
+  `/dev/sda` followed by a line break was accepted in the settings and
+  reached the command lines of hddfancontrol and hd-idle.
+- **Uninstalling keeps the web UI's user while its files stay.**
+  `install.sh --uninstall` removed the `hddfancontrol-webui` user but kept
+  its login data, which then belonged to no one, and a system account
+  created later could get them. The user is now removed only by
+  `--purge`, after its files.
+- **The bare metal install downloads nothing.** `install.sh` installed
+  aiohttp and its dependencies from PyPI as root, at whatever versions
+  were current. The tarball now carries them, at fixed versions checked
+  against their hashes, and the install uses only those.
+- **Refused requests can no longer flood the log.** Each refused address or
+  host name was logged once an hour, but a client sending a new made-up
+  name with every request still got one line each. At most 20 such lines
+  are now written per hour; the rest are counted in one line.
+- **The web side can no longer reach the terminal it was started from.**
+  When the web UI was started by hand from a root shell, its unprivileged
+  web side shared that terminal. It now gets no input and a session of
+  its own.
+- **The notification token is no longer shown.** The settings returned the
+  notification address in full, with its Gotify token, ntfy topic or
+  webhook token (Slack, Discord), to the page and in the settings backup. It is now shown with those parts
+  hidden (`•••`); saving without touching the field, or importing a
+  backup, keeps the saved address, and typing a new one replaces it.
+- **Notifications can no longer be aimed at the NAS itself.** The
+  notification address accepted `localhost`, `127.0.0.1` or the cloud's
+  metadata address `169.254.169.254`, and **Send a test message** told
+  whether something answered there: a way to probe services that only
+  the NAS can reach. Such addresses are now refused, also when a name
+  leads to them. Servers on your LAN are still fine; for one running on
+  the NAS itself, use its LAN address.
+- **The password of a notification address no longer reaches the log.**
+  An address such as `https://user:password@host/` was logged whole when
+  a message failed. Only the host and port are logged now.
+- **Pages of other sites can no longer reach the API, even to read.**
+  Another web app on the same NAS (another port is the same "site" for
+  cookies) could keep manual control from ending by asking for the
+  status in the background. The browser marks such requests, and the
+  web UI now refuses them.
+- **The hardware support request no longer carries serial numbers.** Its
+  log lines named the drives by their `/dev/disk/by-id` names, which hold
+  the serial number, although the form promises none. They now show the
+  kernel name (`sda`) instead.
+- **Changing the password always ends a stolen session.** The sessions
+  were cleared in the background thread that saves the new password,
+  while the web server kept using them: a session used at that very
+  moment could survive the change. They are now ended once the change is
+  saved, in step with the requests.
+- **Connections from outside the allowed networks are closed at once.**
+  Addresses outside `WEBUI_ALLOW` were refused only after their request
+  was read, and an incomplete request was waited for without end: a
+  client could hold thousands of silent connections until the web UI
+  answered nobody, its health check included. Now such an address is
+  closed before anything is read, each address may keep 64 connections
+  open (512 in all), and each request must arrive complete within 30
+  seconds. The fans were never affected.
+- **The bare metal tarball is built only from pinned tools.** The release
+  workflow installed its build tools at their latest version without
+  checking them; they now come at an exact version with their checksums,
+  and the token that can change a release is given only to the step that
+  uploads the files.
+- **A `/config` the gateway could write no longer stays in use.** When the
+  folder could not be closed to the web UI's own user (an ACL, NFS with
+  root squash), the web side only moved its login data elsewhere, while
+  the root side kept its files there. A web side taken over could then
+  make root write any file through the saved fan state. Now the web UI
+  does not start at all in that case (the fans are still controlled, and
+  the log says why); a folder with the sticky bit (mode 1777) is closed
+  too; and the saved fan state only ever names PWM outputs and numbers.
+- **The log can no longer be flooded through the login page.** A login
+  request whose body held a huge number answered 500 and logged a long
+  traceback, before any login and without a limit: some forty requests
+  pushed the audit and every other line out of the **Security** tab, and
+  filled the Docker log. It is now refused as invalid. A change that
+  fails with an unexpected error is now written to the audit log too.
 
 ## [0.11.0] - 2026-11-19
 
@@ -782,7 +784,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.0...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.1...main
+[0.11.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.9.0...v0.10.0
