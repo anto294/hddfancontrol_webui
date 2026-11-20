@@ -108,6 +108,17 @@ and goes once a minute grew it to 20 000 entries (560 KB per write) in two weeks
 flash many NAS boot from. Beyond a thousand starts the summary's count is only a floor,
 and the alert itself has long been noticed. (2026-11-20)
 
+**A missing fan chip leaves only its fans alone.** The other fans are controlled,
+hddfancontrol measures the drives, and the supervisor looks for the chip every
+`PLACE_PERIOD` (60 s) and after a sensor scan, starting the fan when it is back. The
+chip of a fan sent through the API is ignored: the host's (`Hardware.chip_of`) counts.
+Why: before, one missing chip stopped everything: every fan stayed where the BIOS left
+it and, with no sample, neither the ceiling nor the stale failsafe nor the hot alert
+could act, until a restart. That happens after a reboot when a module is loaded late
+(the TrueNAS Init Script runs after the app), on the hosts that need the most care.
+Writing the missing fan's old path is still never done: it may belong to another chip.
+(2026-11-20)
+
 **Read only when `/sys` is read only.** Nothing starts, and a red banner says so. Why:
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)

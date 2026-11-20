@@ -261,6 +261,30 @@ async def test_a_failed_sensor_scan_never_stays_running(make_client: ClientMaker
     await settled(client)
 
 
+async def test_a_sensor_scan_looks_for_missing_fan_chips(make_client: ClientMaker) -> None:
+    """The scan may load the module of a missing fan chip: the supervisor looks for it at once, even after a failed scan."""
+
+    async def broken() -> SensorReport:
+        raise RuntimeError("scan broken")
+
+    client = await make_client(sensor_scan=broken)
+    looks: list[bool] = []
+
+    async def recheck() -> bool:
+        looks.append(True)
+        raise RuntimeError("look broken")  # logged, never left running
+
+    client.app[SUPERVISOR].recheck_fans = recheck  # type: ignore[method-assign]  # a stand-in that records the call
+    assert (await client.post("/api/sensors/scan", headers=FETCH)).status == 202
+    await settled(client)
+    for _ in range(100):
+        if looks:
+            break
+        await asyncio.sleep(0.02)
+    assert looks
+    assert any("look broken" in line["text"] for line in client.app[SUPERVISOR].logs.since(0))
+
+
 async def test_slow_smart_reads_and_sensor_scans_answer_at_once(make_client: ClientMaker) -> None:
     """Both run in the background: one drive can take SMARTCTL_TIMEOUT, a scan RUN_TIMEOUT, more than the gateway waits.
 

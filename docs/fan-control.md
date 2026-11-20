@@ -16,7 +16,9 @@ hddfancontrol -v INFO daemon --drives … --fan-cmd /bin/true --interval 20s
 
 `--fan-cmd /bin/true` keeps it away from the fans; it still probes the drives the way
 it always has, without waking a sleeping drive, and writes one JSON line per interval
-to the temperature log.
+to the temperature log. It runs whenever drives are chosen, even with no fan chosen yet
+or with the chip of every fan missing: the alerts and the history need the
+temperatures, and a fan that comes back finds them.
 
 `templog.py` reads only the last line of that log, and only when its size or mtime
 changed; it keeps the last sample across the daily rotation. In a line hddfancontrol
@@ -138,6 +140,7 @@ These hold in every mode, whatever the settings. They must never be weakened.
 | hddfancontrol stops | Full speed until a newer sample; in manual control, every fan at 255 until it ends |
 | An unexpected error in the control or manual loop | Every fan at 255, `error` in the status, the loop goes on |
 | Control ends (stop, apply, exit) | Every output gets its previous mode back |
+| The chip of a chosen fan is missing | Only that fan is left alone (its old path may belong to another chip); the others are controlled and the drives watched |
 
 The settings themselves are capped: drive temperatures up to 80 °C, the limits of one
 SATA/SAS drive up to 70 °C.

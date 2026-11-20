@@ -9,6 +9,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **A missing fan chip no longer stops all fan control.** When the chip of
+  one chosen fan was missing at start (its module loaded late by an Init
+  Script, or renamed by a kernel update), no fan was controlled and the
+  drive temperatures were not even measured, so neither the safety rules
+  nor the hot alert could act, until a restart. Now only the fans of that
+  chip are left alone: the others are controlled and the drives watched.
+  The web UI looks for the chip every minute and after **Scan again**, and
+  controls its fans as soon as it is back. The drive temperatures are also
+  measured when no fan is chosen yet.
+
 - **A PWM test always ends.** If the watch of the drive temperatures
   failed during a PWM test, the test stayed "running" for ever: every
   change answered Busy, the tested output stayed at the last value of the

@@ -639,12 +639,22 @@ async def post_sensor_scan(request: web.Request) -> web.Response:
 #   _scan_sensors
 # ---------------------------
 async def _scan_sensors(app: web.Application) -> None:
-    """Run the scan asked by the page and keep its report; it never stays "running"."""
+    """Run the scan asked by the page and keep its report; it never stays "running".
+
+    The scan may have loaded the module of a fan chip that was missing:
+    the supervisor looks for it at once (recheck_fans) instead of at its
+    next PLACE_PERIOD.
+    """
     state = app[STATE]
     try:
         state["sensors"] = await app[SENSOR_SCAN]()
     except Exception as err:  # never left "running": every later scan would answer busy
         state["sensors"] = SensorReport(state="done", detect_error=repr(err), finished_at=datetime.now(UTC).isoformat())
+    supervisor = app[SUPERVISOR]
+    try:
+        await supervisor.recheck_fans()
+    except Exception as err:  # the scan task ends quietly; the periodic look tries again
+        supervisor.logs.add(SOURCE_WEBUI, f"ERROR: cannot look for the missing fan chips: {err!r}")
 
 
 # ---------------------------
