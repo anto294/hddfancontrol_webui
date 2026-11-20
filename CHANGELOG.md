@@ -41,6 +41,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   control a crash of hddfancontrol put the fans at full speed only after
   the stale limit (2 minutes or more); now it does at once, as in the
   automatic modes.
+- **The history keeps recording after a busy database.** When saving a
+  sample failed at its last step, every later sample failed too, until a
+  restart.
 
 ### Changed
 

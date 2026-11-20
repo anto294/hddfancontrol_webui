@@ -79,6 +79,32 @@ def test_failed_record_does_not_block_the_next(tmp_path: Path) -> None:
     history.close()
 
 
+def test_failed_commit_does_not_block_the_next(tmp_path: Path) -> None:
+    """A COMMIT that fails (SQLITE_BUSY leaves the transaction open, as SQLite documents) is rolled back too."""
+    history = History(tmp_path / "h.db")
+    real = history._db
+
+    class BusyCommit:
+        """The connection, but COMMIT fails and leaves the transaction open."""
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real, name)
+
+        def execute(self, sql: str, *args: Any) -> Any:
+            if sql == "COMMIT":
+                raise sqlite3.OperationalError("database is locked")
+            return real.execute(sql, *args)
+
+    history._db = BusyCommit()  # type: ignore[assignment]  # a stand-in for the connection
+    with pytest.raises(sqlite3.OperationalError):
+        history.record(NOW, [("temp", "sda", 40.0)])
+    history._db = real
+    assert not real.in_transaction
+    history.record(NOW, [("temp", "sda", 41.0)])  # the failed sample was rolled back: this one is stored
+    assert history.query(1, now=NOW)["series"][0]["points"] == [[NOW, 41.0]]
+    history.close()
+
+
 def test_history_cleans_itself(tmp_path: Path) -> None:
     """Empty series go with the purge; SMART data of drives not kept is forgotten."""
     history = History(tmp_path / "history.db")

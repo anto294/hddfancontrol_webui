@@ -16,6 +16,7 @@ Every method blocks, and the web server calls them from worker threads.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
@@ -130,11 +131,15 @@ class History:
             self._db.execute("BEGIN")
             try:
                 self._db.executemany("INSERT OR IGNORE INTO samples (series, ts, value) VALUES (?, ?, ?)", rows)
+                # A COMMIT that fails with SQLITE_BUSY leaves the transaction open, as SQLite documents.
+                self._db.execute("COMMIT")
             except sqlite3.Error:
-                # Left open, the transaction would make every later BEGIN fail.
-                self._db.execute("ROLLBACK")
+                # Left open, the transaction would make every later BEGIN fail. SQLite may
+                # have rolled it back itself already (a full disk): then there is nothing to undo.
+                if self._db.in_transaction:
+                    with contextlib.suppress(sqlite3.Error):
+                        self._db.execute("ROLLBACK")
                 raise
-            self._db.execute("COMMIT")
 
     def purge(self, days: int, now: float | None = None) -> int:
         """Delete the samples older than days, then the series left empty; return how many samples."""
