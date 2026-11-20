@@ -32,7 +32,7 @@ RUN target="$(rustc -vV | sed -n 's/^host: //p')" \
  && install -D "target/${target}/release/hddfancontrol" /out/hddfancontrol
 
 # --- hd-idle, cross-compiled: Go needs no emulation for other architectures
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine3.24@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS hdidle
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine3.24@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS hdidle
 ARG HDIDLE_VERSION
 ARG HDIDLE_COMMIT
 ARG TARGETOS
