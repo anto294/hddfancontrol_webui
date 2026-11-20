@@ -56,7 +56,9 @@ control.
 - The first time it writes an output, it saves the output's `pwmN_enable` and value, in
   memory and in `/config/pwm-state.json` together with the boot id. A run after a
   SIGKILL of the same boot then takes the chip's real state from the file, not its own
-  leftovers ("manual, 255"). At start, before anything is taken, `restore_leftovers`
+  leftovers ("manual, 255"). Only entries that are PWM outputs (`is_pwm_path`) with a
+  mode and a value of 0 to 255 are read back; the rest is logged and ignored, and
+  `_give_back` checks the path again. At start, before anything is taken, `restore_leftovers`
   gives every output of that file back its mode (logged): one this run no longer
   drives (a fan taken out of the settings, one moved by a slider in manual control)
   would otherwise stay in manual mode at the killed run's last value until a reboot.

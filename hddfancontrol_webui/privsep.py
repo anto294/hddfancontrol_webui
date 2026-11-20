@@ -117,6 +117,13 @@ def web_user(name: str | None, log: logging.Logger | None = None) -> WebUser | N
 
 
 # ---------------------------
+#   ConfigOpen
+# ---------------------------
+class ConfigOpen(OSError):
+    """/config is writable by the gateway's user and cannot be closed: no gateway may run."""
+
+
+# ---------------------------
 #   _give
 # ---------------------------
 def _give(path: Path, user: WebUser) -> None:
@@ -141,17 +148,26 @@ def _give(path: Path, user: WebUser) -> None:
 # ---------------------------
 #   prepare_web_dir
 # ---------------------------
-def prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger | None = None) -> Path:
-    """Make /config/web for the gateway and return it; a temporary folder when that fails.
+def prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger | None = None) -> Path | None:
+    """Make /config/web for the gateway and return it; a temporary folder when that fails; None for no gateway at all.
 
     The fans come first: a /config that cannot hold the folder (read only,
     a link in its place) costs the stored credentials while it lasts, never
     the core. The gateway then asks for a new setup, with the code of the
     log like a first start, and the error in the log says why.
+
+    A /config the gateway could write and that cannot be closed (NFS with
+    root_squash, an ACL of the host) gives None: the core keeps its
+    settings, the fans' state and the temperature log there, and a gateway
+    taken over could plant them. The core then drives the fans alone, as
+    with a missing WEBUI_USER.
     """
     log = log or _LOGGER
     try:
         return _prepare_web_dir(config_dir, user, log)
+    except ConfigOpen as err:
+        log.error("%s; no gateway, so no web UI: the core alone controls the fans. Fix the owner or mode of the folder", err)
+        return None
     except OSError as err:
         # The folders of earlier failed starts: only one is ever in use.
         for stale in Path(tempfile.gettempdir()).glob(TEMP_WEB_PREFIX + "*"):
@@ -208,19 +224,20 @@ def _prepare_web_dir(config_dir: Path, user: WebUser, log: logging.Logger) -> Pa
 #   _close_config
 # ---------------------------
 def _close_config(config_dir: Path, user: WebUser, log: logging.Logger) -> None:
-    """Make sure the gateway's user cannot write /config, where root keeps its files. Raises OSError when it cannot.
+    """Make sure the gateway's user cannot write /config, where root keeps its files. Raises ConfigOpen when it cannot.
 
     The core writes settings, history and the fans' state there, and takes
     for granted that only root can add or swap a name in it. A folder the
-    gateway could write (its own, its group's, or everyone's without the
-    sticky bit) is given to root and closed to writes by others; when that
-    fails, the gateway's folder is not made there.
+    gateway could write (its own, its group's, or everyone's, with the
+    sticky bit too: it only protects names that exist, and the gateway
+    could create pwm-state.json or templog/ before root) is given to root
+    and closed to writes by others.
     """
     info = config_dir.stat()
     mode = stat.S_IMODE(info.st_mode)
     own = info.st_uid == user.uid
     group = bool(mode & stat.S_IWGRP) and info.st_gid == user.gid
-    everyone = bool(mode & stat.S_IWOTH) and not mode & stat.S_ISVTX
+    everyone = bool(mode & stat.S_IWOTH)
     if not (own or group or everyone):
         return
     log.error(
@@ -235,7 +252,7 @@ def _close_config(config_dir: Path, user: WebUser, log: logging.Logger) -> None:
             os.chown(config_dir, 0, -1)
         config_dir.chmod(mode & ~(stat.S_IWGRP | stat.S_IWOTH))
     except OSError as err:
-        raise OSError(f"{config_dir} is writable by the gateway's user and cannot be closed: {err}") from err
+        raise ConfigOpen(f"{config_dir} is writable by the gateway's user and cannot be closed: {err}") from err
 
 
 # ---------------------------

@@ -23,6 +23,16 @@ filtered environment (`privsep.GATEWAY_ENV`: no `NOTIFY_URL`, for example),
 argument. It may write only `/config/web` (credentials, its self-signed certificate).
 Root never writes in or follows anything inside that folder.
 
+The rest of `/config` must be root's alone: the core trusts the settings, the fans'
+state (`pwm-state.json`) and the temperature log it finds there. A `/config` the
+gateway could write (its own, its group's, or everyone's, even with the sticky bit,
+which protects only names that already exist) is given to root and closed at start
+(`_close_config`). When the host refuses (NFS with `root_squash`, an ACL), there is no
+gateway at all: the core drives the fans alone, as with a missing `WEBUI_USER`, and
+the log says why. Even so, `PwmWriter` reads back from `pwm-state.json` only PWM
+outputs (`is_pwm_path`) with numbers from 0 to 255, and checks the path again before
+each write.
+
 ## A request, step by step
 
 The gateway's middlewares run in this order:

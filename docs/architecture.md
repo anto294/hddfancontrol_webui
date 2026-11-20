@@ -80,7 +80,9 @@ cut never leaves an empty file. The core runs with umask 077.
 
 Root never writes in or follows anything inside `web/`: a gateway taken over could
 plant links there. At start, `tighten_config` closes older files of `/config`, and a
-`/config` the gateway could write is closed first (`_close_config`).
+`/config` the gateway could write is closed first (`_close_config`, the sticky bit
+does not count); when it cannot be closed, no gateway runs (see
+[security.md](security.md)).
 
 ## Settings
 

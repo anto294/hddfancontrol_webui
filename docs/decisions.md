@@ -154,6 +154,15 @@ leave an empty settings file, and only root needs to read them. A corrupt
 port.** Why: the container must be privileged, so the process the network reaches
 must not be root. Never weakened; see [security.md](security.md). (0.8.0, 2026-11-17)
 
+**A `/config` that cannot be closed to the gateway means no gateway.** Why: the core
+runs as root on what it finds there; a gateway taken over that could write
+`pwm-state.json` would make root write any file (the path was not checked), and one
+that could swap `templog/` would feed cold samples and turn every safety rule off.
+Before, only the gateway's own folder moved to a temporary one and root kept using the
+open `/config`. The fans stay controlled; only the web UI is lost until the folder is
+fixed. The sticky bit does not make a folder closed: it does not stop new names.
+(2026-11-20)
+
 **No open first start.** Without credentials only the setup works, with a one-time code
 printed in the log; credentials can be changed, never removed. Why: someone who merely
 reaches the port must not be able to claim the installation. (0.8.0, 2026-11-17)

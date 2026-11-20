@@ -719,6 +719,28 @@ def test_writer_survives_a_broken_state_file(fake_sys: Path, tmp_path: Path) -> 
     assert read(fake_sys, "pwm1_enable") == "5"
 
 
+def test_writer_keeps_only_pwm_outputs_of_the_state_file(fake_sys: Path, tmp_path: Path) -> None:
+    """A state file written by someone else never makes root write outside the PWM files, nor a value that is no number."""
+    state = tmp_path / "pwm-state.json"
+    target = tmp_path / "etc" / "core_pattern"
+    target.parent.mkdir()
+    target.write_text("core\n")
+    outputs = {
+        str(target): [None, "|/proc/%P/root/x"],  # outside /sys: _file() would map it to itself
+        "/sys/class/hwmon/hwmon2/../../../kernel/x": ["2", "1"],
+        PWM1: ["5", "|/x"],  # a fan, but not a value
+        PWM2: ["1x", "40"],  # a fan, but not a mode
+    }
+    state.write_text(json.dumps({"boot": "boot-1", "outputs": outputs}))
+    writer = PwmWriter(fake_sys, state, boot(tmp_path, "boot-1"))
+    assert writer.restore_leftovers() == []
+    assert target.read_text() == "core\n"
+    assert read(fake_sys, "pwm1_enable") == "5" and read(fake_sys, "pwm2") == "255"
+    # Given back by hand, an entry that is no PWM output is refused too.
+    writer._give_back(str(target), (None, "x"))
+    assert target.read_text() == "core\n"
+
+
 def test_drive_ceiling() -> None:
     """65 °C for SATA/SAS drives, 80 °C for NVMe drives, whatever the settings say."""
     assert fancontrol.drive_ceiling("sda") == 65 and fancontrol.drive_ceiling("nvme0n1") == 80

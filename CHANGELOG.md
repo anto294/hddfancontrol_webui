@@ -7,6 +7,17 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+
+- **A `/config` the gateway could write no longer stays in use.** When the
+  folder could not be closed to the web UI's own user (an ACL, NFS with
+  root squash), the web side only moved its login data elsewhere, while
+  the root side kept its files there. A web side taken over could then
+  make root write any file through the saved fan state. Now the web UI
+  does not start at all in that case (the fans are still controlled, and
+  the log says why); a folder with the sticky bit (mode 1777) is closed
+  too; and the saved fan state only ever names PWM outputs and numbers.
+
 ### Fixed
 
 - **A missing fan chip no longer stops all fan control.** When the chip of

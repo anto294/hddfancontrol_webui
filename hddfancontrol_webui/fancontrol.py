@@ -40,6 +40,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -356,6 +357,11 @@ class PwmWriter:
                 str(path): (None if enable is None else str(enable), None if value is None else str(value))
                 for path, (enable, value) in data["outputs"].items()
             }
+            # Root writes these back: only PWM outputs, and numbers a sysfs file of a fan takes.
+            kept = {path: state for path, state in outputs.items() if is_pwm_path(path) and all(map(_sysfs_number, state))}
+            if dropped := sorted(set(outputs) - set(kept)):
+                _LOGGER.error("Ignoring entries of %s that are no PWM output or no number: %r", self._state_file, dropped)
+            outputs = kept
         except FileNotFoundError:
             return {}
         except Exception as err:  # broken or nested too deep: the outputs are taken as they are now
@@ -471,6 +477,10 @@ class PwmWriter:
     def _give_back(self, path: str, state: tuple[str | None, str | None]) -> None:
         """Write the saved mode (or value) of one output and forget it; an error is logged and the entry kept."""
         enable, value = state
+        if not is_pwm_path(path):
+            _LOGGER.error("Not restoring %s: it is no PWM output", path)
+            self._original.pop(path, None)
+            return
         try:
             if enable is not None and enable != str(ENABLE_MANUAL):
                 self._file(f"{path}_enable").write_text(f"{enable}\n", encoding="utf-8")
@@ -482,6 +492,14 @@ class PwmWriter:
             _LOGGER.error("Cannot restore %s: %s", path, err)
             return
         self._original.pop(path, None)
+
+
+# ---------------------------
+#   _sysfs_number
+# ---------------------------
+def _sysfs_number(text: str | None) -> bool:
+    """Whether a saved mode or value can be written back to a fan: None (not saved) or 0 to PWM_MAX in digits."""
+    return text is None or (re.fullmatch(r"[0-9]{1,3}", text) is not None and int(text) <= PWM_MAX)
 
 
 # ---------------------------

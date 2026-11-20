@@ -268,12 +268,16 @@ def test_gateway_env(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("mode", "owner_is_gateway", "group_is_gateway"),
-    [(0o777, False, False), (0o775, False, True), (0o755, True, False)],
+    [(0o777, False, False), (0o1777, False, False), (0o775, False, True), (0o755, True, False)],
 )
 def test_a_config_folder_the_gateway_can_write_is_closed(
     tmp_path: Path, as_root: list[tuple[str, int, int]], mode: int, owner_is_gateway: bool, group_is_gateway: bool
 ) -> None:
-    """A /config the gateway could write (everyone's, its group's, its own) is logged, closed and given to root."""
+    """A /config the gateway could write (everyone's even with the sticky bit, its group's, its own) is closed and given to root.
+
+    The sticky bit only keeps others' names from being removed or renamed:
+    the gateway could still create pwm-state.json or templog/ before root.
+    """
     config = tmp_path / "config"
     config.mkdir()
     config.chmod(mode)
@@ -292,7 +296,10 @@ def test_a_config_folder_the_gateway_can_write_is_closed(
 def test_a_config_folder_that_cannot_be_closed_is_not_used(
     tmp_path: Path, as_root: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When /config cannot be closed, the gateway gets a temporary folder, not one inside it."""
+    """When /config cannot be closed, there is no gateway at all: root's files there would be the gateway's to plant.
+
+    The core alone drives the fans, as with a missing WEBUI_USER.
+    """
     config = tmp_path / "config"
     config.mkdir()
     config.chmod(0o777)
@@ -306,8 +313,12 @@ def test_a_config_folder_that_cannot_be_closed_is_not_used(
     monkeypatch.setattr(Path, "chmod", chmod)
     monkeypatch.setattr(privsep.tempfile, "tempdir", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
-    folder = prepare_web_dir(config, WebUser("web", os.getuid() + 1, os.getgid() + 1))
-    assert folder.parent == tmp_path / "tmp" and not (config / "web").exists()
+    lines: list[str] = []
+    log = logging.getLogger("test-config-open")
+    log.addHandler(_ListHandler(lines))
+    assert prepare_web_dir(config, WebUser("web", os.getuid() + 1, os.getgid() + 1), log) is None
+    assert not (config / "web").exists() and not list((tmp_path / "tmp").iterdir())
+    assert any("no gateway" in line for line in lines)
 
 
 class _ListHandler(logging.Handler):
