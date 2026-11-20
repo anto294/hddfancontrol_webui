@@ -70,14 +70,14 @@ for `data-theme="dark"`.
 | Drives | SMART per drive, self-tests |
 | History | Charts of temperatures, PWM and RPM, CSV export |
 | Settings | Everything of `settings.json`, folded sections, a cron composer for each schedule, backup |
+| PWM test | Start and stop values of the fans |
+| Security | Credentials |
+| Logs | The last lines of every source |
 
 The notification address comes masked (`•••` for its token, password or ntfy topic):
 the field shows it so, with a note, and sends it back unchanged to keep it; a click
 selects it all, so typing replaces it. A backup holds it masked too, and importing one
 keeps the address in force.
-| PWM test | Start and stop values of the fans |
-| Security | Credentials |
-| Logs | The last lines of every source |
 
 The **guided setup** opens by itself while the settings come from the environment with
 no drive and no fan, until it is closed once (`localStorage` `setupSkipped`). It builds
