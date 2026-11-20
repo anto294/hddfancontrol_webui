@@ -247,6 +247,7 @@
   "error.duplicate": "مُدرَج مرتين.",
   "error.invalid_pwm_path": "ليس مخرج PWM: يجب أن يكون /sys/class/hwmon/hwmonN/pwmN.",
   "error.invalid_temp_path": "ليس مدخل حرارة: يجب أن يكون مسارًا تحت /sys ينتهي بـ /tempN_input.",
+  "error.temp_path_colon": "يقطع hddfancontrol هذا المسار عند ':' ولا يستطيع قراءته: استخدم المدخل نفسه تحت /sys/class/hwmon/hwmonN/tempN_input.",
   "error.invalid_chip": "ليست شريحة: يجب أن يكون مسارًا تحت /sys/devices.",
   "error.invalid_number": "ليس رقمًا.",
   "error.out_of_range": "يجب أن تكون القيمة بين {min} و{max}.",

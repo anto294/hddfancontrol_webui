@@ -305,7 +305,7 @@ The variables of **Web UI and access**, the advanced ones and `TZ` are read only
 | `MIN_FAN_SPEED_PRCT` | `20` | Minimum fan speed, % |
 | `INTERVAL` | `20s` | Check interval (`10s`, `1min`, …) |
 | `AVERAGE` | `1` | Number of samples of each drive to average |
-| `HWMONS` | — | Other temperature inputs, as `PATH[:MIN:MAX]`, separated by spaces |
+| `HWMONS` | — | Other temperature inputs, as `PATH[:MIN:MAX]`, separated by spaces; give the path under `/sys/class/hwmon/` (hddfancontrol cannot read a path with `:`, such as a PCI one under `/sys/devices/`) |
 | `RESTORE_FAN_SETTINGS` | `true` | When the web UI stops, give the fans back their settings; `false` leaves them at full speed (a restart after a change always gives them back) |
 | `VERBOSITY` | `INFO` | Log level of hddfancontrol: `TRACE`, `DEBUG`, `INFO`, `WARN` or `ERROR` |
 

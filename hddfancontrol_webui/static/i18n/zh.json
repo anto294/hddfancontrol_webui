@@ -247,6 +247,7 @@
   "error.duplicate": "重复列出。",
   "error.invalid_pwm_path": "不是 PWM 输出：必须是 /sys/class/hwmon/hwmonN/pwmN。",
   "error.invalid_temp_path": "不是温度输入：必须是以 /tempN_input 结尾的 /sys 路径。",
+  "error.temp_path_colon": "hddfancontrol 会在 ':' 处截断此路径，无法读取：请改用 /sys/class/hwmon/hwmonN/tempN_input 下的同一输入。",
   "error.invalid_chip": "不是芯片：必须是 /sys/devices 下的路径。",
   "error.invalid_number": "不是数字。",
   "error.out_of_range": "必须在 {min} 到 {max} 之间。",

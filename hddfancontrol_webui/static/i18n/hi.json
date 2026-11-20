@@ -247,6 +247,7 @@
   "error.duplicate": "दो बार लिखा गया है।",
   "error.invalid_pwm_path": "यह PWM आउटपुट नहीं है: यह /sys/class/hwmon/hwmonN/pwmN होना चाहिए।",
   "error.invalid_temp_path": "यह तापमान इनपुट नहीं है: यह /tempN_input पर खत्म होने वाला /sys पाथ होना चाहिए।",
+  "error.temp_path_colon": "hddfancontrol इस पाथ को ':' पर काट देता है और इसे पढ़ नहीं सकता: /sys/class/hwmon/hwmonN/tempN_input के तहत वही इनपुट इस्तेमाल करें।",
   "error.invalid_chip": "यह चिप नहीं है: यह /sys/devices के अंदर का पाथ होना चाहिए।",
   "error.invalid_number": "यह संख्या नहीं है।",
   "error.out_of_range": "{min} और {max} के बीच होना चाहिए।",

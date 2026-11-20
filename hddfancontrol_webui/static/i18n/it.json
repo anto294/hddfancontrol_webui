@@ -247,6 +247,7 @@
   "error.duplicate": "Presente due volte.",
   "error.invalid_pwm_path": "Non è un'uscita PWM: deve essere /sys/class/hwmon/hwmonN/pwmN.",
   "error.invalid_temp_path": "Non è un ingresso di temperatura: deve essere un percorso /sys che finisce con /tempN_input.",
+  "error.temp_path_colon": "hddfancontrol taglia questo percorso ai suoi ':' e non riesce a leggerlo: usa lo stesso ingresso sotto /sys/class/hwmon/hwmonN/tempN_input.",
   "error.invalid_chip": "Non è un chip: deve essere un percorso sotto /sys/devices.",
   "error.invalid_number": "Non è un numero.",
   "error.out_of_range": "Deve essere tra {min} e {max}.",

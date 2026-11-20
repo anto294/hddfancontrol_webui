@@ -101,6 +101,14 @@ An hwmon input of **Settings** with a range asks for a speed in proportion betwe
 minimum and maximum; a fan runs at the higher of that and what its drives ask. Without
 a range it is only shown and recorded.
 
+The path must hold no `:`. hddfancontrol (2.1.2, `HwmonSettings::from_str` in its
+`cl.rs`) cuts `--hwmons` at the first `:` (`splitn(3, ':')`), so a PCI path such as
+`/sys/devices/pci0000:00/0000:00:18.3/hwmon/hwmon2/temp1_input` would reach it
+broken; `from_dict` refuses it (`temp_path_colon`). The same input is under
+`/sys/class/hwmon/hwmonN/tempN_input`, which is what the page offers. In `HWMONS`
+the range is read from the end, and only when it is numbers, so such a path is
+reported as itself rather than cut into a wrong path and a wrong range.
+
 ### Manual
 
 A slider per PWM output, for finding out which fan is which. Any output of the host can

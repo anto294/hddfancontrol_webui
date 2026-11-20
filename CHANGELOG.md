@@ -28,6 +28,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **A failed sensor scan no longer blocks the next ones.** An unexpected
   error during **Scan again** left the scan "running" for ever, and every
   later scan was refused as busy. It now ends with the error shown.
+- **`HWMONS` with a path that holds `:`.** Such a path (a PCI one under
+  `/sys/devices/`) was cut at its first `:` into a wrong path and a wrong
+  range. It is now read whole and refused with a clear message, since
+  hddfancontrol itself cannot read it: give the same input under
+  `/sys/class/hwmon/`.
 
 ### Changed
 
