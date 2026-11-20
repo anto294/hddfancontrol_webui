@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import re
 import sys
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -99,6 +100,9 @@ class LogBuffer:
         self._lines: deque[dict[str, Any]] = deque(maxlen=maxlen)
         self._seq = 0
         self._echo = echo
+        # Lines come from the event loop and from worker threads (the hooks of
+        # Daemon run in one): numbering and reading must not interleave.
+        self._lock = threading.Lock()
 
     @property
     def last_seq(self) -> int:
@@ -106,16 +110,18 @@ class LogBuffer:
         return self._seq
 
     def add(self, source: str, text: str) -> None:
-        """Add a line."""
-        self._seq += 1
+        """Add a line. Safe from any thread."""
         text = text.rstrip()
-        self._lines.append({"seq": self._seq, "time": datetime.now(UTC).isoformat(), "source": source, "text": text})
+        with self._lock:
+            self._seq += 1
+            self._lines.append({"seq": self._seq, "time": datetime.now(UTC).isoformat(), "source": source, "text": text})
         if self._echo:
             print(f"[{source}] {text}", file=sys.stdout, flush=True)
 
     def since(self, seq: int) -> list[dict[str, Any]]:
         """Return the lines newer than seq that are still kept."""
-        return [line for line in self._lines if line["seq"] > seq]
+        with self._lock:
+            return [line for line in self._lines if line["seq"] > seq]
 
 
 # ---------------------------

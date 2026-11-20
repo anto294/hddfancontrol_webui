@@ -793,3 +793,23 @@ async def test_full_speed_in_manual_control_when_hddfancontrol_ends(
     assert (fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1").read_text().strip() == "255"
     supervisor.hddfancontrol._on_exit = None
     await supervisor.stop()
+
+
+def test_log_buffer_from_many_threads() -> None:
+    """Lines added from worker threads (the hooks of Daemon) and the event loop at once each get their own number."""
+    import sys
+    import threading
+
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        logs = LogBuffer(maxlen=200_000, echo=False)
+        threads = [threading.Thread(target=lambda: [logs.add("x", "line") for _ in range(20_000)]) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        sys.setswitchinterval(old)
+    seqs = [line["seq"] for line in logs.since(0)]
+    assert logs.last_seq == 160_000 and len(set(seqs)) == 160_000
