@@ -93,7 +93,10 @@ translations, in `notify_language`.
   `safety`, `smart_failing`, `fans_missing`, `drive_missing`) go out; the rest is held
   and sent as one message when the quiet hours end.
 - **Summary** (`notify_summary`): the drives and fans in one message. The time of the
-  last one is kept in `meta`; it is never sent at the very first look.
+  last one is kept in `meta`; it is never sent at the very first look. It counts the
+  alerts started in its period from the starts kept in `meta` (`RAISED_KEEP_S`, 32
+  days), at most the newest `RAISED_MAX` (1000): an alert that comes and goes would
+  otherwise grow that list, rewritten at every start, by over a megabyte a month.
 
 ## Schedules
 

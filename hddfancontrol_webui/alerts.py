@@ -69,6 +69,10 @@ QUEUE_SIZE = 100
 # The starts of alerts are kept this long, for a summary (which covers at
 # most MAX_SUMMARY_DAYS of monitor.py), in the meta table under RAISED_KEY.
 RAISED_KEEP_S = 32 * 86400
+# At most this many starts are kept (the newest): an alert that comes and goes
+# would otherwise grow the list, rewritten at every start, without end. A
+# summary then counts at most this many.
+RAISED_MAX = 1000
 RAISED_KEY = "alerts_raised"
 # Alerts sent even in the quiet hours: something needs a hand now.
 URGENT_KINDS = (KIND_DRIVE_HOT, KIND_SAFETY, KIND_SMART_FAILING, KIND_FANS_MISSING, KIND_DRIVE_MISSING)
@@ -202,7 +206,7 @@ class Alerts:
         if self._held_count and not in_quiet_hours(settings, now):
             self._send_held(settings)
         # A summary covers MAX_SUMMARY_DAYS at most.
-        kept = [(ts, kind) for ts, kind in self.raised if now - ts < RAISED_KEEP_S]
+        kept = [(ts, kind) for ts, kind in self.raised if now - ts < RAISED_KEEP_S][-RAISED_MAX:]
         changed = len(self.raised) != count or len(kept) != len(self.raised)
         self.raised = kept
         if changed and self._store is not None:

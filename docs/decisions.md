@@ -102,6 +102,12 @@ take `RUN_TIMEOUT`, all at or past `CORE_TIMEOUT_S`; the page got 502
 `core_unavailable` while the core worked normally. A longer timeout for some routes
 would only move the limit, and keep a connection open for minutes. (2026-11-20)
 
+**The starts of alerts kept for the summary are capped.** At most `RAISED_MAX` (1000),
+the newest. Why: the list is rewritten in `meta` at every new start; an alert that comes
+and goes once a minute grew it to 20 000 entries (560 KB per write) in two weeks, on the
+flash many NAS boot from. Beyond a thousand starts the summary's count is only a floor,
+and the alert itself has long been noticed. (2026-11-20)
+
 **Read only when `/sys` is read only.** Nothing starts, and a red banner says so. Why:
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)
