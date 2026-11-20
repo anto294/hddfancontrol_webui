@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import threading
 import time
@@ -778,10 +779,9 @@ async def test_serve_refuses_strangers_before_reading(
     else:
         raise AssertionError("the gateway did not listen")
     writer.write(b"GET /login HTTP/1.1\r\nHost: localhost\r\n\r\n")
-    try:
+    # Closed at once: an empty read, or a reset when the closing raced with the request.
+    with contextlib.suppress(ConnectionResetError):
         assert await asyncio.wait_for(reader.read(), 5) == b""  # not even a 403: nothing was read
-    except ConnectionResetError:
-        pass
     writer.close()
     assert sum("Refused 127.0.0.1" in line for line in lines) == 1
     os.kill(os.getpid(), signal.SIGTERM)
