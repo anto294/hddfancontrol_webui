@@ -156,8 +156,8 @@ gh attestation verify hddfancontrol-webui-*-linux-amd64.tar.gz --repo anto294/hd
 The tarball carries static builds of hddfancontrol 2, hd-idle and sdparm, so the version of your distribution does not matter (Debian still ships hddfancontrol 1, whose options differ), and the Python packages it needs (aiohttp and its dependencies, checked against their hashes): the install downloads nothing. `install.sh` puts everything in `/opt/hddfancontrol-webui`, the settings in `/etc/hddfancontrol-webui/env`, the data in `/var/lib/hddfancontrol-webui`, and starts the `hddfancontrol-webui` service. Run it again from a newer tarball to update.
 
 - Logs: `journalctl -u hddfancontrol-webui`
-- Remove, keeping settings and history: `sudo ./install.sh --uninstall`
-- Remove everything: `sudo ./install.sh --purge`
+- Remove, keeping settings, history and the `hddfancontrol-webui` user that owns the login data: `sudo ./install.sh --uninstall`
+- Remove everything, the user too: `sudo ./install.sh --purge`
 
 On bare metal, `sensors-detect --auto` does not run at start, because on a real host it can change `/etc/modules`. Run `sudo sensors-detect` once instead, or set `LOAD_SENSOR_MODULES=true` in `/etc/hddfancontrol-webui/env`.
 

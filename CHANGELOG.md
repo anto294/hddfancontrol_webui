@@ -9,6 +9,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **Uninstalling keeps the web UI's user while its files stay.**
+  `install.sh --uninstall` removed the `hddfancontrol-webui` user but kept
+  its login data, which then belonged to no one, and a system account
+  created later could get them. The user is now removed only by
+  `--purge`, after its files.
 - **The bare metal install downloads nothing.** `install.sh` installed
   aiohttp and its dependencies from PyPI as root, at whatever versions
   were current. The tarball now carries them, at fixed versions checked

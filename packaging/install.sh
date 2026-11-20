@@ -3,8 +3,8 @@
 #
 #   sudo ./install.sh              install or update, then start the service
 #   sudo ./install.sh --no-start   install or update without starting it
-#   sudo ./install.sh --uninstall  remove the program, keep settings and history
-#   sudo ./install.sh --purge      remove everything, settings and history too
+#   sudo ./install.sh --uninstall  remove the program, keep settings, history and the user
+#   sudo ./install.sh --purge      remove everything, settings, history and the user too
 #
 # Run it from the extracted release tarball.
 set -eu
@@ -26,20 +26,22 @@ uninstall() {
     rm -f "$UNIT"
     systemctl daemon-reload
     rm -rf "$PREFIX"
-    userdel hddfancontrol-webui 2>/dev/null || true
-    say "Removed $PREFIX, the service and its user."
+    say "Removed $PREFIX and the service."
 }
 
 case "${1:-}" in
     --uninstall)
         uninstall
-        say "Settings and history are kept in $ETC and $DATA."
+        # The user stays with the files it owns ($DATA/web): removed, they would belong
+        # to an orphan UID that a system account made later could receive.
+        say "Settings and history are kept in $ETC and $DATA, with the user hddfancontrol-webui."
         exit 0
         ;;
     --purge)
         uninstall
         rm -rf "$ETC" "$DATA"
-        say "Removed $ETC and $DATA."
+        userdel hddfancontrol-webui 2>/dev/null || true
+        say "Removed $ETC, $DATA and the user hddfancontrol-webui."
         exit 0
         ;;
     "" | --no-start) ;;

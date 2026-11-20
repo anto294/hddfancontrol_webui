@@ -103,3 +103,18 @@ def test_the_tarball_carries_the_dependencies_and_install_uses_only_them() -> No
     installs = [line for line in script.splitlines() if '/pip" install' in line]
     assert installs and all("--no-index" in line for line in installs)
     assert any("--require-hashes" in line and "requirements.txt" in line for line in installs)
+
+
+def test_the_user_is_removed_only_with_its_files() -> None:
+    """--uninstall keeps the user with the data it owns; --purge deletes the data first, then the user.
+
+    A user removed while $DATA/web stays would leave its files to an
+    orphan UID, which a system account made later could receive.
+    """
+    script = INSTALL.read_text(encoding="utf-8")
+    uninstall = script.split("uninstall() {", 1)[1].split("\n}\n", 1)[0]
+    assert "userdel" not in uninstall
+    purge = script.split("    --purge)", 1)[1].split(";;", 1)[0]
+    assert "userdel" in purge and purge.index('rm -rf "$ETC" "$DATA"') < purge.index("userdel")
+    keep = script.split("    --uninstall)", 1)[1].split(";;", 1)[0]
+    assert "userdel" not in keep
