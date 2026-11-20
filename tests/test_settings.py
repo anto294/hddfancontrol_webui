@@ -348,6 +348,29 @@ def test_notifications() -> None:
     assert doc == {"notify_url": "http://gotify.lan/message?token=a", "notify_format": "gotify", "notify_language": "it"}
 
 
+def test_a_newline_never_ends_a_path_or_a_name() -> None:
+    """ "$" also matches before a final newline: every path and name is matched whole, so "/dev/sda\\n" is refused."""
+    from hddfancontrol_webui import settings as settings_module
+
+    for good, check in (
+        ("/dev/sda", settings_module.is_drive_path),
+        ("/sys/class/hwmon/hwmon3/pwm1", settings_module.is_pwm_path),
+        (TEMP_A, settings_module.is_temp_input),
+        ("/sys/devices/platform/nct6775.656", settings_module.is_sys_path),
+        ("/dev/disk/by-id/ata-X", settings_module.is_dev_path),
+    ):
+        assert check(good) and not check(good + "\n"), good
+    for doc in (
+        {"drives": ["/dev/sda\n"]},
+        {"drives": ["ata\n"]},
+        {"pwms": [{"path": PWM + "\n", "start": 200, "stop": 75}]},
+        {"hwmons": [{"path": TEMP_A + "\n"}]},
+        {"notify_url": "https://ntfy.sh/x\nInjected: 1"},
+    ):
+        with pytest.raises(SettingsError):
+            from_dict(doc)
+
+
 def test_notify_url_is_masked() -> None:
     """The secrets of a notification address are hidden: user and password, query values, the fragment, an ntfy topic."""
     mask = NOTIFY_MASK

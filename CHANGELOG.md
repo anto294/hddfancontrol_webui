@@ -9,6 +9,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **A path or name ending in a line break is refused.** A drive such as
+  `/dev/sda` followed by a line break was accepted in the settings and
+  reached the command lines of hddfancontrol and hd-idle.
 - **Uninstalling keeps the web UI's user while its files stay.**
   `install.sh --uninstall` removed the `hddfancontrol-webui` user but kept
   its login data, which then belonged to no one, and a system account

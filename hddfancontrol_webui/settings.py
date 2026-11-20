@@ -42,7 +42,9 @@ MAX_URL_LENGTH = 500
 # The host, then nothing or a path, query or fragment: no overlap, so no slow backtracking.
 # What replaces the secrets of notify_url in every answer of the API (mask_notify_url).
 NOTIFY_MASK = "•••"
-_URL = re.compile(r"^https?://[^\s/?#]+(?:[/?#]\S*)?$")
+# Every pattern of a path or a name is used with fullmatch (or ends in \Z): "$" would
+# also match before a final newline, and "/dev/sda\n" would reach a command line.
+_URL = re.compile(r"https?://[^\s/?#]+(?:[/?#]\S*)?")
 
 SOURCE_ENV = "environment"
 SOURCE_FILE = "file"
@@ -50,23 +52,23 @@ SOURCE_FILE = "file"
 # Path components: letters, digits and the punctuation found in
 # /dev/disk/by-id names and sysfs paths. No "..", no whitespace.
 _COMPONENT = r"[A-Za-z0-9_:+@,.-]+"
-_DEV_PATH = re.compile(rf"^/dev(/{_COMPONENT})+$")
-_SYS_PATH = re.compile(rf"^/sys(/{_COMPONENT})+$")
-_INTERFACE = re.compile(r"^[a-z0-9]+$")
+_DEV_PATH = re.compile(rf"/dev(/{_COMPONENT})+")
+_SYS_PATH = re.compile(rf"/sys(/{_COMPONENT})+")
+_INTERFACE = re.compile(r"[a-z0-9]+")
 # What the fan controller writes as root: only a PWM output of a hwmon chip,
 # never another /sys file (/sys/block/sda/device/delete removes a drive).
-_PWM_PATH = re.compile(r"^/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+$")
+_PWM_PATH = re.compile(r"/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+")
 # A drive: its stable names (by-id, by-path) or the kernel's name of a
 # whole SATA/SAS or NVMe drive. They go to smartctl, hddfancontrol (hdparm)
 # and hd-idle as root: no other /dev node (a partition table, /dev/mem).
-_DRIVE_PATH = re.compile(rf"^/dev/(?:disk/by-(?:id|path)/{_COMPONENT}|sd[a-z]+|nvme[0-9]+n[0-9]+)$")
+_DRIVE_PATH = re.compile(rf"/dev/(?:disk/by-(?:id|path)/{_COMPONENT}|sd[a-z]+|nvme[0-9]+n[0-9]+)")
 # What hddfancontrol reads: a temperature input of a hwmon chip.
-_TEMP_INPUT = re.compile(r"/temp[0-9]+_input$")
+_TEMP_INPUT = re.compile(r"/temp[0-9]+_input\Z")
 # A temperature of HWMONS (path:min:max), as hddfancontrol reads it: a number, maybe negative or with decimals.
 _NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 # Where the chips of the fans live (Hardware.chip_of).
 _CHIP_PREFIX = "/sys/devices/"
-_INTERVAL = re.compile(r"^\s*([0-9]{1,9})\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
+_INTERVAL = re.compile(r"\s*([0-9]{1,9})\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*")
 _INTERVAL_FACTORS = {"": 1, "s": 1, "sec": 1, "secs": 1, "m": 60, "min": 60, "mins": 60, "h": 3600, "hr": 3600, "hrs": 3600}
 _FALSE = ("0", "false", "no", "off", "")
 
@@ -318,7 +320,7 @@ class _Collector:
 # ---------------------------
 def is_dev_path(value: str) -> bool:
     """Whether the value is a path under /dev without '..'."""
-    return bool(_DEV_PATH.match(value)) and ".." not in value.split("/")
+    return bool(_DEV_PATH.fullmatch(value)) and ".." not in value.split("/")
 
 
 # ---------------------------
@@ -326,7 +328,7 @@ def is_dev_path(value: str) -> bool:
 # ---------------------------
 def is_sys_path(value: str) -> bool:
     """Whether the value is a path under /sys without '..'."""
-    return bool(_SYS_PATH.match(value)) and ".." not in value.split("/")
+    return bool(_SYS_PATH.fullmatch(value)) and ".." not in value.split("/")
 
 
 # ---------------------------
@@ -334,7 +336,7 @@ def is_sys_path(value: str) -> bool:
 # ---------------------------
 def is_drive_path(value: str) -> bool:
     """Whether the value names a whole drive: /dev/disk/by-id/…, /dev/disk/by-path/…, /dev/sdX or /dev/nvmeNnN."""
-    return is_dev_path(value) and bool(_DRIVE_PATH.match(value))
+    return is_dev_path(value) and bool(_DRIVE_PATH.fullmatch(value))
 
 
 # ---------------------------
@@ -342,7 +344,7 @@ def is_drive_path(value: str) -> bool:
 # ---------------------------
 def is_pwm_path(value: str) -> bool:
     """Whether the value is a PWM output of a hwmon chip: /sys/class/hwmon/hwmonN/pwmN."""
-    return bool(_PWM_PATH.match(value))
+    return bool(_PWM_PATH.fullmatch(value))
 
 
 # ---------------------------
@@ -369,7 +371,7 @@ def from_dict(data: Any) -> Settings:
     drives: list[str] = []
     for index, drive in enumerate(check.items(data, "drives")):
         name = f"drives.{index}"
-        if not isinstance(drive, str) or not (is_drive_path(drive) or _INTERFACE.match(drive)):
+        if not isinstance(drive, str) or not (is_drive_path(drive) or _INTERFACE.fullmatch(drive)):
             check.add(name, "invalid_drive")
         elif drive in drives:
             check.add(name, "duplicate")
@@ -627,7 +629,7 @@ def _notify_url(check: _Collector, value: Any) -> str:
     """
     if value is None or value == "":
         return ""
-    if not isinstance(value, str) or len(value) > MAX_URL_LENGTH or not _URL.match(value.strip()):
+    if not isinstance(value, str) or len(value) > MAX_URL_LENGTH or not _URL.fullmatch(value.strip()):
         check.add("notify_url", "invalid_url")
         return ""
     try:
@@ -646,7 +648,7 @@ def _notify_url(check: _Collector, value: Any) -> str:
 # ---------------------------
 def _parse_interval(value: str) -> int | str:
     """Turn '10s', '3min' or '30' into seconds, or leave the text for from_dict to refuse."""
-    match = _INTERVAL.match(value)
+    match = _INTERVAL.fullmatch(value)
     if not match:
         return value
     return int(match.group(1)) * _INTERVAL_FACTORS[match.group(2) or ""]

@@ -24,7 +24,7 @@ from typing import Any
 
 from .const import MODPROBE_BIN, SENSORS_DETECT_BIN
 
-_MODULE = re.compile(r"^modprobe\s+([A-Za-z0-9_-]+)\s*$")
+_MODULE = re.compile(r"modprobe\s+([A-Za-z0-9_-]+)\s*")  # with fullmatch: the whole line
 
 STATUS_ALREADY_LOADED = "already_loaded"
 STATUS_LOADED = "loaded"
@@ -85,7 +85,7 @@ def chip_modules(output: str) -> list[str]:
         elif line.startswith("#----cut here----"):
             if inside:
                 break
-        elif inside and (match := _MODULE.match(line)) and match.group(1) not in modules:
+        elif inside and (match := _MODULE.fullmatch(line)) and match.group(1) not in modules:
             modules.append(match.group(1))
     return modules
 

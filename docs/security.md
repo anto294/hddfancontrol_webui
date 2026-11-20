@@ -96,7 +96,9 @@ A body that is no valid JSON (also one nested too deep, or an integer past Pytho
 limit of digits) is a 400 `invalid_json` in both processes (`httputil.read_json`),
 never a 500 whose traceback would fill the log before any login. `settings.from_dict` is the only gate for values: drive
 paths, `pwmN` files under `/sys/class/hwmon`, hwmon inputs and chips under `/sys`, no
-`..`, everything checked before it reaches a command line or a file.
+`..`, everything checked before it reaches a command line or a file. Each pattern is
+matched whole (`fullmatch`, or `\Z`): `$` also matches before a final newline, which
+would have let `/dev/sda\n` through.
 
 ## Credentials and sessions
 
