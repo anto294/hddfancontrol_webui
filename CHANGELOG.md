@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **Refused requests can no longer flood the log.** Each refused address or
+  host name was logged once an hour, but a client sending a new made-up
+  name with every request still got one line each. At most 20 such lines
+  are now written per hour; the rest are counted in one line.
 - **The web side can no longer reach the terminal it was started from.**
   When the web UI was started by hand from a root shell, its unprivileged
   web side shared that terminal. It now gets no input and a session of

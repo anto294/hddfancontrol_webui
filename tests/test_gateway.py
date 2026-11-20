@@ -614,6 +614,23 @@ async def test_other_host_names_are_refused(make_gateway: GatewayMaker) -> None:
         assert (await gw.client.get("/login", headers={"Host": bad})).status == 400, bad
 
 
+async def test_refusals_logged_are_capped_per_hour(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Random host names (or addresses) cannot flood the log: past REFUSED_LOG_MAX lines an hour they are counted, then summed up."""
+    clock = {"now": 10000.0}
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(gateway_module, "REFUSED_LOG_MAX", 3)
+    gw = await make_gateway(CREDENTIALS)
+    for n in range(10):
+        assert (await gw.client.get("/login", headers={"Host": f"x{n}.attacker.example"})).status == 403
+    refused = [line for line in gw.lines if line.startswith("Refused")]
+    assert len(refused) == 3
+    assert sum("are counted, not logged" in line for line in gw.lines) == 1
+    clock["now"] += gateway_module.REFUSED_LOG_PERIOD
+    assert (await gw.client.get("/login", headers={"Host": "late.attacker.example"})).status == 403
+    assert any("7 more refused requests were not logged" in line for line in gw.lines)
+    assert gw.lines[-1].startswith("Refused the host name 'late.attacker.example'")
+
+
 async def test_webui_hosts_any_turns_the_check_off(make_gateway: GatewayMaker) -> None:
     """WEBUI_HOSTS=any lets every name in (a reverse proxy that checks names itself)."""
     gw = await make_gateway(CREDENTIALS, hosts=parse_hosts("any"))

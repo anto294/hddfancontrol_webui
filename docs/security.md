@@ -55,7 +55,10 @@ The gateway's middlewares run in this order:
 
 1. **`network_filter`**: the client address must be in `WEBUI_ALLOW` (private, loopback,
    link-local and CGNAT networks by default); otherwise a bare 403, logged once an hour.
-   The listener already refused such an address; this is the same rule again.
+   The listener already refused such an address; this is the same rule again. The lines
+   about refused addresses and host names are also capped in all (`RefusalLog`,
+   `REFUSED_LOG_MAX`, 20 an hour): past it they are counted, and the count is logged
+   when the hour is over, so random names cannot push the audit out of the log.
 2. **`host_check`**: the `Host` header must be an IP address, `localhost`, a dotless
    name, a name under `LOCAL_SUFFIXES` (`.lan`, `.local`, `.home.arpa`, `.ts.net`…) or
    one of `WEBUI_HOSTS`. This stops DNS rebinding. `/healthz` answers any name.

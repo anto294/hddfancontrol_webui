@@ -132,6 +132,9 @@ LOCAL_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localdomain", "
 # A Host header: a name (letters, digits, dots, hyphens) or an IPv6 address in brackets, then maybe a port.
 _HOST = re.compile(r"^(?:\[(?P<v6>[0-9A-Fa-f:.]+)\]|(?P<name>[A-Za-z0-9.-]{1,253}))(?::[0-9]{1,5})?$")
 REFUSED_LOG_PERIOD = 3600.0
+# Lines about refused addresses and host names in all, per REFUSED_LOG_PERIOD: past it they
+# are counted, and the count is logged once the period is over (RefusalLog).
+REFUSED_LOG_MAX = 20
 # The endpoints the gateway answers itself.
 GATEWAY_API = ("/api/login", "/api/logout", "/api/setup", "/api/auth")
 # Requests to the core: the slowest are a SMART read of every drive and a notification test.
@@ -294,6 +297,42 @@ class LoginLimiter:
 
 
 # ---------------------------
+#   RefusalLog
+# ---------------------------
+class RefusalLog:
+    """The lines about refused addresses and host names, at most REFUSED_LOG_MAX per REFUSED_LOG_PERIOD in all.
+
+    Each address or name is logged once an hour already; random names or
+    the addresses of an IPv6 /64 would still give a line per request and
+    push the audit and the alerts out of the log. Past the cap the lines
+    are counted, and the count is logged with the first line of the next
+    period.
+    """
+
+    def __init__(self, log: Callable[[str], None]) -> None:
+        """Write the lines through log."""
+        self._log = log
+        self._start = -REFUSED_LOG_PERIOD
+        self._written = 0
+        self._skipped = 0
+
+    def write(self, text: str) -> None:
+        """Log one refusal, or count it when the period's lines are used up."""
+        now = time.monotonic()
+        if now - self._start >= REFUSED_LOG_PERIOD:
+            if self._skipped:
+                self._log(f"{self._skipped} more refused requests were not logged in the last hour")
+            self._start, self._written, self._skipped = now, 0, 0
+        if self._written >= REFUSED_LOG_MAX:
+            self._skipped += 1
+            return
+        self._written += 1
+        self._log(text)
+        if self._written == REFUSED_LOG_MAX:
+            self._log(f"{REFUSED_LOG_MAX} refusals logged this hour: the next ones are counted, not logged")
+
+
+# ---------------------------
 #   SetupCode
 # ---------------------------
 class SetupCode:
@@ -333,6 +372,7 @@ LOG: web.AppKey[Callable[[str], None]] = web.AppKey("log")
 REFUSED: web.AppKey[dict[str, float]] = web.AppKey("refused", dict)
 HOSTS: web.AppKey[tuple[str, ...] | None] = web.AppKey("hosts")
 REFUSED_HOSTS: web.AppKey[dict[str, float]] = web.AppKey("refused_hosts", dict)
+REFUSAL_LOG: web.AppKey[RefusalLog] = web.AppKey("refusal_log", RefusalLog)
 
 
 # ---------------------------
@@ -547,7 +587,7 @@ def admit_address(app: web.Application, address: str) -> bool:
         if len(refused) > LOGIN_MAX_ADDRESSES:
             refused.clear()
         refused[address] = now
-        app[LOG](f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
+        app[REFUSAL_LOG].write(f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
     return False
 
 
@@ -575,7 +615,7 @@ async def host_check(request: web.Request, handler: Handler) -> web.StreamRespon
         if len(refused) > LOGIN_MAX_ADDRESSES:
             refused.clear()
         refused[host] = now
-        request.app[LOG](
+        request.app[REFUSAL_LOG].write(
             f"Refused the host name {host[:100]!r}: not a name of the LAN (if it is yours, set WEBUI_HOSTS={host[:100]})"
         )
     return web.Response(status=403, text="Forbidden")
@@ -952,6 +992,7 @@ def create_gateway(
     app[REFUSED] = {}
     app[HOSTS] = hosts
     app[REFUSED_HOSTS] = {}
+    app[REFUSAL_LOG] = RefusalLog(log)
 
     async def core_session(app: web.Application) -> Any:
         app[CORE] = core() if callable(core) else core
