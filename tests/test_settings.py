@@ -323,6 +323,24 @@ def test_notifications() -> None:
         with pytest.raises(SettingsError) as err:
             from_dict({"notify_url": bad})
         assert err.value.problems[0]["code"] == "invalid_url"
+    # The NAS itself, link-local (the cloud's metadata service), unspecified and multicast addresses: never a target.
+    for bad in (
+        "http://127.0.0.1:8080/x",
+        "http://[::1]/x",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[fe80::1]/",
+        "http://0.0.0.0/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://224.0.0.1/",
+        "http://localhost:2586/x",
+        "http://ntfy.localhost/x",
+    ):
+        with pytest.raises(SettingsError) as err:
+            from_dict({"notify_url": bad})
+        assert err.value.problems[0] == {"field": "notify_url", "code": "notify_address_forbidden", "params": {}}, bad
+    # The LAN stays allowed: ntfy and Gotify often run there.
+    for good in ("http://192.168.1.10:2586/alerts", "http://[fd00::5]/x", "http://10.0.0.2/", "https://ntfy.sh/x"):
+        assert from_dict({"notify_url": good}).notify_url == good
     doc = env_document({"NOTIFY_URL": "http://gotify.lan/message?token=a", "NOTIFY_FORMAT": "Gotify", "NOTIFY_LANGUAGE": "IT"})
     assert doc == {"notify_url": "http://gotify.lan/message?token=a", "notify_format": "gotify", "notify_language": "it"}
 

@@ -183,6 +183,15 @@ from a web page. (0.8.0–0.9.0, 2026-11-17)
 **Past 100 failed logins overall, slow down instead of refusing.** Why: a refusal for
 everyone would let an attacker lock the owner out. (0.9.0, 2026-11-17)
 
+**Notifications never go to the NAS itself or to link-local addresses; private networks
+stay allowed.** Loopback, link-local, unspecified and multicast addresses are refused,
+checked on the address the connection itself uses. Why: the POST leaves from root's
+process on the NAS's network, and `POST /api/notify/test` answered 200 or 502 with a
+telling delay: a logged-in user (or a gateway taken over) could probe the services that
+listen only on the NAS, or a cloud's metadata service, through it. Private networks stay
+allowed because ntfy and Gotify very often run on the LAN, and refusing them would break
+the main use; a service on the NAS itself is reached by its LAN address. (2026-11-20)
+
 **`WEBUI_ALLOW` is applied at accept, and connections are limited.** One listener
 (`DualListener`) serves both with and without TLS. Why: as a middleware, the filter
 came after the first byte, the TLS handshake and the headers, and aiohttp sets no

@@ -246,6 +246,8 @@ Each alert shows as a banner (**Noted, hide** hides it until it gets worse or co
 - **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
 - **json**: any webhook that takes a POST with `{"title", "message", "level"}` (`level` is `alert` or `ok`).
 
+Messages are never sent to the NAS itself (`localhost`, `127.0.0.1`) or to link-local addresses (`169.254.…`, `fe80::…`): for a server on the LAN, also one running on this NAS, use its LAN address (`http://192.168.1.10:2586/…`).
+
 An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come on a schedule, with the highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state since the previous summary. The quiet hours and the summary are set in **Settings → Schedules**.
 
 ### Schedules

@@ -376,6 +376,14 @@ async def test_notify_test_api(make_client: ClientMaker) -> None:
     fail = True
     response = await client.post("/api/notify/test", headers=FETCH)
     assert response.status == 502 and (await response.json())["error"] == "notify_failed"
+    forbidden = NotifyError("forbidden address", "notify_address_forbidden")
+
+    async def refusing(url: str, fmt: str, text: str, urgent: bool) -> None:
+        raise forbidden
+
+    client.app[MONITOR].alerts = Alerts(lambda: supervisor.settings, lambda _: None, refusing)
+    response = await client.post("/api/notify/test", headers=FETCH)
+    assert response.status == 400 and (await response.json())["error"] == "notify_address_forbidden"
     status = await (await client.get("/api/status")).json()
     assert status["alerts"] == []
 

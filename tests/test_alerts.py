@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 from aiohttp import web
+from aiohttp.abc import AbstractResolver, ResolveResult
 from aiohttp.test_utils import TestServer
 
+from hddfancontrol_webui import notify as notify_module
 from hddfancontrol_webui.alerts import Alerts, render
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
 from hddfancontrol_webui.monitor import FAN_STALL_SECONDS, Monitor
-from hddfancontrol_webui import notify as notify_module
 from hddfancontrol_webui.notify import NotifyError, send
 from hddfancontrol_webui.settings import Settings, from_dict
 
@@ -25,7 +28,14 @@ PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 
 
 @pytest.fixture
-async def receiver(aiohttp_server: Any) -> tuple[TestServer, list[dict[str, Any]]]:
+def allow_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let send() reach the test servers on 127.0.0.1, which it refuses otherwise (the NAS itself)."""
+    real = notify_module.forbidden_ip
+    monkeypatch.setattr(notify_module, "forbidden_ip", lambda ip: not ip.is_loopback and real(ip))
+
+
+@pytest.fixture
+async def receiver(aiohttp_server: Any, allow_loopback: None) -> tuple[TestServer, list[dict[str, Any]]]:
     """A server that keeps what it is sent; /fail answers 500."""
     received: list[dict[str, Any]] = []
 
@@ -64,7 +74,7 @@ async def test_send_never_follows_a_redirect(receiver: tuple[TestServer, list[di
     assert [r["path"] for r in received] == ["/redirect"]
 
 
-async def test_send_errors_say_little(caplog: pytest.LogCaptureFixture) -> None:
+async def test_send_errors_say_little(caplog: pytest.LogCaptureFixture, allow_loopback: None) -> None:
     """The error shown in the web UI's log is generic; the detail (without the address's secrets) is in Python's log."""
     with pytest.raises(NotifyError) as failed:
         await send("http://127.0.0.1:1/message?token=s3cret", "gotify", "x", True)
@@ -78,6 +88,80 @@ async def test_send_errors_say_little(caplog: pytest.LogCaptureFixture) -> None:
     assert "pa55word" not in caplog.text and "anto" not in caplog.text and "127.0.0.1:1" in caplog.text
     assert notify_module._without_query("bad http://u:p@h:1/x?t=1 y") == "bad http://h:1/x y"
     assert notify_module._where("http://[fd00::1]:8080/x") == "[fd00::1]:8080" and notify_module._where("nope") == "?"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:1/",
+        "http://[::1]:1/",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[fe80::1]:1/",
+        "http://0.0.0.0:1/",
+        "http://[::ffff:127.0.0.1]:1/",
+        "http://224.0.0.1:1/",
+        "http://localhost:1/",  # a name: checked on what it resolves to
+        "http://127.1:1/",  # an old way to write 127.0.0.1
+    ],
+)
+async def test_send_refuses_the_nas_itself_and_link_local(url: str, caplog: pytest.LogCaptureFixture) -> None:
+    """Loopback, link-local, unspecified and multicast addresses (and IPv4 mapped on them) are never connected to."""
+    with pytest.raises(NotifyError) as refused:
+        await send(url, "json", "x", True)
+    assert refused.value.code == notify_module.NOTIFY_FORBIDDEN and "forbidden" in caplog.text
+
+
+async def test_the_check_is_on_the_address_connected_to(
+    receiver: tuple[TestServer, list[dict[str, Any]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A name is checked on what the connection itself resolved, not on a separate lookup: no DNS rebinding.
+
+    The name below resolves (in this test) to the receiver on 127.0.0.1:
+    delivered while loopback is allowed, refused once it is not, without
+    a byte reaching the server.
+    """
+    server, received = receiver
+
+    class Fake(AbstractResolver):
+        """Every name is 127.0.0.1, like a rebinding DNS server would answer."""
+
+        async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET) -> list[ResolveResult]:
+            return [{"hostname": host, "host": "127.0.0.1", "port": port, "family": socket.AF_INET, "proto": 0, "flags": 0}]
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(notify_module, "_new_resolver", Fake)
+    url = f"http://ntfy.example:{server.port}/topic"
+    await send(url, "ntfy", "x", False)
+    assert [r["path"] for r in received] == ["/topic"]
+    monkeypatch.undo()  # loopback is forbidden again; the fake resolver is gone too
+    monkeypatch.setattr(notify_module, "_new_resolver", Fake)
+    with pytest.raises(NotifyError) as refused:
+        await send(url, "ntfy", "x", False)
+    assert refused.value.code == notify_module.NOTIFY_FORBIDDEN and len(received) == 1
+
+
+async def test_guarded_resolver_keeps_the_allowed_addresses() -> None:
+    """Of a name's addresses, the forbidden ones are dropped; the LAN's are kept."""
+
+    class Mixed(AbstractResolver):
+        """A name with a loopback, a link-local and a LAN address."""
+
+        async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET) -> list[ResolveResult]:
+            return [
+                {"hostname": host, "host": ip, "port": port, "family": socket.AF_INET, "proto": 0, "flags": 0}
+                for ip in ("127.0.0.1", "169.254.1.1", "192.168.1.10", "fe80::1%eth0")
+            ]
+
+        async def close(self) -> None:
+            return None
+
+    guarded = notify_module._GuardedResolver(Mixed())
+    assert [r["host"] for r in await guarded.resolve("nas.lan", 80)] == ["192.168.1.10"]
+    await guarded.close()
+    assert not notify_module.forbidden_ip(ipaddress.ip_address("fd00::1"))
+    assert notify_module.forbidden_ip(ipaddress.ip_address("::ffff:169.254.169.254"))
 
 
 async def test_alerts_start_and_end() -> None:

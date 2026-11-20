@@ -9,6 +9,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **Notifications can no longer be aimed at the NAS itself.** The
+  notification address accepted `localhost`, `127.0.0.1` or the cloud's
+  metadata address `169.254.169.254`, and **Send a test message** told
+  whether something answered there: a way to probe services that only
+  the NAS can reach. Such addresses are now refused, also when a name
+  leads to them. Servers on your LAN are still fine; for one running on
+  the NAS itself, use its LAN address.
 - **The password of a notification address no longer reaches the log.**
   An address such as `https://user:password@host/` was logged whole when
   a message failed. Only the host and port are logged now.

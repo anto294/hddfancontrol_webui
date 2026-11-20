@@ -86,6 +86,17 @@ translations, in `notify_language`. The log names the server by host and port on
 (`_where`): the user, password, path and query of the address (a Gotify token, an ntfy
 topic) never reach it, nor an error's copy of the address (`_without_query`).
 
+A message never goes to the NAS itself or the cloud's metadata service: `forbidden_ip`
+refuses loopback, link-local (`169.254.0.0/16`, `fe80::/10`), unspecified
+(`0.0.0.0/8`, `::`) and multicast addresses, and IPv4 addresses mapped on them.
+`settings.from_dict` refuses such a host written as an IP (or `localhost`) at once
+(`notify_address_forbidden`). At each send, a literal is checked again, and a name is
+resolved by `_GuardedResolver`, the resolver of the connection itself, which drops the
+forbidden addresses: the check and the connection use the same DNS answer, so DNS
+rebinding cannot slip past it. A send refused this way raises `NotifyError` with the
+code `NOTIFY_FORBIDDEN`, and `POST /api/notify/test` answers 400 with it. Private
+networks (`10/8`, `192.168/16`, `fc00::/7`…) stay allowed.
+
 - `Alerts` queues the messages (at most `QUEUE_SIZE`, 100) for one sender task, so the
   monitor never waits for the notification server. A failed message is logged, never
   raised.

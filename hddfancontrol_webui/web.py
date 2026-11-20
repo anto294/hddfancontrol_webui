@@ -50,7 +50,7 @@ from .httputil import json_error as _json_error
 from .httputil import read_json as _read_json
 from .labels import LabelError, Labels
 from .monitor import Monitor
-from .notify import NotifyError
+from .notify import NOTIFY_FORBIDDEN, NotifyError
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsError, from_dict
 from .supervisor import Busy, ReadOnly, Supervisor
@@ -564,7 +564,8 @@ async def post_notify_test(request: web.Request) -> web.Response:
         await alerts.test()
     except NotifyError as err:
         _LOGGER.warning("Test notification failed: %s", err)
-        return _json_error(502, "notify_failed")
+        # A forbidden address is the settings' fault (400); any other failure the server's (502).
+        return _json_error(400 if err.code == NOTIFY_FORBIDDEN else 502, err.code)
     return web.json_response({"ok": True})
 
 

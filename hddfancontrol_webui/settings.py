@@ -20,9 +20,11 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .const import FAN_CMD_NOOP, SETTINGS_FILE, TRUE_WORDS
 from .cron import CronError, parse
+from .notify import forbidden_host
 from .storage import write_atomic
 
 _LOGGER = logging.getLogger(__name__)
@@ -559,11 +561,24 @@ def _smart_schedule(data: Mapping[str, Any]) -> Mapping[str, Any]:
 #   _notify_url
 # ---------------------------
 def _notify_url(check: _Collector, value: Any) -> str:
-    """Read the address alerts are sent to: empty (none), or an http(s) URL."""
+    """Read the address alerts are sent to: empty (none), or an http(s) URL.
+
+    A host that is the NAS itself or a link-local, unspecified or multicast
+    address, written as such (notify.forbidden_host), is refused at once; a
+    name that resolves to one is refused when a message is sent.
+    """
     if value is None or value == "":
         return ""
     if not isinstance(value, str) or len(value) > MAX_URL_LENGTH or not _URL.match(value.strip()):
         check.add("notify_url", "invalid_url")
+        return ""
+    try:
+        host = urlsplit(value.strip()).hostname or ""
+    except ValueError:
+        check.add("notify_url", "invalid_url")
+        return ""
+    if forbidden_host(host):
+        check.add("notify_url", "notify_address_forbidden")
         return ""
     return value.strip()
 

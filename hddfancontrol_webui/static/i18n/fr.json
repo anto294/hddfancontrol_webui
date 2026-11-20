@@ -348,6 +348,7 @@
   "error.notify_failed": "Le message n’a pas pu être envoyé : vérifiez l’adresse et que le service est joignable depuis le conteneur (voir Journal).",
   "error.scan_disabled": "Le chargement des modules de capteurs est désactivé (LOAD_SENSOR_MODULES=false) : chargez-les plutôt sur l’hôte.",
   "error.invalid_url": "Saisissez une adresse qui commence par http:// ou https://.",
+  "error.notify_address_forbidden": "Les notifications ne sont jamais envoyées au NAS lui-même (localhost, 127.0.0.1) ni à des adresses lien-local, multicast ou non spécifiées. Utilisez l’adresse du service sur le réseau local, même quand il tourne sur ce NAS.",
   "alert.drive_hot": "{drive} est à {temp} °C, au niveau ou au-dessus du maximum de {max} °C.",
   "alert.fan_stalled": "{fan} ne tourne pas : 0 RPM avec un PWM à {percent} %. Vérifiez le ventilateur et son câble.",
   "alert.fan_wear": "{fan} tourne {percent} % moins vite qu’au début, à PWM égal : ses roulements s’usent peut-être. Si vous l’avez remplacé, marquez cette alerte comme vue.",

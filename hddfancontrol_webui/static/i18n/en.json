@@ -348,6 +348,7 @@
   "error.notify_failed": "The message could not be sent: check the address and that the service is reachable from the container (see Logs).",
   "error.scan_disabled": "Loading the sensor modules is off (LOAD_SENSOR_MODULES=false): load them on the host instead.",
   "error.invalid_url": "Enter an address that starts with http:// or https://.",
+  "error.notify_address_forbidden": "Notifications are never sent to the NAS itself (localhost, 127.0.0.1) or to link-local, multicast or unspecified addresses. Use the address of the service on the LAN, also when it runs on this NAS.",
   "alert.drive_hot": "{drive} is at {temp} °C, at or above the maximum of {max} °C.",
   "alert.fan_stalled": "{fan} does not turn: 0 RPM with the PWM at {percent} %. Check the fan and its cable.",
   "alert.fan_wear": "{fan} turns {percent} % slower than it did at first at the same PWM: its bearings may be wearing out. If you replaced it, take note of this.",

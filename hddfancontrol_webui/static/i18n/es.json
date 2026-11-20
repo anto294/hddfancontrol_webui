@@ -348,6 +348,7 @@
   "error.notify_failed": "No se pudo enviar el mensaje: revisa la dirección y que el servicio sea accesible desde el contenedor (consulta Registro).",
   "error.scan_disabled": "La carga de los módulos de sensores está desactivada (LOAD_SENSOR_MODULES=false): cárgalos en el host.",
   "error.invalid_url": "Escribe una dirección que empiece por http:// o https://.",
+  "error.notify_address_forbidden": "Las notificaciones nunca se envían al propio NAS (localhost, 127.0.0.1) ni a direcciones de enlace local, multidifusión o no especificadas. Usa la dirección del servicio en la LAN, también cuando se ejecuta en este NAS.",
   "alert.drive_hot": "{drive} está a {temp} °C, en el máximo de {max} °C o por encima.",
   "alert.fan_stalled": "{fan} no gira: 0 RPM con el PWM al {percent} %. Revisa el ventilador y su cable.",
   "alert.fan_wear": "{fan} gira un {percent} % más despacio que al principio con el mismo PWM: puede que se estén desgastando sus rodamientos. Si lo cambiaste, marca esta alerta como vista.",

@@ -348,6 +348,7 @@
   "error.notify_failed": "消息发送失败：请检查地址，并确认容器能访问该服务（见“日志”）。",
   "error.scan_disabled": "加载传感器模块已关闭（LOAD_SENSOR_MODULES=false）：请改为在主机上加载。",
   "error.invalid_url": "请输入以 http:// 或 https:// 开头的地址。",
+  "error.notify_address_forbidden": "通知从不发送到 NAS 本身（localhost、127.0.0.1），也不发送到链路本地、组播或未指定地址。请使用该服务在局域网中的地址，即使它就运行在这台 NAS 上。",
   "alert.drive_hot": "{drive} 温度为 {temp} °C，已达到或超过最高温度 {max} °C。",
   "alert.fan_stalled": "{fan} 不转：PWM 为 {percent} % 时转速为 0 RPM。请检查风扇及其连线。",
   "alert.fan_wear": "{fan} 在相同 PWM 下比最初慢了 {percent} %：轴承可能已磨损。如果已更换该风扇，请将此告警标记为已知悉。",
