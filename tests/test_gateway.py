@@ -276,10 +276,25 @@ async def test_basic_auth_and_metrics(make_gateway: GatewayMaker) -> None:
     assert (await gw.client.get("/api/status", headers={"Authorization": bad})).status == 401
 
 
-async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path) -> None:
-    """Credentials made at the setup can be changed with the current password, with a session only."""
+async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credentials made at the setup can be changed with the current password, with a session only.
+
+    Every other session ends, on the event loop after the change: a request
+    of a stolen session running meanwhile cannot put its session back.
+    """
+    import threading
+
     gw = await make_gateway()
     client = gw.client
+    ended: list[threading.Thread] = []
+    real_end = AuthStore.end_all_sessions
+
+    def end(self: AuthStore) -> None:
+        ended.append(threading.current_thread())
+        real_end(self)
+
+    monkeypatch.setattr(AuthStore, "end_all_sessions", end)
+    stolen = client.app[AUTH].new_session()
     code = client.app[SETUP].code
     await client.post("/api/setup", json={"code": code, **GOOD}, headers=FETCH)
     assert (await client.put("/api/auth", json={"username": 1}, headers=FETCH)).status == 400
@@ -290,6 +305,8 @@ async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path) ->
     body = {"username": "new", "password": "another-password", "current": "a-long-password"}
     ok = await client.put("/api/auth", json=body, headers=FETCH)
     assert ok.status == 200 and (await ok.json())["username"] == "new"
+    assert ended and all(thread is threading.main_thread() for thread in ended)
+    assert not client.app[AUTH].session_valid(stolen)
     assert (await (await client.get("/api/auth")).json())["username"] == "new"  # still logged in
     removed = await client.delete("/api/auth", json={"current": "another-password"}, headers=FETCH)
     assert removed.status == 405 and gw.seen == []  # credentials cannot be removed, and the core never sees it

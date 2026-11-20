@@ -9,6 +9,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **Changing the password always ends a stolen session.** The sessions
+  were cleared in the background thread that saves the new password,
+  while the web server kept using them: a session used at that very
+  moment could survive the change. They are now ended once the change is
+  saved, in step with the requests.
 - **Connections from outside the allowed networks are closed at once.**
   Addresses outside `WEBUI_ALLOW` were refused only after their request
   was read, and an incomplete request was waited for without end: a

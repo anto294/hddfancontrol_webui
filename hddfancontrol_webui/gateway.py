@@ -829,6 +829,7 @@ async def post_setup(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the credentials: %s", err)
         return json_error(500, "save_failed")
+    auth.end_all_sessions()  # here, on the event loop: never in the thread of set_credentials
     logins.succeeded(address)
     setup.used()
     _log(request, f"First setup done: credentials of {auth.username} created")
@@ -867,6 +868,7 @@ async def put_auth(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the credentials: %s", err)
         return json_error(500, "save_failed")
+    auth.end_all_sessions()  # here, on the event loop: never in the thread of set_credentials
     _log(request, f"Credentials changed, now for {auth.username}; every other session ended")
     response = web.json_response(auth.status())
     _open_session(request, response)

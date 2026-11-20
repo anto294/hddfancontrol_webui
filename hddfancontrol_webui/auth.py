@@ -176,8 +176,18 @@ class AuthStore:
         if token:
             self._sessions.pop(token, None)
 
+    def end_all_sessions(self) -> None:
+        """Close every session. On the event loop only, like every other use of the sessions."""
+        self._sessions.clear()
+
     def set_credentials(self, username: str, password: str, current: str) -> None:
-        """Set or change the stored credentials. Every open session ends."""
+        """Set or change the stored credentials. Blocking (scrypt): run it in a thread.
+
+        It never touches the sessions, which the event loop uses meanwhile: a
+        clear here could race with a request of a stolen session that puts
+        its own back. The caller ends them with end_all_sessions() once this
+        returned, on the event loop.
+        """
         if self.source == SOURCE_ENV:
             raise AuthError("auth_from_env")
         if self.enabled and not self.check(self.username, current):
@@ -192,7 +202,6 @@ class AuthStore:
         # Readable only by the gateway's user: the hash is not the password, but still.
         write_atomic(self.path, json.dumps(data))
         self._file = data
-        self._sessions.clear()
 
     def status(self) -> dict[str, Any]:
         """Return the state as JSON-ready data, without any secret."""

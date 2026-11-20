@@ -89,7 +89,10 @@ paths, `pwmN` files under `/sys/class/hwmon`, hwmon inputs and chips under `/sys
 `auth.py` (in the gateway) stores a scrypt hash in `/config/web/auth.json` (mode 0600),
 or uses `WEBUI_USERNAME`/`WEBUI_PASSWORD`, which win and cannot be changed from the
 page. Sessions live in memory: 7 days, or 12 hours without a request, at most 1000.
-Changing the password needs the current one and ends every session. Credentials can
+Changing the password needs the current one and ends every session: on the event loop
+once the new hash is written (`end_all_sessions`), never in the thread that computes
+it, where a request of a stolen session running at the same moment could put its
+session back. Credentials can
 never be removed: an installation must not go back to "open for setup".
 
 ## TLS

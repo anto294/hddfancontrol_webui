@@ -70,6 +70,9 @@ def test_stored_credentials(tmp_path: Path) -> None:
         reloaded.set_credentials("anto", "second-password", "nope")
     token = reloaded.new_session()
     reloaded.set_credentials("anto", "second-password", "first-password")
+    # set_credentials runs in a thread: it leaves the sessions to the event loop, which ends them after it.
+    assert reloaded.session_valid(token)
+    reloaded.end_all_sessions()
     assert not reloaded.session_valid(token)
     assert not hasattr(reloaded, "clear_credentials")  # credentials can be changed, never removed
 
