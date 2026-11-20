@@ -92,7 +92,11 @@ names and bays have their own files and never restart anything.
 The PWM outputs are kept with the `/sys/devices/…` path of their chip. When the hwmon
 numbers change at a reboot (`hwmon2` becomes `hwmon3`), `Supervisor._placed` finds the
 same output again (`Hardware.locate`), saves the settings and moves the label. A fan
-whose chip is gone is listed in `missing_pwms` and not controlled.
+whose chip is gone is listed in `missing_pwms` and not controlled. Saving at start and
+moving the label are extras: when `/config` is full or read only, the error is logged
+(`ERROR: …`) and the fans are controlled at their new place anyway. An apply still
+fails with `save_failed` when the settings cannot be saved (that is what was asked),
+but never because of a label.
 
 ## Start and stop
 

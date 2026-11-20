@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -669,4 +670,48 @@ async def test_pwm_test_ends_when_its_watch_fails(
     assert restored
     assert any("watch broken" in line["text"] for line in supervisor.logs.since(0))
     await supervisor.restart()  # not Busy
+    await supervisor.stop()
+
+
+async def test_a_full_config_never_stops_the_start(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hwmon number changed and /config cannot be written: the fans are controlled anyway.
+
+    Saving the corrected path and moving the label are extras of the start
+    (the next start finds the chip again); an apply still saves the
+    settings, but a label that cannot follow never makes it fail.
+    """
+    # The fan was recorded with its chip at an earlier start, under hwmon2; after a reboot the chip is hwmon7.
+    store = SettingsStore(tmp_path / "config", {})
+    settings = from_dict(CONFIG)
+    chip = Hardware(fake_dev, fake_sys).chip_of(PWM1)
+    store.save(replace(settings, pwms=(replace(settings.pwms[0], chip=chip),)))
+    (fake_sys / "class/hwmon/hwmon2").rename(fake_sys / "class/hwmon/hwmon7")
+    moved_to = "/sys/class/hwmon/hwmon7/pwm1"
+
+    def full(*args: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    logs = LogBuffer(echo=False)
+    supervisor = Supervisor(
+        store,
+        logs,
+        None,
+        FanController(PwmWriter(fake_sys), lambda: None, lambda text: None),
+        hddfancontrol=make_script("hddfancontrol", FAKE_HDDFANCONTROL),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+        on_pwm_moved=full,
+    )
+    monkeypatch.setattr(store, "save", full)
+    await supervisor.start()
+    assert supervisor.settings.pwms[0].path == moved_to
+    assert supervisor.hddfancontrol.active and supervisor.fans.active
+    texts = [line["text"] for line in logs.since(0)]
+    assert any(text.startswith("ERROR") and "label" in text for text in texts)
+    assert any(text.startswith("ERROR") and "settings" in text for text in texts)
+    monkeypatch.undo()
+    await supervisor.apply(supervisor.settings)  # the label still cannot follow: the apply goes on
+    assert supervisor.fans.active
     await supervisor.stop()

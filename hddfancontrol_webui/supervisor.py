@@ -375,7 +375,12 @@ class Supervisor:
             settings, missing = await self._placed(self.settings)
             if self.source == SOURCE_FILE and settings != self.settings:
                 # A fan moved, or got its chip recorded: keep that for the next start.
-                await asyncio.to_thread(self.store.save, settings)
+                # Only a convenience (the next start finds the chip again): a full or
+                # read-only /config must never keep the fans from being controlled.
+                try:
+                    await asyncio.to_thread(self.store.save, settings)
+                except OSError as err:
+                    self._log(f"ERROR: cannot save the settings with the new place of the fans, they are used anyway: {err}")
             self.settings, self.missing_pwms = settings, missing
             await self._start_daemons()
 
@@ -404,7 +409,11 @@ class Supervisor:
             elif where != pwm.path:
                 self._log(f"The fan chip moved: {pwm.path} is now {where}")
                 if self._on_pwm_moved is not None:
-                    await asyncio.to_thread(self._on_pwm_moved, pwm.path, where)
+                    # The label follows the fan; a label that cannot be written never stops a start or an apply.
+                    try:
+                        await asyncio.to_thread(self._on_pwm_moved, pwm.path, where)
+                    except OSError as err:
+                        self._log(f"ERROR: cannot move the label of {pwm.path} to {where}: {err}")
             pwms.append(replace(pwm, path=where, chip=chip))
         if self.hardware is not None:
             # A fan that is no PWM output of the host (and not one whose chip is

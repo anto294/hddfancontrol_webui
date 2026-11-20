@@ -79,6 +79,13 @@ can be the hottest thing in a NAS case. (2026-11-16)
 changes.** Why: `hwmonN` numbers can change at every boot, and writing to the wrong
 output is worse than writing to none. (2026-11-16)
 
+**Writing `/config` is never a condition for controlling the fans.** When a fan is found
+at a new hwmon number, saving the corrected settings at start and moving its label are
+logged as errors when they fail, and the start goes on; an apply fails only when the
+settings themselves cannot be saved. Why: after a reboot with a full or read-only
+`/config`, an `OSError` used to stop the whole start (no fan control, no hddfancontrol,
+mode "stopped") with no retry; the next start finds the chip again anyway. (2026-11-20)
+
 **Read only when `/sys` is read only.** Nothing starts, and a red banner says so. Why:
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)

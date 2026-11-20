@@ -15,6 +15,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   test and hddfancontrol did not start again. Now an error of the watch
   stops the test ("the drive temperatures could not be watched"), and the
   outputs are given back and everything starts again in every case.
+- **A full or read-only `/config` no longer stops fan control at start.**
+  When the hwmon number of a fan chip changed at a reboot and the settings
+  or the fan name could not be written, nothing started. Now the error is
+  logged and the fans are controlled at their new place anyway.
 
 ### Changed
 
