@@ -785,12 +785,13 @@ class FanController:
         """
         now = datetime.now(UTC)
         latest = self._latest()
-        temps = temps_state.per_drive(latest, len(settings.hwmons))
+        temps_state.per_drive(latest, len(settings.hwmons))
         names = self._kernel_names()
         by_kernel = {names[d]: d for d in settings.drives if d in names}
+        # The maximum is checked on the last reading of each drive: an average would only delay full speed.
         hot = [
             temp
-            for name, temp in temps.items()
+            for name, temp in temps_state.raw.items()
             if temp >= min(settings.limits_of(by_kernel.get(name.split()[0], ""))[2], drive_ceiling(name.split()[0]))
         ]
         if hot:

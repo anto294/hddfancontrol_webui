@@ -304,6 +304,18 @@ def test_manual_step_after_hddfancontrol_ended(fake_sys: Path) -> None:
     assert read(fake_sys, "pwm1") == "255"
 
 
+def test_drive_danger_checks_the_last_reading(fake_sys: Path) -> None:
+    """A drive is at its maximum on its last reading, never on an average that lags behind."""
+    current: dict[str, Any] = {}
+    fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lambda text: None)
+    temps = DriveTemps(60, average=3)
+    started = datetime.now(UTC)
+    for age, temp in ((20, 40.0), (10, 40.0), (0, 52.0)):  # averages 40, 40, then 44: under 50
+        current["value"] = sample({"sda": temp, "coretemp.0/1": 50.0}, age=age)
+        reason, hottest = fans.drive_danger(SETTINGS, temps, started, 3600)
+    assert (reason, hottest) == ("hot", 52.0)
+
+
 async def test_auto_mode_survives_an_error(fake_sys: Path, fast: None) -> None:
     """An unexpected error puts the fans at full speed, the loop goes on, and control resumes."""
     current: dict[str, Any] = {"value": "broken"}
