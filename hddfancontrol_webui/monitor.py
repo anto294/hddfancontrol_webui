@@ -134,6 +134,8 @@ class Monitor:
         self._logged_at = 0.0
         self._tasks: list[asyncio.Task[None]] = []
         self._smart_lock = asyncio.Lock()
+        # A reading asked by the page (refresh_smart_soon), which runs in the background.
+        self._smart_task: asyncio.Task[None] | None = None
         # Fans turning slower than their baseline: {path: drop}, checked daily.
         self.wear: dict[str, float] = {}
         self._wear_at = -WEAR_PERIOD
@@ -148,10 +150,12 @@ class Monitor:
         ]
 
     async def stop(self) -> None:
-        """Stop the background loops."""
+        """Stop the background loops, and a SMART reading asked by the page."""
         for task in self._tasks:
             await cancel_and_wait(task)
         self._tasks = []
+        if self._smart_task is not None:
+            await cancel_and_wait(self._smart_task)
 
     def _stable_names(self) -> dict[str, str]:
         """Map the kernel name of each drive (sda) to one of its stable names.
@@ -542,6 +546,25 @@ class Monitor:
         """The last SMART data of the monitored drives. Blocking: SQLite."""
         monitored = self._settings().monitor_drives
         return {device: data for device, data in self.history.smart().items() if device in monitored}
+
+    @property
+    def smart_refreshing(self) -> bool:
+        """Whether the SMART data are being read: asked by the page, or at a run of smart_schedule."""
+        return self._smart_lock.locked() or (self._smart_task is not None and not self._smart_task.done())
+
+    def refresh_smart_soon(self) -> None:
+        """Start refresh_smart in the background, unless a reading asked this way still runs."""
+        if self._smart_task is not None and not self._smart_task.done():
+            return
+        self._smart_task = asyncio.create_task(self._refresh_smart_logged(), name="smart-refresh")
+
+    async def _refresh_smart_logged(self) -> None:
+        """refresh_smart, with an error logged: nobody waits for this task."""
+        try:
+            await self.refresh_smart()
+        except Exception as err:  # reported, never raised: the page sees the reading over
+            if self._log is not None:
+                self._log(f"ERROR: cannot read the SMART data: {err!r}")
 
     async def refresh_smart(self) -> dict[str, dict[str, Any]]:
         """Read the monitored drives now. A sleeping drive keeps its previous data, marked as asleep."""

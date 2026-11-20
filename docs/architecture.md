@@ -106,7 +106,10 @@ Start, in the background so the web UI answers at once:
    never keeps the fans from being controlled. A scan always ends as `done`, at start
    and when the page asks for one again (`POST /api/sensors/scan`): a program that
    hangs is killed at `RUN_TIMEOUT` (300 s) and reported, and an unexpected error
-   lands in `detect_error`, so a later scan is never refused as `busy`.
+   lands in `detect_error`, so a later scan is never refused as `busy`. The page's scan
+   answers 202 at once and runs in the background (longer than the gateway's
+   `CORE_TIMEOUT_S`); the page follows `sensors.state` in the status and reads the
+   hardware again when it is `done`.
 2. `Supervisor.start`: hddfancontrol, hd-idle, the fan controller.
 3. `Monitor.start`: recording, SMART, alerts.
 

@@ -36,11 +36,26 @@ Client = TestClient[Any, Any]
 ClientMaker = Callable[..., Awaitable[Client]]
 
 
+async def settled(client: Client) -> dict[str, Any]:
+    """Wait until no SMART reading and no sensor scan runs in the background; return the status."""
+    for _ in range(250):
+        status: dict[str, Any] = await (await client.get("/api/status")).json()
+        if not status["smart_refreshing"] and status["sensors"]["state"] != "running":
+            return status
+        await asyncio.sleep(0.02)
+    raise AssertionError("still running")
+
+
 @pytest.fixture
 def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker) -> ClientMaker:
     """Build a client on an app with fake hardware and programs."""
 
-    async def make(peers: frozenset[int] | None = None, load_modules: bool = True, sensor_scan: Any = None) -> Client:
+    async def make(
+        peers: frozenset[int] | None = None,
+        load_modules: bool = True,
+        sensor_scan: Any = None,
+        smart_reader: Any = None,
+    ) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
         log_path = config / "templog" / "temps.jsonl"
@@ -63,10 +78,10 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         assert hardware is not None
         history = History(config / "history.db")
 
-        async def smart_reader(device: str) -> dict[str, Any]:
+        async def read(device: str) -> dict[str, Any]:
             return {"status": "ok", "model": "M"}
 
-        monitor = Monitor(history, temp_log, hardware, lambda: supervisor.settings, smart_reader)
+        monitor = Monitor(history, temp_log, hardware, lambda: supervisor.settings, smart_reader or read)
 
         async def scan() -> SensorReport:
             return SensorReport(state="done")
@@ -204,21 +219,23 @@ async def test_read_endpoints(make_client: ClientMaker) -> None:
     assert "series" in history
     smart = await (await client.get("/api/smart")).json()
     assert smart == {}
-    smart = await (await client.post("/api/smart", headers=FETCH)).json()
-    assert smart == {}
+    assert (await client.post("/api/smart", headers=FETCH)).status == 202
+    await settled(client)
+    assert await (await client.get("/api/smart")).json() == {}
     nvme = "/dev/disk/by-id/nvme-Samsung_980_S64"
     response = await client.put("/api/settings", json={"monitor_drives": [nvme]}, headers=FETCH)
     assert response.status == 200
-    smart = await (await client.post("/api/smart", headers=FETCH)).json()
-    assert list(smart) == [nvme] and smart[nvme]["model"] == "M"
+    assert (await client.post("/api/smart", headers=FETCH)).status == 202
+    await settled(client)
     smart = await (await client.get("/api/smart")).json()
-    assert list(smart) == [nvme]
+    assert list(smart) == [nvme] and smart[nvme]["model"] == "M"
     response = await client.get("/api/logs?after=x")
     assert response.status == 400
     logs = await (await client.get("/api/logs?after=0")).json()
     assert "lines" in logs
     scan = await client.post("/api/sensors/scan", headers=FETCH)
-    assert (await scan.json())["state"] == "done"
+    assert scan.status == 202 and (await scan.json())["state"] == "running"
+    assert (await settled(client))["sensors"]["state"] == "done"
 
 
 async def test_no_sensor_scan_when_loading_modules_is_off(make_client: ClientMaker) -> None:
@@ -236,10 +253,46 @@ async def test_a_failed_sensor_scan_never_stays_running(make_client: ClientMaker
 
     client = await make_client(sensor_scan=broken)
     scan = await client.post("/api/sensors/scan", headers=FETCH)
-    data = await scan.json()
-    assert scan.status == 200 and data["state"] == "done" and "scan broken" in data["detect_error"]
+    assert scan.status == 202
+    data = (await settled(client))["sensors"]
+    assert data["state"] == "done" and "scan broken" in data["detect_error"]
     again = await client.post("/api/sensors/scan", headers=FETCH)
-    assert again.status == 200
+    assert again.status == 202
+    await settled(client)
+
+
+async def test_slow_smart_reads_and_sensor_scans_answer_at_once(make_client: ClientMaker) -> None:
+    """Both run in the background: one drive can take SMARTCTL_TIMEOUT, a scan RUN_TIMEOUT, more than the gateway waits.
+
+    The page follows them through the status it asks for anyway
+    (smart_refreshing, sensors.state) and reads the SMART data once over.
+    """
+    release = asyncio.Event()
+
+    async def slow_reader(device: str) -> dict[str, Any]:
+        await release.wait()
+        return {"status": "ok", "model": "M"}
+
+    async def slow_scan() -> SensorReport:
+        await release.wait()
+        return SensorReport(state="done")
+
+    client = await make_client(sensor_scan=slow_scan, smart_reader=slow_reader)
+    nvme = "/dev/disk/by-id/nvme-Samsung_980_S64"
+    response = await client.put("/api/settings", json={"monitor_drives": [nvme]}, headers=FETCH)
+    assert response.status == 200
+    smart = await asyncio.wait_for(client.post("/api/smart", headers=FETCH), 2)
+    assert smart.status == 202
+    again = await asyncio.wait_for(client.post("/api/smart", headers=FETCH), 2)
+    assert again.status == 202  # the same reading goes on
+    assert (await (await client.get("/api/status")).json())["smart_refreshing"] is True
+    scan = await asyncio.wait_for(client.post("/api/sensors/scan", headers=FETCH), 2)
+    assert scan.status == 202 and (await scan.json())["state"] == "running"
+    busy = await client.post("/api/sensors/scan", headers=FETCH)
+    assert busy.status == 409
+    release.set()
+    await settled(client)
+    assert list(await (await client.get("/api/smart")).json()) == [nvme]
 
 
 async def test_labels_api(make_client: ClientMaker) -> None:

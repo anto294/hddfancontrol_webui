@@ -33,6 +33,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   range. It is now read whole and refused with a clear message, since
   hddfancontrol itself cannot read it: give the same input under
   `/sys/class/hwmon/`.
+- **Reading SMART again and scanning the sensors no longer fail on big
+  servers.** With several drives (or a slow sensors-detect) the page got
+  "core unavailable" while the work went on. Both now start at once and
+  run in the background: the button stays off until the new data are in.
 
 ### Changed
 

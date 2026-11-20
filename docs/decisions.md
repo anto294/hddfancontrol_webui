@@ -94,6 +94,14 @@ counted the old sample as fresh. A few seconds without a sample cost full speed;
 sensor read as a drive costs a false alarm, a drive read as a sensor a missed one.
 (2026-11-20)
 
+**Work that can outlast the gateway's wait runs in the background.** A SMART reading
+asked by the page and a sensor scan answer 202 at once, and the page follows them in the
+status it asks for every few seconds anyway. Why: one drive may take
+`SMARTCTL_TIMEOUT`, several drives are read one after the other and sensors-detect may
+take `RUN_TIMEOUT`, all at or past `CORE_TIMEOUT_S`; the page got 502
+`core_unavailable` while the core worked normally. A longer timeout for some routes
+would only move the limit, and keep a connection open for minutes. (2026-11-20)
+
 **Read only when `/sys` is read only.** Nothing starts, and a red banner says so. Why:
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)

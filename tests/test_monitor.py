@@ -90,6 +90,34 @@ async def test_refresh_smart_keeps_data_of_sleeping_drives(tmp_path: Path, fake_
     monitor.history.close()
 
 
+async def test_smart_reading_in_the_background(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """refresh_smart_soon reads once at a time, logs a failure, and stop() ends a reading under way."""
+    lines: list[str] = []
+    release = asyncio.Event()
+
+    async def reader(device: str) -> dict[str, Any]:
+        await release.wait()
+        raise RuntimeError("smartctl broken")
+
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, from_dict({"drives": [DRIVE]}), reader)
+    monitor._log = lines.append
+    assert not monitor.smart_refreshing
+    monitor.refresh_smart_soon()
+    first = monitor._smart_task
+    monitor.refresh_smart_soon()
+    assert monitor._smart_task is first and monitor.smart_refreshing
+    release.set()
+    assert first is not None
+    await first
+    assert not monitor.smart_refreshing and any("smartctl broken" in line for line in lines)
+    release.clear()
+    monitor.refresh_smart_soon()
+    await asyncio.sleep(0)
+    await monitor.stop()
+    assert monitor._smart_task is not None and monitor._smart_task.cancelled()
+    monitor.history.close()
+
+
 async def test_loops_start_and_stop(tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The background loops record, purge, read SMART and stop cleanly."""
     real = asyncio.sleep

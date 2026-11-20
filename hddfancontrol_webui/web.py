@@ -30,6 +30,7 @@ from typing import Any
 
 from aiohttp import web
 
+from .aio import cancel_and_wait
 from .bays import BayError, Bays
 from .const import (
     HEADER_CLIENT,
@@ -211,6 +212,7 @@ async def get_status(request: web.Request) -> web.Response:
         version=VERSION,
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
+        smart_refreshing=app[MONITOR].smart_refreshing,
         alerts=alerts.status() if alerts is not None else [],
     )
     return web.json_response(data)
@@ -309,8 +311,15 @@ async def get_smart(request: web.Request) -> web.Response:
 #   post_smart
 # ---------------------------
 async def post_smart(request: web.Request) -> web.Response:
-    """Read the SMART data of the monitored drives now. Sleeping drives are not woken."""
-    return web.json_response(await request.app[MONITOR].refresh_smart())
+    """Read the SMART data of the monitored drives again, in the background: 202 at once.
+
+    One drive alone may take SMARTCTL_TIMEOUT, and they are read one after
+    the other: more than the gateway waits for the core (CORE_TIMEOUT_S).
+    The page follows smart_refreshing in the status and reads GET
+    /api/smart once it is over. A reading under way is not started twice.
+    """
+    request.app[MONITOR].refresh_smart_soon()
+    return web.json_response({"running": True}, status=202)
 
 
 # ---------------------------
@@ -620,11 +629,22 @@ async def post_sensor_scan(request: web.Request) -> web.Response:
     if state["sensors"].state == "running":
         return _json_error(409, "busy")
     state["sensors"] = SensorReport(state="running")
+    # sensors-detect may run up to RUN_TIMEOUT, more than the gateway waits (CORE_TIMEOUT_S):
+    # the scan goes on in the background, and the page follows sensors.state in the status.
+    state["scan_task"] = asyncio.create_task(_scan_sensors(request.app), name="sensor-scan")
+    return web.json_response(state["sensors"].to_dict(), status=202)
+
+
+# ---------------------------
+#   _scan_sensors
+# ---------------------------
+async def _scan_sensors(app: web.Application) -> None:
+    """Run the scan asked by the page and keep its report; it never stays "running"."""
+    state = app[STATE]
     try:
-        state["sensors"] = await request.app[SENSOR_SCAN]()
+        state["sensors"] = await app[SENSOR_SCAN]()
     except Exception as err:  # never left "running": every later scan would answer busy
         state["sensors"] = SensorReport(state="done", detect_error=repr(err), finished_at=datetime.now(UTC).isoformat())
-    return web.json_response(state["sensors"].to_dict())
 
 
 # ---------------------------
@@ -786,6 +806,14 @@ def create_app(
         app[AUDIT].flush()
 
     app.on_cleanup.append(flush_audit)
+
+    async def stop_scan(app: web.Application) -> None:
+        """Stop a sensor scan of the page that still runs when the core stops."""
+        task = app[STATE].get("scan_task")
+        if task is not None:
+            await cancel_and_wait(task)
+
+    app.on_cleanup.append(stop_scan)
     app[HARDWARE] = hardware
     app[TEMP_LOG] = temp_log
     app[HISTORY] = history

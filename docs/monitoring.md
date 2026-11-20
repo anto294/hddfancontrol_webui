@@ -33,6 +33,13 @@ A `[temps]` line goes to the log when the temperatures change, and at least ever
 (`monitor_drives`, which can differ from the drives that drive the fans) at the runs
 of `smart_schedule` (every 6 hours by default), and on demand from the **Drives** tab.
 
+On demand, `POST /api/smart` answers 202 at once and the reading goes on in the
+background (`Monitor.refresh_smart_soon`; a reading under way is not started twice).
+The drives are read one after the other and each may take `SMARTCTL_TIMEOUT`
+(120 s), longer than the gateway waits for the core (`CORE_TIMEOUT_S`, 120 s). The
+status carries `smart_refreshing` (also during a scheduled reading); the page keeps
+the button off meanwhile and reads `GET /api/smart` when it is over.
+
 - `-n standby` never wakes a sleeping drive: it keeps its previous data, marked
   `asleep`.
 - `summarize` keeps what the page shows and the attribute table; warnings are codes
