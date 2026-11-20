@@ -316,6 +316,7 @@ class Supervisor:
         read_only: bool = False,
         hardware: Hardware | None = None,
         on_pwm_moved: Callable[[str, str], None] | None = None,
+        fence_samples: Callable[[], None] | None = None,
         manual_timeout: float = MANUAL_IDLE_TIMEOUT,
         manual_watch_period: float = MANUAL_WATCH_PERIOD,
     ) -> None:
@@ -324,10 +325,14 @@ class Supervisor:
         With read_only, nothing is started and nothing can write the fans:
         the web UI only shows what it can read. With hardware, each fan is
         found again on its chip when the hwmon number changes, and
-        on_pwm_moved(old, new) is told (to move its label). Manual control
-        ends by itself after manual_timeout seconds without touch_manual().
+        on_pwm_moved(old, new) is told (to move its label). fence_samples()
+        (TempLog.fence) is called before each start of hddfancontrol, so the
+        last sample of the run before is never read with new settings. Manual
+        control ends by itself after manual_timeout seconds without
+        touch_manual().
         """
         self.read_only = read_only
+        self._fence_samples = fence_samples
         self.hardware = hardware
         self._on_pwm_moved = on_pwm_moved
         # Chosen fans whose chip is not on the host now: they are not controlled.
@@ -463,6 +468,19 @@ class Supervisor:
             return None
         return self.temp_log
 
+    async def _start_measuring(self, settings: Settings) -> None:
+        """Start hddfancontrol, measuring only, after fencing off the samples of its run before.
+
+        The drives and sensors of a sample are told apart only by their
+        number (the sensors come last): an old sample read with other
+        settings would make a sensor a drive, or a drive a sensor. Until the
+        new run writes, there is no sample, which fan control treats as
+        waiting (full speed).
+        """
+        if self._fence_samples is not None:
+            await asyncio.to_thread(self._fence_samples)
+        self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
+
     async def _start_daemons(self) -> None:
         """Start what the settings and the mode ask for. Everything must be stopped."""
         if self.closing:
@@ -481,7 +499,7 @@ class Supervisor:
             self.hdidle.start(hdidle)
         if self.manual:
             if settings.drives:
-                self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
+                await self._start_measuring(settings)
             else:
                 self._log("WARNING: no drive is set, so manual control cannot watch the drive temperatures.")
             # A missing fan's path may belong to another chip now, or to nothing: never written, even for safety.
@@ -502,7 +520,7 @@ class Supervisor:
             )
             return
         # hddfancontrol only measures; the fan controller drives the fans in every mode.
-        self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
+        await self._start_measuring(settings)
         self.fans.start_control(settings)
 
     async def _stop_daemons(self, final: bool = False) -> None:
@@ -633,7 +651,7 @@ class Supervisor:
             await self._stop_daemons()
             # hddfancontrol keeps measuring (it never writes a fan this way), so the test can be watched.
             if self.settings.drives:
-                self.hddfancontrol.start(hddfancontrol_args(self.settings, self._temp_log(), measure_only=True))
+                await self._start_measuring(self.settings)
             self.test = PwmTestState(running=True, paths=list(paths), started_at=datetime.now(UTC).isoformat())
             self._test_task = asyncio.create_task(self._run_pwm_test(list(paths)), name="pwm-test")
 

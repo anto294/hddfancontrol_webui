@@ -24,6 +24,14 @@ writes every drive first, then every extra hwmon input; an interface name such a
 `ata` gives one entry per drive, so the drives are every value but the last
 `len(hwmons)`.
 
+Since that split depends on the settings a line was written with, the samples of an
+earlier run are never read with new ones: before each start of hddfancontrol the
+supervisor calls `TempLog.fence`, and `latest()` gives nothing until a newer sample
+comes. Fan control treats that as waiting (full speed), and the alerts, the `[temps]`
+line, `/metrics` and the page see no sample either. Without the fence, dropping an
+extra sensor made the processor a drive (full speed, a false "drive hot" alert), and
+adding one made the last drive a sensor for up to an interval.
+
 hddfancontrol writes `null` for a sleeping drive and for a probe that failed alike (it
 accepts 4 failed probes in a row, common during a scrub, and exits at the 5th). So
 `DriveTemps` keeps the last temperature of a drive that turns `null` for

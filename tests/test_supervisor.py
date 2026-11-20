@@ -17,6 +17,7 @@ from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.settings import SettingsError, SettingsStore, from_dict
 from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, ReadOnly, Supervisor
+from hddfancontrol_webui.templog import TempLog
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 CONFIG = {
@@ -714,4 +715,45 @@ async def test_a_full_config_never_stops_the_start(
     monkeypatch.undo()
     await supervisor.apply(supervisor.settings)  # the label still cannot follow: the apply goes on
     assert supervisor.fans.active
+    await supervisor.stop()
+
+
+async def test_a_restart_never_reads_the_sample_of_the_run_before(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker
+) -> None:
+    """After an apply that drops an extra sensor, the old sample is not read with the new layout.
+
+    hddfancontrol logs the drives first and the sensors last. Read with one
+    sensor fewer, the last sample of the run before makes the processor
+    (72 °C) a drive; the new run has written nothing yet, so there is no
+    sample at all until it does.
+    """
+    log = tmp_path / "templog" / "temps.jsonl"
+    log.parent.mkdir()
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    measures = [{"device": "sda X", "temp_celcius": 40.0}, {"device": "cpu", "temp_celcius": 72.0}]
+    log.write_text(json.dumps({"time_utc": now, "measures": measures}) + "\n")
+    temp_log = TempLog(log)
+    store = SettingsStore(tmp_path / "config", {})
+    sensor = {"path": "/sys/class/hwmon/hwmon10/temp1_input", "temp_min": 60, "temp_max": 90}
+    store.save(from_dict({**CONFIG, "drives": ["/dev/sda"], "hwmons": [sensor], "drive_temp_max": 50}))
+    fans = FanController(PwmWriter(fake_sys), temp_log.latest, lambda text: None, lambda: {"/dev/sda": "sda"})
+    supervisor = Supervisor(
+        store,
+        LogBuffer(echo=False),
+        log,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        fence_samples=temp_log.fence,
+    )
+    await supervisor.start()
+    await supervisor.apply(from_dict({**CONFIG, "drives": ["/dev/sda"], "drive_temp_max": 50}))
+    await wait_for(lambda: fans.auto.speed is not None)
+    assert fans.auto.hottest is None and temp_log.latest() is None
+    # The first sample of the new run counts again.
+    later = (datetime.now(UTC) + timedelta(seconds=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with log.open("a") as handle:
+        handle.write(json.dumps({"time_utc": later, "measures": measures[:1]}) + "\n")
+    assert temp_log.latest() == {"time": datetime.fromisoformat(later).isoformat(), "temps": {"sda X": 40.0}}
     await supervisor.stop()

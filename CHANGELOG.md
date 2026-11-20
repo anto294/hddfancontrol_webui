@@ -19,6 +19,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   When the hwmon number of a fan chip changed at a reboot and the settings
   or the fan name could not be written, nothing started. Now the error is
   logged and the fans are controlled at their new place anyway.
+- **No old temperatures after new settings.** After an apply that added
+  or removed an extra sensor (or changed the drives), the last sample of
+  the run before was read with the new settings: the processor could count
+  as a drive (fans at full speed, a false "drive hot" alert), or a hot
+  drive be ignored for one interval. Samples of an earlier run of
+  hddfancontrol are now ignored until it writes a new one.
 
 ### Changed
 

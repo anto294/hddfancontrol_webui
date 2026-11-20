@@ -86,6 +86,14 @@ settings themselves cannot be saved. Why: after a reboot with a full or read-onl
 `/config`, an `OSError` used to stop the whole start (no fan control, no hddfancontrol,
 mode "stopped") with no retry; the next start finds the chip again anyway. (2026-11-20)
 
+**The temperature samples of an earlier run of hddfancontrol are fenced off.** Before
+each start of hddfancontrol, `TempLog.fence` records the time of the newest sample, and
+nothing reads a sample that old again. Why: drives and extra sensors are told apart by
+their place in the line, which depends on the settings; and after a restart fan control
+counted the old sample as fresh. A few seconds without a sample cost full speed; a
+sensor read as a drive costs a false alarm, a drive read as a sensor a missed one.
+(2026-11-20)
+
 **Read only when `/sys` is read only.** Nothing starts, and a red banner says so. Why:
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)

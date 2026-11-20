@@ -119,6 +119,7 @@ def build() -> Core:
         read_only=hardware.read_only(),
         hardware=hardware,
         on_pwm_moved=labels.move,
+        fence_samples=temp_log.fence,
     )
     history = History(config_dir / HISTORY_DB)
     smartctl = env.get("SMARTCTL_BIN", SMARTCTL_BIN)
