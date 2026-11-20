@@ -208,6 +208,7 @@
   "settings.interval_s": "测量间隔（秒）",
   "settings.average": "取平均的样本数",
   "settings.history_days": "历史保留（天）",
+  "settings.history_days_wear": "少于 {days} 天时永远不会检查风扇磨损：该检查在风扇历史满 {days} 天后，将每个风扇与其第一周比较。",
   "settings.verbosity": "日志级别",
   "settings.restore_fan_settings": "网页界面退出时（容器或服务停止），将风扇恢复为原来的设置；否则风扇保持全速",
   "settings.saved": "已保存并应用。",

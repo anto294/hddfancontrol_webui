@@ -208,6 +208,7 @@
   "settings.interval_s": "Misura ogni (s)",
   "settings.average": "Campioni nella media",
   "settings.history_days": "Conserva lo storico (giorni)",
+  "settings.history_days_wear": "Sotto i {days} giorni l'usura delle ventole non viene mai controllata: il controllo confronta ogni ventola con la sua prima settimana, quando la sua storia ha {days} giorni.",
   "settings.verbosity": "Livello di log",
   "settings.restore_fan_settings": "Quando l'interfaccia web si chiude (arresto del container o del servizio), riporta le ventole alle impostazioni di prima; altrimenti restano al massimo",
   "settings.saved": "Salvate e applicate.",

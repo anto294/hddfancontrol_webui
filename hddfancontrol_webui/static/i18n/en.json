@@ -208,6 +208,7 @@
   "settings.interval_s": "Measure every (s)",
   "settings.average": "Samples averaged",
   "settings.history_days": "Keep history (days)",
+  "settings.history_days_wear": "Under {days} days, fans are never checked for wear: it compares each fan with its first week, once its history is {days} days old.",
   "settings.verbosity": "Log level",
   "settings.restore_fan_settings": "When the web UI exits (the container or the service stops), give the fans back their previous settings; otherwise they stay at full speed",
   "settings.saved": "Saved and applied.",

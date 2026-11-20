@@ -421,6 +421,31 @@ def test_fan_wear(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     monitor.history.close()
 
 
+def test_fan_wear_needs_two_weeks_of_history(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """With history_days under WEAR_BASELINE_AGE the purge never lets a fan's history get old enough for a baseline.
+
+    So the check never starts: the settings page says so next to the field.
+    """
+    from hddfancontrol_webui.monitor import WEAR_BASELINE_AGE
+
+    pwm = "/sys/class/hwmon/hwmon2/pwm1"
+    day = 86400
+    assert WEAR_BASELINE_AGE == 14 * day  # the hint of the page (settings.js, WEAR_MIN_DAYS) says 14
+    for days, starts in ((7, False), (14, True)):
+        settings = from_dict({"drives": [DRIVE], "pwms": [{"path": pwm, "start": 200, "stop": 75}], "history_days": days})
+        folder = tmp_path / str(days)
+        folder.mkdir()
+        monitor = make_monitor(folder, fake_sys, fake_dev, settings)
+        start = 1_000_000
+        for first in range(start, start + 30 * day, day):
+            for ts in range(first, first + day, 600):
+                monitor.history.record(ts, [("pwm", pwm, 50.0), ("rpm", pwm, 1200.0)])
+            monitor.history.purge(days, now=first + day)
+            monitor.fan_wear(first + day)
+        assert (monitor.history.get_meta(f"fan_baseline_{pwm}") is not None) is starts
+        monitor.history.close()
+
+
 def test_fan_wear_baseline_of_a_fan_added_later(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
     """A fan whose history starts after the rest gets its baseline from its own first week."""
     old, new = "/sys/class/hwmon/hwmon2/pwm1", "/sys/class/hwmon/hwmon2/pwm2"

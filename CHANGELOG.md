@@ -54,6 +54,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- **Settings warn when the history is too short for the fan wear check.**
+  Under 14 days of history the check never starts, since it compares
+  each fan with its first week once its history is two weeks old; the
+  field now says so.
 - **The Control card of the Overview in three groups.** Fan control (state,
   mode, the hottest drive and the speed each fan was given), Services
   (hddfancontrol and hd-idle, with the **Restart** button under them) and

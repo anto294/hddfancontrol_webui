@@ -208,6 +208,7 @@
   "settings.interval_s": "Mesurer toutes les (s)",
   "settings.average": "Échantillons moyennés",
   "settings.history_days": "Conserver l’historique (jours)",
+  "settings.history_days_wear": "En dessous de {days} jours, l’usure des ventilateurs n’est jamais vérifiée : chaque ventilateur est comparé à sa première semaine, une fois son historique âgé de {days} jours.",
   "settings.verbosity": "Niveau de journalisation",
   "settings.restore_fan_settings": "À la fermeture de l’interface web (arrêt du conteneur ou du service), rendre aux ventilateurs leurs réglages précédents ; sinon ils restent à plein régime",
   "settings.saved": "Enregistré et appliqué.",

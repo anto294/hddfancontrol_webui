@@ -208,6 +208,7 @@
   "settings.interval_s": "Medir cada (s)",
   "settings.average": "Muestras promediadas",
   "settings.history_days": "Conservar historial (días)",
+  "settings.history_days_wear": "Con menos de {days} días nunca se comprueba el desgaste de los ventiladores: se compara cada ventilador con su primera semana cuando su historial tiene {days} días.",
   "settings.verbosity": "Nivel de registro",
   "settings.restore_fan_settings": "Al cerrarse la interfaz web (cuando se detiene el contenedor o el servicio), devolver a los ventiladores su configuración anterior; si no, se quedan a máxima velocidad",
   "settings.saved": "Guardado y aplicado.",
