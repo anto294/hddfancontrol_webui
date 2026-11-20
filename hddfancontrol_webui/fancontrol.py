@@ -441,22 +441,43 @@ class PwmWriter:
         left: its old value is not trusted, and 255 is the safe one. An
         output without an enable file gets its value back.
         """
-        for path, (enable, value) in self._saved.items():
-            try:
-                if enable is not None and enable != str(ENABLE_MANUAL):
-                    self._file(f"{path}_enable").write_text(f"{enable}\n", encoding="utf-8")
-                elif enable is None and value is not None:
-                    self._file(path).write_text(f"{value}\n", encoding="utf-8")
-                else:
-                    self._file(path).write_text(f"{PWM_MAX}\n", encoding="utf-8")
-            except OSError as err:
-                _LOGGER.error("Cannot restore %s: %s", path, err)
-                continue
-            self._original.pop(path, None)
+        for path, state in self._saved.items():
+            self._give_back(path, state)
         if self._saved:
             self._store_state()
         self._saved.clear()
         self.values.clear()
+
+    def restore_leftovers(self) -> list[str]:
+        """Give back the outputs that a killed run of this boot took and this run has not; return their paths.
+
+        Called at start, before any output is taken: an output this run does
+        not drive (a fan taken out of the settings, one moved by a slider in
+        manual control) would otherwise stay in manual mode at the killed
+        run's last value until a reboot. One this run drives is taken again
+        right after, from the chip's state.
+        """
+        leftovers = {path: state for path, state in self._original.items() if path not in self._saved}
+        for path, state in leftovers.items():
+            self._give_back(path, state)
+        if leftovers:
+            self._store_state()
+        return [path for path in leftovers if path not in self._original]
+
+    def _give_back(self, path: str, state: tuple[str | None, str | None]) -> None:
+        """Write the saved mode (or value) of one output and forget it; an error is logged and the entry kept."""
+        enable, value = state
+        try:
+            if enable is not None and enable != str(ENABLE_MANUAL):
+                self._file(f"{path}_enable").write_text(f"{enable}\n", encoding="utf-8")
+            elif enable is None and value is not None:
+                self._file(path).write_text(f"{value}\n", encoding="utf-8")
+            else:
+                self._file(path).write_text(f"{PWM_MAX}\n", encoding="utf-8")
+        except OSError as err:
+            _LOGGER.error("Cannot restore %s: %s", path, err)
+            return
+        self._original.pop(path, None)
 
 
 # ---------------------------

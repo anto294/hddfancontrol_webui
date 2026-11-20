@@ -393,6 +393,10 @@ class Supervisor:
                 except OSError as err:
                     self._log(f"ERROR: cannot save the settings with the new place of the fans, they are used anyway: {err}")
             self.settings, self.missing_pwms = settings, missing
+            if not self.read_only:
+                given = await asyncio.to_thread(self.fans.writer.restore_leftovers)
+                if given:
+                    self._log("The last run was killed: these fans got their mode back: " + ", ".join(given))
             await self._start_daemons()
 
     async def _placed(self, settings: Settings) -> tuple[Settings, list[str]]:

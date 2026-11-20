@@ -44,6 +44,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **The history keeps recording after a busy database.** When saving a
   sample failed at its last step, every later sample failed too, until a
   restart.
+- **After the web UI was killed, every fan goes back to the chip.** When
+  the container was killed (out of memory, `docker kill`) a fan it had
+  set but no longer drives stayed at its last speed until a reboot. At
+  the next start it now gets its own mode back.
 
 ### Changed
 

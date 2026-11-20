@@ -813,3 +813,39 @@ def test_log_buffer_from_many_threads() -> None:
         sys.setswitchinterval(old)
     seqs = [line["seq"] for line in logs.since(0)]
     assert logs.last_seq == 160_000 and len(set(seqs)) == 160_000
+
+
+async def test_outputs_a_killed_run_left_are_given_back_at_start(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker
+) -> None:
+    """An output that a killed run took, and that this run does not drive, gets the chip's mode back at start.
+
+    Otherwise it would stay in manual mode at the killed run's last value
+    until a reboot: a fan taken out of the settings, or one moved by a
+    slider in manual control.
+    """
+    pwm2 = "/sys/class/hwmon/hwmon2/pwm2"
+    enable2 = fake_sys / "class/hwmon/hwmon2/pwm2_enable"
+    enable2.write_text("2\n")  # the chip drives it
+    state = tmp_path / "config" / "pwm-state.json"
+    boot_id = tmp_path / "boot_id"
+    boot_id.write_text("boot-1\n")
+    PwmWriter(fake_sys, state, boot_id).write(pwm2, 40)  # then SIGKILL: no restore
+    assert enable2.read_text().strip() == "1"
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict(CONFIG))  # drives pwm1 only
+    logs = LogBuffer(echo=False)
+    fans = FanController(PwmWriter(fake_sys, state, boot_id), lambda: None, lambda text: None)
+    supervisor = Supervisor(
+        store,
+        logs,
+        None,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+    )
+    await supervisor.start()
+    assert enable2.read_text().strip() == "2"
+    assert pwm2 not in json.loads(state.read_text())["outputs"]
+    assert any(pwm2 in line["text"] for line in logs.since(0))
+    await supervisor.stop()
