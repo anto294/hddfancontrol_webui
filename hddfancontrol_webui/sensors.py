@@ -126,12 +126,16 @@ async def _run(*argv: str, limit_s: float = RUN_TIMEOUT) -> tuple[int, str]:
 #   _ensure
 # ---------------------------
 async def _ensure(module: str, log: Log, modprobe: str, sys_root: Path) -> ModuleResult:
-    """Load a module unless the kernel has it already."""
+    """Load a module unless the kernel has it already.
+
+    The name comes after "--": _MODULE lets a name start with "-", and
+    modprobe must never read one as an option.
+    """
     if is_loaded(module, sys_root):
         log(f"Module {module} is already loaded")
         return ModuleResult(module, STATUS_ALREADY_LOADED)
     try:
-        code, output = await _run(modprobe, module)
+        code, output = await _run(modprobe, "--", module)
     except OSError as err:
         code, output = -1, str(err)
     if code == 0:
