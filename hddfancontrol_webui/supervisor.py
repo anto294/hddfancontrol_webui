@@ -452,10 +452,18 @@ class Supervisor:
         return problems
 
     def _measuring_lost(self) -> None:
-        """hddfancontrol ended by itself: the fan controller stops trusting the temperatures until new ones come."""
-        if self.fans.active and not self.manual:
+        """hddfancontrol ended by itself: the fan controller stops trusting the temperatures until new ones come.
+
+        In manual control too: nothing watches the drives any more, so every
+        fan goes to full speed until manual control ends.
+        """
+        if not self.fans.active:
+            return
+        if self.manual:
+            self._log("WARNING: hddfancontrol stopped, so the drives are not watched: every fan goes to full speed")
+        else:
             self._log("WARNING: hddfancontrol stopped, the fans run at full speed until it measures again")
-            self.fans.measuring_lost()
+        self.fans.measuring_lost()
 
     def _temp_log(self) -> Path | None:
         """The temperature log path, if its directory can be created."""

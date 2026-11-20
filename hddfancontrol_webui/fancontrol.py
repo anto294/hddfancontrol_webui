@@ -525,6 +525,7 @@ class FanController:
         self.safety = False
         self.safety_reason = None
         self.error = None
+        self._lost = None
         self._task = asyncio.create_task(self._run_manual(settings), name="fan-manual")
 
     def measuring_lost(self) -> None:
@@ -808,8 +809,18 @@ class FanController:
         return await asyncio.to_thread(self.drive_danger, settings, temps_state, started, stale_after)
 
     def _manual_step(self, settings: Settings, stale_after: float, started: datetime) -> None:
-        """Check the drives once; a drive at its maximum or old temperatures put every fan at full speed."""
-        reason, hottest = self.drive_danger(settings, self._temps, started, stale_after)
+        """Check the drives once; a drive at its maximum, old temperatures or a stopped hddfancontrol put every fan at full speed."""
+        lost = self._lost
+        if lost is not None:
+            latest = self._latest()
+            if latest and latest["time"] > lost:
+                self._lost = lost = None
+        reason: str | None
+        hottest: float | None
+        if lost is not None:
+            reason, hottest = SAFETY_STALE, None
+        else:
+            reason, hottest = self.drive_danger(settings, self._temps, started, stale_after)
         if reason is not None and not self.safety:
             with self._manual_lock:
                 self.safety = True

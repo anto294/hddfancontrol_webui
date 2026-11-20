@@ -37,6 +37,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   servers.** With several drives (or a slow sensors-detect) the page got
   "core unavailable" while the work went on. Both now start at once and
   run in the background: the button stays off until the new data are in.
+- **Manual control reacts at once when hddfancontrol stops.** In manual
+  control a crash of hddfancontrol put the fans at full speed only after
+  the stale limit (2 minutes or more); now it does at once, as in the
+  automatic modes.
 
 ### Changed
 

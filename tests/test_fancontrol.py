@@ -289,6 +289,21 @@ async def test_manual_control_without_recent_temperatures(fake_sys: Path, fast: 
     await fans.stop()
 
 
+def test_manual_step_after_hddfancontrol_ended(fake_sys: Path) -> None:
+    """A stopped hddfancontrol counts as stale in manual control, unless a newer sample came meanwhile."""
+    current: dict[str, Any] = {"value": sample({"sda": 30.0, "coretemp.0/1": 50.0})}
+    fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lambda text: None)
+    started = datetime.now(UTC)
+    fans.measuring_lost()
+    current["value"] = sample({"sda": 30.0, "coretemp.0/1": 50.0}, age=-60)  # newer: measuring again
+    fans._manual_step(SETTINGS, 3600, started)
+    assert not fans.safety and fans._lost is None
+    fans.measuring_lost()
+    fans._manual_step(SETTINGS, 3600, started)
+    assert fans.safety and fans.safety_reason == "stale"
+    assert read(fake_sys, "pwm1") == "255"
+
+
 async def test_auto_mode_survives_an_error(fake_sys: Path, fast: None) -> None:
     """An unexpected error puts the fans at full speed, the loop goes on, and control resumes."""
     current: dict[str, Any] = {"value": "broken"}

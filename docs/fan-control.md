@@ -42,7 +42,10 @@ since hddfancontrol drives no fan).
 
 When hddfancontrol stops (it crashed, or it is being restarted), the `on_exit` hook of
 its `Daemon` tells the fan controller (`measuring_lost`): full speed until a newer
-sample arrives.
+sample arrives. In manual control too: `_manual_step` takes it as stale temperatures
+(`safety_reason` "stale"), so every fan goes to full speed at once instead of after the
+stale limit, and stays there until manual control ends, like any safety of manual
+control.
 
 ## Writing the PWM files
 
@@ -126,7 +129,7 @@ These hold in every mode, whatever the settings. They must never be weakened.
 | A drive at its maximum (its last reading, never the average) | Its fans at 255; in manual control, every fan |
 | A drive at `DRIVE_CEILING` 65 °C (`NVME_CEILING` 80 °C for NVMe), whatever its maximum | The same; the hot alert uses the same ceiling |
 | No sample newer than `max(3 × interval, 120 s)` | Every fan at 255 (manual control: only when drives are chosen) |
-| hddfancontrol stops | Full speed until a newer sample |
+| hddfancontrol stops | Full speed until a newer sample; in manual control, every fan at 255 until it ends |
 | An unexpected error in the control or manual loop | Every fan at 255, `error` in the status, the loop goes on |
 | Control ends (stop, apply, exit) | Every output gets its previous mode back |
 

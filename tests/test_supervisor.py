@@ -757,3 +757,39 @@ async def test_a_restart_never_reads_the_sample_of_the_run_before(
         handle.write(json.dumps({"time_utc": later, "measures": measures[:1]}) + "\n")
     assert temp_log.latest() == {"time": datetime.fromisoformat(later).isoformat(), "temps": {"sda X": 40.0}}
     await supervisor.stop()
+
+
+async def test_full_speed_in_manual_control_when_hddfancontrol_ends(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In manual control too, hddfancontrol ending puts every fan at full speed at once (safety_reason stale).
+
+    Without it, a hot drive would go unseen until the stale limit,
+    max(3 x interval, 120 s), even though nothing measures any more.
+    """
+    real = asyncio.sleep
+
+    async def quick(delay: float) -> None:
+        await real(0.01)
+
+    monkeypatch.setattr(supervisor_module.asyncio, "sleep", quick)
+    from hddfancontrol_webui import fancontrol as fancontrol_module
+
+    monkeypatch.setattr(fancontrol_module.asyncio, "sleep", quick)
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict({**CONFIG, "drives": ["/dev/sda"], "drive_temp_max": 50}))
+    logs = LogBuffer(echo=False)
+    # A sample from the future: never stale by age, so only the end of hddfancontrol can count.
+    sample = {"time": "2999-01-01T00:00:00+00:00", "temps": {"sda X": 20.0}}
+    fans = FanController(
+        PwmWriter(fake_sys), lambda: sample, lambda text: logs.add("fan-control", text), lambda: {"/dev/sda": "sda"}
+    )
+    crash = make_script("crash", "time.sleep(0.3); sys.exit(3)")
+    supervisor = Supervisor(store, logs, None, fans, hddfancontrol=crash, hdidle="/bin/true")
+    await supervisor.set_manual(True)
+    supervisor.set_pwm(PWM1, 60)
+    await wait_for(lambda: fans.safety, 3)
+    assert fans.safety_reason == "stale"
+    assert (fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1").read_text().strip() == "255"
+    supervisor.hddfancontrol._on_exit = None
+    await supervisor.stop()
