@@ -94,6 +94,11 @@ STOP_TIMEOUT = 15.0
 MANUAL_IDLE_TIMEOUT = 120.0
 MANUAL_WATCH_PERIOD = 10.0
 
+# While the chip of a chosen fan is missing (its module loaded after the
+# start, by an Init Script), the supervisor looks for it again this often,
+# and controls the fan as soon as it is back.
+PLACE_PERIOD = 60.0
+
 # The history endpoint never returns more points per series than this,
 # whatever the window: older points are averaged together.
 HISTORY_MAX_POINTS = 600

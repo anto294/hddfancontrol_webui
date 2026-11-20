@@ -65,7 +65,7 @@ day ago (`LONG_TEST_GUARD`), since it would abort it.
 
 | Kind | When |
 | --- | --- |
-| `drive_hot` | A drive at its maximum, or at the 65/80 °C ceiling; it ends 2 °C lower |
+| `drive_hot` | A drive at its maximum, or at the 65/80 °C ceiling; it ends 2 °C lower. A null reading keeps the last one for `NULL_HOLD_INTERVALS` intervals (`DriveTemps`, as for the fans), so a failed probe does not end it |
 | `fan_stalled` | 0 RPM for `FAN_STALL_SECONDS` (120 s) at a speed where the fan surely turns (halfway between stop and start) |
 | `fan_wear` | At the same PWM, the RPM of a chosen fan over the last week dropped by `WEAR_DROP` (15 %) from its baseline (the first week of its history, taken once that history is two weeks old (`WEAR_BASELINE_AGE`) and then kept, so a slow drop over months still shows); checked daily. With `history_days` under 14 the purge never lets a history get that old, so the check never starts: the settings page says so under the field |
 | `smart_failing`, `smart_warning`, `smart_error` | The SMART verdict, worrying attributes, or SMART that cannot be read |
@@ -82,7 +82,20 @@ gets worse. A note ends with its alert.
 
 `notify.send` POSTs to `notify_url` in the ntfy, Gotify or plain JSON format, with a
 10 s timeout and no redirects followed. Texts are the `alert.<kind>` keys of the page's
-translations, in `notify_language`.
+translations, in `notify_language`. The log names the server by host and port only
+(`_where`): the user, password, path and query of the address (a Gotify token, an ntfy
+topic) never reach it, nor an error's copy of the address (`_without_query`).
+
+A message never goes to the NAS itself or the cloud's metadata service: `forbidden_ip`
+refuses loopback, link-local (`169.254.0.0/16`, `fe80::/10`), unspecified
+(`0.0.0.0/8`, `::`) and multicast addresses, and IPv4 addresses mapped on them.
+`settings.from_dict` refuses such a host written as an IP (or `localhost`) at once
+(`notify_address_forbidden`). At each send, a literal is checked again, and a name is
+resolved by `_GuardedResolver`, the resolver of the connection itself, which drops the
+forbidden addresses: the check and the connection use the same DNS answer, so DNS
+rebinding cannot slip past it. A send refused this way raises `NotifyError` with the
+code `NOTIFY_FORBIDDEN`, and `POST /api/notify/test` answers 400 with it. Private
+networks (`10/8`, `192.168/16`, `fc00::/7`…) stay allowed.
 
 - `Alerts` queues the messages (at most `QUEUE_SIZE`, 100) for one sender task, so the
   monitor never waits for the notification server. A failed message is logged, never
@@ -127,7 +140,10 @@ button in the "No PWM output" banner):
 - `GET /api/support` adds the system (Docker image or bare metal, version, kernel) and
   the last `SUPPORT_LOG_LINES` (30) log lines of `SUPPORT_SOURCES` (sensors,
   hddfancontrol, fan-control, webui; never the gateway's or the audit's, which name
-  users and addresses). Addresses are masked anyway (`mask_addresses`).
+  users and addresses). Addresses are masked anyway (`mask_addresses`), and so are the
+  `/dev/disk/by-id` names of the drives, which hold their serial numbers (the
+  `hddfancontrol` command line, the own limits of the fan control): each becomes its
+  kernel name (`sda`), or `<drive>` when it is not on the host (`mask_drives`).
 - EXPERIMENTAL ([bmc.md](bmc.md)): with a BMC, `Bmc.report()` fills the form's
   `ipmitool` field (`bmc`): the BMC and its firmware, the server's product name (never
   a serial number), the model in use and the one found, `bmc.json`, who drives the

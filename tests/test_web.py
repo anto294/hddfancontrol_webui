@@ -25,10 +25,10 @@ from hddfancontrol_webui.labels import Labels
 from hddfancontrol_webui.monitor import Monitor
 from hddfancontrol_webui.notify import NotifyError
 from hddfancontrol_webui.sensors import SensorReport
-from hddfancontrol_webui.settings import SettingsStore
+from hddfancontrol_webui.settings import NOTIFY_MASK, SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app, mask_addresses
+from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app, mask_addresses, mask_drives
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -58,6 +58,7 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         bmc: Bmc | None = None,
         sensor_scan: Any = None,
         smart_reader: Any = None,
+        env: dict[str, str] | None = None,
     ) -> Client:
         config = tmp_path / "config"
         logs = LogBuffer(echo=False)
@@ -69,7 +70,7 @@ def make_client(aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: P
         temp_log = TempLog(log_path)
         fans = FanController(PwmWriter(fake_sys), temp_log.latest, lambda _: None)
         supervisor = Supervisor(
-            SettingsStore(config, {}),
+            SettingsStore(config, env or {}),
             logs,
             log_path,
             fans,
@@ -138,6 +139,8 @@ async def test_settings_api(make_client: ClientMaker) -> None:
     assert broken.status == 400 and (await broken.json())["error"] == "invalid_json"
     deep = await client.put("/api/settings", data="[" * 60000, headers={**FETCH, "Content-Type": "application/json"})
     assert deep.status == 400 and (await deep.json())["error"] == "invalid_json"  # not a 500 with a traceback
+    huge = await client.put("/api/settings", data="9" * 60000, headers={**FETCH, "Content-Type": "application/json"})
+    assert huge.status == 400 and (await huge.json())["error"] == "invalid_json"
 
     ghost = {"drives": [DRIVE], "pwms": [{"path": "/sys/class/hwmon/hwmon9/pwm1", "start": 200, "stop": 75}]}
     refused = await client.put("/api/settings", json=ghost, headers=FETCH)
@@ -265,6 +268,30 @@ async def test_a_failed_sensor_scan_never_stays_running(make_client: ClientMaker
     await settled(client)
 
 
+async def test_a_sensor_scan_looks_for_missing_fan_chips(make_client: ClientMaker) -> None:
+    """The scan may load the module of a missing fan chip: the supervisor looks for it at once, even after a failed scan."""
+
+    async def broken() -> SensorReport:
+        raise RuntimeError("scan broken")
+
+    client = await make_client(sensor_scan=broken)
+    looks: list[bool] = []
+
+    async def recheck() -> bool:
+        looks.append(True)
+        raise RuntimeError("look broken")  # logged, never left running
+
+    client.app[SUPERVISOR].recheck_fans = recheck  # type: ignore[method-assign]  # a stand-in that records the call
+    assert (await client.post("/api/sensors/scan", headers=FETCH)).status == 202
+    await settled(client)
+    for _ in range(100):
+        if looks:
+            break
+        await asyncio.sleep(0.02)
+    assert looks
+    assert any("look broken" in line["text"] for line in client.app[SUPERVISOR].logs.since(0))
+
+
 async def test_slow_smart_reads_and_sensor_scans_answer_at_once(make_client: ClientMaker) -> None:
     """Both run in the background: one drive can take SMARTCTL_TIMEOUT, a scan RUN_TIMEOUT, more than the gateway waits.
 
@@ -332,6 +359,32 @@ async def test_read_only_api(make_client: ClientMaker) -> None:
     assert test.status == 409 and (await test.json())["error"] == "read_only"
 
 
+async def test_notify_url_never_leaves_the_core_in_clear(make_client: ClientMaker) -> None:
+    """Every answer with the settings masks notify_url; the masked value sent back keeps the saved address."""
+    secret = "https://gotify.lan/message?token=AbC123"
+    client = await make_client(env={"NOTIFY_URL": "https://ntfy.sh/env-topic-42"})
+    data = await (await client.get("/api/settings")).json()
+    assert data["source"] == "environment" and data["settings"]["notify_url"] == f"https://ntfy.sh/{NOTIFY_MASK}"
+    saved = await client.put("/api/settings", json={"notify_url": secret, "notify_format": "gotify"}, headers=FETCH)
+    assert saved.status == 200 and "AbC123" not in await saved.text()
+    supervisor = client.app[SUPERVISOR]
+    assert supervisor.settings.notify_url == secret
+    # The page saves without touching the field: the document it got goes back as it is.
+    shown = (await (await client.get("/api/settings")).json())["settings"]
+    assert shown["notify_url"] == f"https://gotify.lan/message?token={NOTIFY_MASK}"
+    again = await client.put("/api/settings", json={**shown, "notify_repeat_h": 2}, headers=FETCH)
+    assert again.status == 200 and supervisor.settings.notify_url == secret and supervisor.settings.notify_repeat_h == 2
+    edited = await client.put(
+        "/api/settings", json={**shown, "notify_url": shown["notify_url"].replace("gotify", "evil")}, headers=FETCH
+    )
+    assert edited.status == 400 and (await edited.json())["problems"][0]["code"] == "notify_url_masked"
+    assert supervisor.settings.notify_url == secret
+    cleared = await client.put("/api/settings", json={**shown, "notify_url": ""}, headers=FETCH)
+    assert cleared.status == 200 and supervisor.settings.notify_url == ""
+    reset = await client.delete("/api/settings", headers=FETCH)
+    assert (await reset.json())["settings"]["notify_url"] == f"https://ntfy.sh/{NOTIFY_MASK}"
+
+
 async def test_notify_test_api(make_client: ClientMaker) -> None:
     """The test message needs a saved address, and says when it cannot be sent."""
     client = await make_client()
@@ -354,6 +407,14 @@ async def test_notify_test_api(make_client: ClientMaker) -> None:
     fail = True
     response = await client.post("/api/notify/test", headers=FETCH)
     assert response.status == 502 and (await response.json())["error"] == "notify_failed"
+    forbidden = NotifyError("forbidden address", "notify_address_forbidden")
+
+    async def refusing(url: str, fmt: str, text: str, urgent: bool) -> None:
+        raise forbidden
+
+    client.app[MONITOR].alerts = Alerts(lambda: supervisor.settings, lambda _: None, refusing)
+    response = await client.post("/api/notify/test", headers=FETCH)
+    assert response.status == 400 and (await response.json())["error"] == "notify_address_forbidden"
     status = await (await client.get("/api/status")).json()
     assert status["alerts"] == []
 
@@ -489,6 +550,14 @@ async def test_audit_log(make_client: ClientMaker) -> None:
     lines = [line["text"] for line in client.app[SUPERVISOR].logs.since(0) if line["source"] == "audit"]
     assert lines[3] == "POST /api/restart%0Afake by 'anto' from 192.168.1.5: 404" and len(lines) == 4
 
+    async def broken() -> None:
+        raise RuntimeError("broken")
+
+    client.app[SUPERVISOR].restart = broken  # type: ignore[method-assign]  # an unexpected error of a handler
+    assert (await client.post("/api/restart", headers=headers)).status == 500
+    lines = [line["text"] for line in client.app[SUPERVISOR].logs.since(0) if line["source"] == "audit"]
+    assert lines[4] == "POST /api/restart by 'anto' from 192.168.1.5: 500"
+
 
 def test_audit_log_counts_repeats() -> None:
     """The same line again within a minute of when it was logged is counted; a steady stream still shows every minute."""
@@ -617,6 +686,29 @@ async def test_support_with_a_bmc(make_client: ClientMaker, tmp_path: Path, monk
     client = await make_client(bmc=bmc)
     data = await (await client.get("/api/support")).json()
     assert data["bmc"].startswith("== bmc, as the web UI sees it\niDRAC 2.83.83.83 on ?\n")
+
+
+async def test_support_hides_the_serial_numbers(make_client: ClientMaker) -> None:
+    """A drive's /dev/disk/by-id name holds its serial number: the support request gives its kernel name, or <drive>."""
+    client = await make_client()
+    logs = client.server.app[SUPERVISOR].logs
+    logs.add(
+        "hddfancontrol", f"Starting: hddfancontrol daemon --drives {DRIVE} /dev/disk/by-id/ata-GONE_SERIAL9 --interval 20s"
+    )
+    logs.add("fan-control", "Own limits: ata-ST4000VN006-3CW104_ZW627CWW 30/40/50, nvme-eui.0025385b71b0a1c2 40/50/60")
+    logs.add("webui", "The fan chip moved: /dev/disk/by-path/pci-0000:00:17.0-ata-1 stays")
+    data = (await (await client.get("/api/support")).json())["logs"]
+    assert "ZW627CWW" not in data and "GONE_SERIAL9" not in data and "0025385b71b0a1c2" not in data
+    assert "--drives sda <drive> --interval" in data
+    assert "Own limits: sda 30/40/50, <drive> 40/50/60" in data
+    assert "/dev/disk/by-path/pci-" in data  # no serial in a path name
+
+
+def test_mask_drives() -> None:
+    """Every by-id name goes, with or without its folder; known ones become their kernel name."""
+    names = {"/dev/disk/by-id/wwn-0x5000c500a1b2c3d4": "sdb"}
+    text = "wwn-0x5000c500a1b2c3d4, /dev/disk/by-id/scsi-SATA_X_Y1, (usb-Kingston_ABC-0:0) and sda"
+    assert mask_drives(text, names) == "sdb, <drive>, (<drive>) and sda"
 
 
 def test_mask_addresses() -> None:

@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from hddfancontrol_webui import fancontrol
+from hddfancontrol_webui.const import BMC_PWM
 from hddfancontrol_webui.fancontrol import DriveTemps, FanController, PiController, PwmWriter, speed_to_pwm
 from hddfancontrol_webui.settings import Pwm, from_dict
 
@@ -122,6 +123,51 @@ SETTINGS = from_dict(
         "interval_s": 1,
     }
 )
+
+
+async def test_a_failing_log_never_keeps_the_fans_slow(fake_sys: Path, fast: None) -> None:
+    """A log that raises (stdout gone: BrokenPipeError) never stops the loop nor the full speed of a failure, nor restore."""
+
+    def broken(text: str) -> None:
+        raise BrokenPipeError(32, "Broken pipe")
+
+    state: dict[str, Any] = {"fail": False}
+
+    def latest() -> dict[str, Any]:
+        if state["fail"]:
+            raise RuntimeError("log unreadable")
+        return sample({"sda": 30.0, "sdb": 30.0, "coretemp": 30.0})
+
+    value = fake_sys / "class/hwmon/hwmon2/pwm1"
+    fans = FanController(PwmWriter(fake_sys), latest, broken)
+    fans.start_control(SETTINGS)
+    await asyncio.sleep(0.1)
+    assert fans.active and value.read_text().strip() != "255"
+    state["fail"] = True
+    for _ in range(100):
+        if fans.error is not None:
+            break
+        await asyncio.sleep(0.01)
+    assert fans.error is not None and value.read_text().strip() == "255"
+    assert fans._task is not None and not fans._task.done()  # the loop goes on
+    await fans.stop()
+    assert read(fake_sys, "pwm1_enable") == "5"
+
+
+async def test_stop_restores_even_when_the_loop_failed(fake_sys: Path) -> None:
+    """A control task that ended with an error raises it at stop, after the fans were given back."""
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+    fans.writer.write(PWM1, 40)
+    fans.mode = "curve"
+
+    async def boom() -> None:
+        raise RuntimeError("loop died")
+
+    fans._task = asyncio.create_task(boom())
+    await asyncio.sleep(0)
+    with pytest.raises(RuntimeError):
+        await fans.stop()
+    assert read(fake_sys, "pwm1_enable") == "5" and fans.mode is None
 
 
 async def test_auto_mode_drives_the_fans(fake_sys: Path, fast: None) -> None:
@@ -717,6 +763,30 @@ def test_writer_survives_a_broken_state_file(fake_sys: Path, tmp_path: Path) -> 
     writer.write(PWM1, 60)
     writer.restore()
     assert read(fake_sys, "pwm1_enable") == "5"
+
+
+def test_writer_keeps_only_pwm_outputs_of_the_state_file(fake_sys: Path, tmp_path: Path) -> None:
+    """A state file written by someone else never makes root write outside the PWM files, nor a value that is no number."""
+    state = tmp_path / "pwm-state.json"
+    target = tmp_path / "etc" / "core_pattern"
+    target.parent.mkdir()
+    target.write_text("core\n")
+    outputs = {
+        str(target): [None, "|/proc/%P/root/x"],  # outside /sys: _file() would map it to itself
+        "/sys/class/hwmon/hwmon2/../../../kernel/x": ["2", "1"],
+        PWM1: ["5", "|/x"],  # a fan, but not a value
+        PWM2: ["1x", "40"],  # a fan, but not a mode
+        BMC_PWM: [None, "40"],  # the fans of a BMC: no file to write
+    }
+    state.write_text(json.dumps({"boot": "boot-1", "outputs": outputs}))
+    writer = PwmWriter(fake_sys, state, boot(tmp_path, "boot-1"))
+    assert writer.restore_leftovers() == []
+    assert target.read_text() == "core\n"
+    assert read(fake_sys, "pwm1_enable") == "5" and read(fake_sys, "pwm2") == "255"
+    # Given back by hand, an entry that is no PWM output is refused too.
+    writer._give_back(str(target), (None, "x"))
+    assert target.read_text() == "core\n"
+    assert BMC_PWM not in writer._original
 
 
 def test_drive_ceiling() -> None:

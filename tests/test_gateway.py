@@ -220,6 +220,9 @@ async def test_login_flow_and_forwarding(make_gateway: GatewayMaker) -> None:
     assert (await (await client.get("/api/auth")).json())["username"] == ""  # nothing before the login
     assert (await client.post("/api/login", json={"username": "anto", "password": "no"}, headers=FETCH)).status == 401
     assert (await client.post("/api/login", json=[], headers=FETCH)).status == 400
+    # An integer past Python's limit of digits is a ValueError of the parser: a 400, not a 500 with a traceback.
+    huge = await client.post("/api/login", data="9" * 60000, headers={**FETCH, "Content-Type": "application/json"})
+    assert huge.status == 400 and (await huge.json())["error"] == "invalid_json"
     ok = await client.post("/api/login", json=GOOD, headers=FETCH)
     cookie = ok.headers["Set-Cookie"]
     assert ok.status == 200 and "HttpOnly" in cookie and "SameSite=Strict" in cookie
@@ -263,6 +266,25 @@ async def test_csrf(make_gateway: GatewayMaker) -> None:
     assert (await gw.client.post("/api/restart", headers=FETCH)).status == 200
 
 
+async def test_requests_of_other_sites_never_reach_the_api(make_gateway: GatewayMaker) -> None:
+    """A browser marks a request sent by a page of another site (another port of the NAS too): no API, no metrics, even a GET.
+
+    An <img> of another app on the same host could otherwise keep manual
+    control alive by asking for the status. The pages of the web UI, a
+    link typed or followed, and scripts (no header) are not concerned.
+    """
+    gw = await logged_in(make_gateway)
+    for site in ("same-site", "cross-site"):
+        for method, path in (("GET", "/api/status"), ("GET", "/metrics"), ("POST", "/api/restart")):
+            response = await gw.client.request(method, path, headers={**FETCH, "Sec-Fetch-Site": site})
+            assert response.status == 403 and (await response.json())["error"] == "csrf", (site, path)
+    assert gw.seen == []
+    for site in ("same-origin", "none"):
+        assert (await gw.client.get("/api/status", headers={"Sec-Fetch-Site": site})).status == 200
+    assert (await gw.client.get("/api/status")).status == 200
+    assert (await gw.client.get("/login", headers={"Sec-Fetch-Site": "cross-site"})).status == 200  # a page may be linked
+
+
 async def test_basic_auth_and_metrics(make_gateway: GatewayMaker) -> None:
     """Scripts and Prometheus send Basic credentials."""
     gw = await make_gateway(CREDENTIALS)
@@ -273,10 +295,25 @@ async def test_basic_auth_and_metrics(make_gateway: GatewayMaker) -> None:
     assert (await gw.client.get("/api/status", headers={"Authorization": bad})).status == 401
 
 
-async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path) -> None:
-    """Credentials made at the setup can be changed with the current password, with a session only."""
+async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credentials made at the setup can be changed with the current password, with a session only.
+
+    Every other session ends, on the event loop after the change: a request
+    of a stolen session running meanwhile cannot put its session back.
+    """
+    import threading
+
     gw = await make_gateway()
     client = gw.client
+    ended: list[threading.Thread] = []
+    real_end = AuthStore.end_all_sessions
+
+    def end(self: AuthStore) -> None:
+        ended.append(threading.current_thread())
+        real_end(self)
+
+    monkeypatch.setattr(AuthStore, "end_all_sessions", end)
+    stolen = client.app[AUTH].new_session()
     code = client.app[SETUP].code
     await client.post("/api/setup", json={"code": code, **GOOD}, headers=FETCH)
     assert (await client.put("/api/auth", json={"username": 1}, headers=FETCH)).status == 400
@@ -287,6 +324,8 @@ async def test_change_credentials(make_gateway: GatewayMaker, tmp_path: Path) ->
     body = {"username": "new", "password": "another-password", "current": "a-long-password"}
     ok = await client.put("/api/auth", json=body, headers=FETCH)
     assert ok.status == 200 and (await ok.json())["username"] == "new"
+    assert ended and all(thread is threading.main_thread() for thread in ended)
+    assert not client.app[AUTH].session_valid(stolen)
     assert (await (await client.get("/api/auth")).json())["username"] == "new"  # still logged in
     removed = await client.delete("/api/auth", json={"current": "another-password"}, headers=FETCH)
     assert removed.status == 405 and gw.seen == []  # credentials cannot be removed, and the core never sees it
@@ -421,17 +460,35 @@ async def test_dot_segments_never_pass_as_public(make_gateway: GatewayMaker) -> 
     assert (await gw.client.get("/static/i18n/en.json")).status == 200  # the public files still are
 
 
-def test_login_limiter_counts_an_ipv6_64_as_one_client() -> None:
-    """The addresses of one IPv6 /64 share a count; IPv4 addresses each have their own."""
+def test_login_limiter_refuses_an_address_and_only_slows_its_64() -> None:
+    """An IPv6 address is refused alone; its /64 (often a whole LAN) is counted too, but only slowed down, never refused.
+
+    A host of the LAN that guesses must not lock its neighbours out, nor
+    can it guess at full speed by taking a new address of the /64 for
+    every ten tries. A right password of one address resets that address
+    alone.
+    """
     limiter = LoginLimiter(max_failures=2, window=10)
-    limiter.failed("fd00:1:2:3::1")
-    limiter.failed("fd00:1:2:3::ffff")
-    assert limiter.blocked("fd00:1:2:3:aaaa::5") and not limiter.blocked("fd00:1:2:4::1")
+    attacker, owner = "fd00:1:2:3::1", "fd00:1:2:3::2"
+    assert limiter.delay(owner) == 0
+    limiter.failed(attacker)
+    limiter.failed(attacker)
+    assert limiter.blocked(attacker) and limiter.blocked("fd00:1:2:3:0:0:0:1")  # the same address, written otherwise
+    assert not limiter.blocked(owner) and limiter.delay(owner) > 0
+    assert limiter.delay("fd00:1:2:4::1") == 0 and not limiter.blocked("fd00:1:2:4::1")
+    limiter.succeeded(owner)
+    assert limiter.blocked(attacker) and limiter.delay(owner) > 0
+    limiter.succeeded(attacker)
+    assert not limiter.blocked(attacker)
+    # The slowdown grows with the failures of the /64, up to LOGIN_SLOW_MAX.
+    first = limiter.delay(owner)
+    for n in range(40):
+        limiter.failed(f"fd00:1:2:3::{n + 10:x}")
+    assert first < limiter.delay(owner) <= gateway_module.LOGIN_SLOW_MAX
     limiter.failed("192.168.1.10")
     limiter.failed("192.168.1.10")
     assert limiter.blocked("192.168.1.10") and not limiter.blocked("192.168.1.11")
-    limiter.succeeded("fd00:1:2:3::9")
-    assert not limiter.blocked("fd00:1:2:3::1")
+    assert limiter.blocked("::ffff:192.168.1.10") and limiter.delay("192.168.1.11") == 0
     assert LoginLimiter.client("not an address") == "not an address"
 
 
@@ -557,6 +614,23 @@ async def test_other_host_names_are_refused(make_gateway: GatewayMaker) -> None:
         assert (await gw.client.get("/login", headers={"Host": bad})).status == 400, bad
 
 
+async def test_refusals_logged_are_capped_per_hour(make_gateway: GatewayMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Random host names (or addresses) cannot flood the log: past REFUSED_LOG_MAX lines an hour they are counted, then summed up."""
+    clock = {"now": 10000.0}
+    monkeypatch.setattr(gateway_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(gateway_module, "REFUSED_LOG_MAX", 3)
+    gw = await make_gateway(CREDENTIALS)
+    for n in range(10):
+        assert (await gw.client.get("/login", headers={"Host": f"x{n}.attacker.example"})).status == 403
+    refused = [line for line in gw.lines if line.startswith("Refused")]
+    assert len(refused) == 3
+    assert sum("are counted, not logged" in line for line in gw.lines) == 1
+    clock["now"] += gateway_module.REFUSED_LOG_PERIOD
+    assert (await gw.client.get("/login", headers={"Host": "late.attacker.example"})).status == 403
+    assert any("7 more refused requests were not logged" in line for line in gw.lines)
+    assert gw.lines[-1].startswith("Refused the host name 'late.attacker.example'")
+
+
 async def test_webui_hosts_any_turns_the_check_off(make_gateway: GatewayMaker) -> None:
     """WEBUI_HOSTS=any lets every name in (a reverse proxy that checks names itself)."""
     gw = await make_gateway(CREDENTIALS, hosts=parse_hosts("any"))
@@ -672,3 +746,113 @@ async def test_serve_until_sigterm(tmp_path: Path, unused_tcp_port: int) -> None
                 raise AssertionError("the gateway did not answer")
         os.kill(os.getpid(), signal.SIGTERM)
         await asyncio.wait_for(task, 10)
+
+
+async def test_serve_refuses_strangers_before_reading(
+    tmp_path: Path, unused_tcp_port: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An address outside WEBUI_ALLOW is closed at accept, before a byte or a handshake, and logged once; also without TLS."""
+    import os
+    import signal
+
+    real = gateway_module.allowed
+    monkeypatch.setattr(
+        gateway_module, "allowed", lambda address, networks: address != "127.0.0.1" and real(address, networks)
+    )
+    lines: list[str] = []
+    env = {
+        "HFC_CORE_SOCKET": str(tmp_path / "s"),
+        "HFC_WEB_DIR": str(tmp_path),
+        "WEBUI_PASSWORD": "a-long-password",
+        "ENABLE_TLS": "false",
+    }
+    app, _, _, context = gateway_module.build(env, lines.append)
+    assert context is None
+    task = asyncio.create_task(gateway_module._serve(app, "127.0.0.1", unused_tcp_port, context))
+    for _ in range(100):
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
+            break
+        except OSError:
+            await asyncio.sleep(0.02)
+    else:
+        raise AssertionError("the gateway did not listen")
+    writer.write(b"GET /login HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    try:
+        assert await asyncio.wait_for(reader.read(), 5) == b""  # not even a 403: nothing was read
+    except ConnectionResetError:
+        pass
+    writer.close()
+    assert sum("Refused 127.0.0.1" in line for line in lines) == 1
+    os.kill(os.getpid(), signal.SIGTERM)
+    await asyncio.wait_for(task, 10)
+
+
+async def test_the_gateway_only_ever_sees_notify_url_masked(
+    aiohttp_client: Any, tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: Any
+) -> None:
+    """Through the gateway, with the real core behind it, the token of notify_url never comes back; the round trip keeps it."""
+    from hddfancontrol_webui.fancontrol import FanController, PwmWriter
+    from hddfancontrol_webui.hardware import Hardware
+    from hddfancontrol_webui.history import History
+    from hddfancontrol_webui.labels import Labels
+    from hddfancontrol_webui.monitor import Monitor
+    from hddfancontrol_webui.sensors import SensorReport
+    from hddfancontrol_webui.settings import SettingsStore
+    from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
+    from hddfancontrol_webui.templog import TempLog
+    from hddfancontrol_webui.web import create_app
+
+    secret = "https://ntfy.example/alerts-topic-s3cret?auth=tk_s3cret"
+    config = tmp_path / "config"
+    log_path = config / "templog" / "temps.jsonl"
+    log_path.parent.mkdir(parents=True)
+    temp_log = TempLog(log_path)
+    supervisor = Supervisor(
+        SettingsStore(config, {"NOTIFY_URL": secret}),
+        LogBuffer(echo=False),
+        log_path,
+        FanController(PwmWriter(fake_sys), temp_log.latest, lambda _: None),
+        hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+    )
+    hardware = supervisor.hardware
+    assert hardware is not None
+    history = History(config / "history.db")
+
+    async def read(device: str) -> dict[str, Any]:
+        return {}
+
+    async def scan() -> SensorReport:
+        return SensorReport(state="done")
+
+    monitor = Monitor(history, temp_log, hardware, lambda: supervisor.settings, read)
+    core = create_app(supervisor, hardware, temp_log, history, monitor, Labels(config), scan, peers=None)
+    socket_path = tmp_path / "core.sock"
+    runner = web.AppRunner(core)
+    await runner.setup()
+    await web.UnixSite(runner, str(socket_path)).start()
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    gateway = create_gateway(
+        lambda: aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(socket_path))),
+        AuthStore(web_dir, CREDENTIALS),
+        lambda _: None,
+        allow=parse_allow(None),
+    )
+    client: Client = await aiohttp_client(gateway)
+    assert (await client.post("/api/login", json=GOOD, headers=FETCH)).status == 200
+    try:
+        answer = await client.get("/api/settings")
+        text = await answer.text()
+        assert answer.status == 200 and "s3cret" not in text
+        shown = json.loads(text)["settings"]
+        assert shown["notify_url"].startswith("https://ntfy.example/")
+        saved = await client.put("/api/settings", json=shown, headers=FETCH)
+        assert saved.status == 200 and "s3cret" not in await saved.text()
+        assert supervisor.settings.notify_url == secret
+    finally:
+        await supervisor.stop()
+        history.close()
+        await runner.cleanup()

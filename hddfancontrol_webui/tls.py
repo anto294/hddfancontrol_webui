@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -37,6 +38,12 @@ TLS_HANDSHAKE = 0x16
 # A connection that sends nothing for this long is closed before it is told apart.
 SNIFF_TIMEOUT_S = 10.0
 HANDSHAKE_TIMEOUT_S = 10.0
+# The first request of a connection (its headers, and its body by Content-Length) must
+# be complete this long after the first byte: aiohttp waits for headers for ever.
+REQUEST_TIMEOUT_S = 30.0
+# Open connections at most, of one address and in all; more are closed at once.
+MAX_CONNECTIONS_PER_ADDRESS = 64
+MAX_CONNECTIONS = 512
 
 
 # ---------------------------
@@ -120,20 +127,119 @@ def ssl_context(config_dir: Path, cert: str = "", key: str = "", openssl: str = 
 
 
 # ---------------------------
+#   _Counted
+# ---------------------------
+class _Counted(asyncio.Protocol):
+    """The server's protocol for one connection, with its place in the count and a deadline for its first request.
+
+    Every call is passed on to the server's own protocol. The connection is
+    closed when its first request (the headers, then a body as long as its
+    Content-Length says) is not complete within REQUEST_TIMEOUT_S of the
+    hand-over: aiohttp itself waits for headers for ever. When the
+    connection ends, its place in the count is given back.
+    """
+
+    def __init__(self, inner: asyncio.BaseProtocol, release: Callable[[], None]) -> None:
+        """Pass everything on to inner; call release() once, when the connection ends."""
+        self._inner = inner
+        self._release: Callable[[], None] | None = release
+        self._received = bytearray()
+        self._needed: int | None = None
+        self._deadline: asyncio.TimerHandle | None = None
+        self._transport: asyncio.BaseTransport | None = None
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        """Start the deadline of the first request, and hand the transport to the server."""
+        self._transport = transport
+        self._deadline = asyncio.get_running_loop().call_later(REQUEST_TIMEOUT_S, self._too_slow)
+        self._inner.connection_made(transport)
+
+    def _too_slow(self) -> None:
+        """The first request did not come in time: drop the connection."""
+        _LOGGER.debug("Connection dropped: no complete request within %s s", REQUEST_TIMEOUT_S)
+        if self._transport is not None:
+            self._transport.abort()  # type: ignore[attr-defined]  # a socket transport, given by connect_accepted_socket
+
+    def _watch(self, data: bytes) -> None:
+        """Follow the first request until it is complete, then stop the deadline."""
+        self._received += data
+        if self._needed is None:
+            end = self._received.find(b"\r\n\r\n")
+            if end < 0:
+                return
+            length = re.search(rb"\r\ncontent-length:[ \t]*([0-9]{1,12})[ \t]*\r\n", self._received[: end + 2].lower())
+            self._needed = end + 4 + (int(length.group(1)) if length else 0)
+        if len(self._received) >= self._needed:
+            self._done_waiting()
+
+    def _done_waiting(self) -> None:
+        """Stop the deadline and the copy of the first request."""
+        if self._deadline is not None:
+            self._deadline.cancel()
+            self._deadline = None
+        self._received = bytearray()
+
+    def data_received(self, data: bytes) -> None:
+        """Pass the data on, after watching the first request."""
+        if self._deadline is not None:
+            self._watch(data)
+        self._inner.data_received(data)  # type: ignore[attr-defined]  # aiohttp's handler is a Protocol
+
+    def eof_received(self) -> bool | None:
+        """Pass it on."""
+        return self._inner.eof_received()  # type: ignore[attr-defined, no-any-return]  # a Protocol
+
+    def pause_writing(self) -> None:
+        """Pass it on."""
+        self._inner.pause_writing()
+
+    def resume_writing(self) -> None:
+        """Pass it on."""
+        self._inner.resume_writing()
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        """Give the place back, then pass it on."""
+        self._done_waiting()
+        if self._release is not None:
+            self._release()
+            self._release = None
+        self._inner.connection_lost(exc)
+
+
+# ---------------------------
 #   DualListener
 # ---------------------------
 class DualListener:
-    """Accept connections on one port and hand each to the server, over TLS or not, by its first byte."""
+    """Accept connections on one port and hand each to the server, over TLS or not, by its first byte.
 
-    def __init__(self, factory: Callable[[], asyncio.BaseProtocol], host: str, port: int, context: ssl.SSLContext) -> None:
-        """Serve factory()'s protocol (aiohttp's web.Server) on host:port."""
+    Without a context, every connection is plain HTTP. Before anything is
+    read, admit(address) decides whether the address may connect at all
+    (WEBUI_ALLOW), and at most MAX_CONNECTIONS_PER_ADDRESS connections of
+    one address, MAX_CONNECTIONS in all, are open: a client that opens
+    thousands of silent connections is cut off before it runs the gateway
+    out of file descriptors. A first request must be complete within
+    REQUEST_TIMEOUT_S (_Counted).
+    """
+
+    def __init__(
+        self,
+        factory: Callable[[], asyncio.BaseProtocol],
+        host: str,
+        port: int,
+        context: ssl.SSLContext | None,
+        admit: Callable[[str], bool] | None = None,
+    ) -> None:
+        """Serve factory()'s protocol (aiohttp's web.Server) on host:port, to the addresses admit() lets in."""
         self._factory = factory
         self._host = host
         self._port = port
         self._context = context
+        self._admit = admit
         self._sock: socket.socket | None = None
         self._accepting: asyncio.Task[None] | None = None
         self._pending: set[asyncio.Task[None]] = set()
+        # Open connections per address, from accept to close.
+        self._open: dict[str, int] = {}
 
     @property
     def port(self) -> int:
@@ -141,6 +247,10 @@ class DualListener:
         if self._sock is None:
             raise RuntimeError("not listening")
         return int(self._sock.getsockname()[1])
+
+    def open_connections(self) -> int:
+        """How many connections are open now, from accept to close."""
+        return sum(self._open.values())
 
     async def start(self) -> None:
         """Listen, and accept in the background."""
@@ -158,24 +268,48 @@ class DualListener:
         if self._sock is not None:
             self._sock.close()
 
+    def _take_place(self, address: str) -> bool:
+        """Count a new connection of address; False (not counted) when it or all of them are at their limit."""
+        if self._open.get(address, 0) >= MAX_CONNECTIONS_PER_ADDRESS or self.open_connections() >= MAX_CONNECTIONS:
+            return False
+        self._open[address] = self._open.get(address, 0) + 1
+        return True
+
+    def _give_place(self, address: str) -> None:
+        """A connection of address ended."""
+        left = self._open.get(address, 0) - 1
+        if left > 0:
+            self._open[address] = left
+        else:
+            self._open.pop(address, None)
+
     async def _accept(self, sock: socket.socket) -> None:
-        """Accept for ever; each connection is told apart in its own task."""
+        """Accept for ever; refuse at once what admit() or the limits refuse, and tell each other connection apart in its own task."""
         loop = asyncio.get_running_loop()
         while True:
             try:
-                conn, _ = await loop.sock_accept(sock)
+                conn, peer = await loop.sock_accept(sock)
             except OSError as err:  # out of file descriptors, for example: try again
                 _LOGGER.warning("Cannot accept a connection: %s", err)
                 await asyncio.sleep(1)
                 continue
-            task = asyncio.create_task(self._hand_over(conn))
+            address = str(peer[0])
+            if self._admit is not None and not self._admit(address):
+                conn.close()
+                continue
+            if not self._take_place(address):
+                _LOGGER.debug("Connection of %s refused: too many open", address)
+                conn.close()
+                continue
+            task = asyncio.create_task(self._hand_over(conn, address))
             self._pending.add(task)
             task.add_done_callback(self._pending.discard)
 
-    async def _hand_over(self, conn: socket.socket) -> None:
+    async def _hand_over(self, conn: socket.socket, address: str) -> None:
         """Wait for the first byte, then give the connection to the server with or without TLS."""
         loop = asyncio.get_running_loop()
         conn.setblocking(False)
+        handed = False
         try:
             first = await asyncio.wait_for(self._peek(conn), SNIFF_TIMEOUT_S)
             if not first:
@@ -183,14 +317,21 @@ class DualListener:
                 return
             context = self._context if first[0] == TLS_HANDSHAKE else None
             await loop.connect_accepted_socket(
-                self._factory, conn, ssl=context, ssl_handshake_timeout=HANDSHAKE_TIMEOUT_S if context else None
+                lambda: _Counted(self._factory(), lambda: self._give_place(address)),
+                conn,
+                ssl=context,
+                ssl_handshake_timeout=HANDSHAKE_TIMEOUT_S if context else None,
             )
+            handed = True
         except asyncio.CancelledError:
             conn.close()
             raise
         except (OSError, TimeoutError) as err:  # ssl.SSLError is an OSError: a browser that refused the certificate
             _LOGGER.debug("Connection dropped before the server: %s", err)
             conn.close()
+        finally:
+            if not handed:
+                self._give_place(address)
 
     @staticmethod
     async def _peek(conn: socket.socket) -> bytes:

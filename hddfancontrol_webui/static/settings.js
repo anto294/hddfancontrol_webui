@@ -96,6 +96,7 @@ function renderSettings() {
     form[name].value = settings[name];
   }
   form.restore_fan_settings.checked = settings.restore_fan_settings;
+  renderNotifyMask();
   renderModeHelp();
   renderHistoryHint();
 
@@ -437,6 +438,24 @@ async function resetSettings() {
   }
 }
 
+// The server never sends notify_url in clear: its token, password or ntfy topic come as NOTIFY_MASK.
+// Sent back unchanged, the masked value keeps the saved address; the server refuses it edited.
+const NOTIFY_MASK = "•••";
+
+function renderNotifyMask() {
+  const field = $("settings-form").notify_url;
+  $("notify-url-masked").hidden = !field.value.includes(NOTIFY_MASK);
+}
+
+function setupNotifyField() {
+  const field = $("settings-form").notify_url;
+  // A click in a masked address selects it all: typing replaces it, never mixes with the mask.
+  field.addEventListener("focus", () => {
+    if (field.value.includes(NOTIFY_MASK)) field.select();
+  });
+  field.addEventListener("input", renderNotifyMask);
+}
+
 async function testNotify() {
   const result = $("notify-result");
   const button = $("notify-test");
@@ -482,6 +501,10 @@ async function importSettings(file) {
   if (!doc || doc.kind !== BACKUP_KIND || typeof doc.settings !== "object") {
     result.textContent = t("error.backup_invalid");
     return;
+  }
+  // A backup holds notify_url masked, like every answer of the server: the address in force is kept.
+  if (typeof doc.settings.notify_url === "string" && doc.settings.notify_url.includes(NOTIFY_MASK) && state.settings) {
+    doc.settings.notify_url = state.settings.notify_url;
   }
   try {
     // The server checks the settings as if they were typed in the form.

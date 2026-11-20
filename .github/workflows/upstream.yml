@@ -2,8 +2,8 @@ name: Upstream versions
 
 on:
   schedule:
-    # Weekly: hddfancontrol and hd-idle are pinned in the Dockerfile, and
-    # Dependabot cannot see them.
+    # Weekly: hddfancontrol, hd-idle and sdparm are pinned in the Dockerfile,
+    # and Dependabot cannot see them.
     - cron: "41 6 * * 1"
   workflow_dispatch:
 
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   check:
-    name: Check hddfancontrol and hd-idle releases
+    name: Check hddfancontrol, hd-idle and sdparm releases
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -47,3 +47,23 @@ jobs:
           }
           check HDDFANCONTROL_VERSION HDDFANCONTROL_COMMIT desbma/hddfancontrol
           check HDIDLE_VERSION HDIDLE_COMMIT adelolmo/hd-idle
+
+      - name: Open an issue for a newer sdparm
+        run: |
+          # sdparm has no GitHub releases: the Dockerfile takes its source from Debian's pool,
+          # so the newest upstream version Debian packages is the one to compare with.
+          pinned=$(sed -n "s/^ARG SDPARM_VERSION=//p" Dockerfile)
+          latest=$(curl -fsS https://sources.debian.org/api/src/sdparm/ | jq -r '.versions[].version' \
+            | sed 's/^[0-9]*://; s/-[^-]*$//' | sort -uV | tail -n 1)
+          echo "sdparm: pinned $pinned, latest $latest"
+          newest=$(printf '%s\n%s\n' "$pinned" "$latest" | sort -V | tail -n 1)
+          [ "$newest" = "$pinned" ] && exit 0
+          title="Update sdparm to $latest"
+          if gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[].number' | grep -q .; then
+            echo "An issue is already open: $title"
+            exit 0
+          fi
+          url="https://deb.debian.org/debian/pool/main/s/sdparm/sdparm_${latest}.orig.tar.xz"
+          sha=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
+          gh issue create --title "$title" --label dependencies --body \
+            "The Dockerfile pins \`SDPARM_VERSION=$pinned\`, and Debian packages sdparm \`$latest\` ($url, sha256 \`$sha\` as downloaded today). Check that checksum against the \`.dsc\` of the Debian package, update \`SDPARM_VERSION=$latest\` and \`SDPARM_SHA256\`, check that the drives still spin down, and add an entry to CHANGELOG.md."

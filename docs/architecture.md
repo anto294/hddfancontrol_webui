@@ -83,7 +83,9 @@ cut never leaves an empty file. The core runs with umask 077.
 
 Root never writes in or follows anything inside `web/`: a gateway taken over could
 plant links there. At start, `tighten_config` closes older files of `/config`, and a
-`/config` the gateway could write is closed first (`_close_config`).
+`/config` the gateway could write is closed first (`_close_config`, the sticky bit
+does not count); when it cannot be closed, no gateway runs (see
+[security.md](security.md)).
 
 ## Settings
 
@@ -96,7 +98,12 @@ anything.
 The PWM outputs are kept with the `/sys/devices/…` path of their chip. When the hwmon
 numbers change at a reboot (`hwmon2` becomes `hwmon3`), `Supervisor._placed` finds the
 same output again (`Hardware.locate`), saves the settings and moves the label. A fan
-whose chip is gone is listed in `missing_pwms` and not controlled. Saving at start and
+whose chip is gone is listed in `missing_pwms` and only that fan is not controlled: the
+others are, and hddfancontrol measures the drives all the same. While the list is not
+empty the supervisor looks again every `PLACE_PERIOD` (60 s) and after each sensor scan
+of the page (`recheck_fans`), and restarts with the fan as soon as its chip is back. The
+chip of a fan is always the host's: `apply` drops one sent with the settings, and
+`_placed` finds the real one with `Hardware.chip_of`. Saving at start and
 moving the label are extras: when `/config` is full or read only, the error is logged
 (`ERROR: …`) and the fans are controlled at their new place anyway. An apply still
 fails with `save_failed` when the settings cannot be saved (that is what was asked),

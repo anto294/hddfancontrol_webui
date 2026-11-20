@@ -51,7 +51,7 @@ async def test_scan_loads_missing_modules(fake_sys: Path, make_script: ScriptMak
     detect = make_script("sensors-detect", f"print({DETECT_OUTPUT!r})")
     modprobe = make_script(
         "modprobe",
-        "if sys.argv[1] == 'nct6775':\n"
+        "if sys.argv[1:] == ['--', 'nct6775']:\n"
         "    print('modprobe: FATAL: Module nct6775 not found in directory /lib/modules/6.12.15-production+truenas')\n"
         "    sys.exit(1)\n",
     )
@@ -69,8 +69,11 @@ async def test_scan_loads_missing_modules(fake_sys: Path, make_script: ScriptMak
 async def test_scan_loads_module(fake_sys: Path, make_script: ScriptMaker) -> None:
     """A module that modprobe loads is reported as loaded."""
     detect = make_script("sensors-detect", "print('#----cut here----\\n# Chip drivers\\nmodprobe it87\\n#----cut here----')")
-    modprobe = make_script("modprobe", "")
+    calls = fake_sys.parent / "modprobe.args"
+    # Records its arguments: the module name always comes after "--", so it can never be read as an option.
+    modprobe = make_script("modprobe", f"open({str(calls)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')")
     report = await scan_sensor_modules(lambda _: None, detect, modprobe, fake_sys)
+    assert calls.read_text().splitlines() == ["-- it87"]
     assert [(m.module, m.status) for m in report.modules] == [("i2c-dev", STATUS_ALREADY_LOADED), ("it87", STATUS_LOADED)]
 
 

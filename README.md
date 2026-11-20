@@ -153,11 +153,11 @@ To check first that the tarball was built by this repository's release workflow 
 gh attestation verify hddfancontrol-webui-*-linux-amd64.tar.gz --repo anto294/hddfancontrol_webui
 ```
 
-The tarball carries static builds of hddfancontrol 2, hd-idle and sdparm, so the version of your distribution does not matter (Debian still ships hddfancontrol 1, whose options differ). `install.sh` puts everything in `/opt/hddfancontrol-webui`, the settings in `/etc/hddfancontrol-webui/env`, the data in `/var/lib/hddfancontrol-webui`, and starts the `hddfancontrol-webui` service. Run it again from a newer tarball to update.
+The tarball carries static builds of hddfancontrol 2, hd-idle and sdparm, so the version of your distribution does not matter (Debian still ships hddfancontrol 1, whose options differ), and the Python packages it needs (aiohttp and its dependencies, checked against their hashes): the install downloads nothing. `install.sh` puts everything in `/opt/hddfancontrol-webui`, the settings in `/etc/hddfancontrol-webui/env`, the data in `/var/lib/hddfancontrol-webui`, and starts the `hddfancontrol-webui` service. Run it again from a newer tarball to update.
 
 - Logs: `journalctl -u hddfancontrol-webui`
-- Remove, keeping settings and history: `sudo ./install.sh --uninstall`
-- Remove everything: `sudo ./install.sh --purge`
+- Remove, keeping settings, history and the `hddfancontrol-webui` user that owns the login data: `sudo ./install.sh --uninstall`
+- Remove everything, the user too: `sudo ./install.sh --purge`
 
 On bare metal, `sensors-detect --auto` does not run at start, because on a real host it can change `/etc/modules`. Run `sudo sensors-detect` once instead, or set `LOAD_SENSOR_MODULES=true` in `/etc/hddfancontrol-webui/env`.
 
@@ -245,6 +245,8 @@ Each alert shows as a banner (**Noted, hide** hides it until it gets worse or co
 - **ntfy**: `https://ntfy.sh/a-topic-of-yours` (pick a topic nobody can guess), or your own ntfy server.
 - **Gotify**: `https://your-server/message?token=APP_TOKEN`, with format `gotify`.
 - **json**: any webhook that takes a POST with `{"title", "message", "level"}` (`level` is `alert` or `ok`).
+
+Messages are never sent to the NAS itself (`localhost`, `127.0.0.1`) or to link-local addresses (`169.254.…`, `fe80::…`): for a server on the LAN, also one running on this NAS, use its LAN address (`http://192.168.1.10:2586/…`).
 
 An alert that stays on can be sent again every few hours (**Remind every**), unless you took note of it. In the **quiet hours** only urgent alerts go out (a hot drive, fans at full speed, a failing or missing drive, missing fans); the others, and the ends of alerts, are sent together when the quiet hours end. A **summary** can come on a schedule, with the highest and average temperature of each drive, the speed of each fan, the alerts and the SMART state since the previous summary. The quiet hours and the summary are set in **Settings → Schedules**.
 
@@ -353,7 +355,7 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 
 **The Fans tab shows no PWM output.** The kernel module of the fan chip is not loaded. The web UI names the module it found and could not load; on TrueNAS, load it on the host as shown in [Installation](#truenas-scale). If `dmesg` then shows a resource conflict with ACPI, the chip also needs the kernel option `acpi_enforce_resources=lax`; on TrueNAS SCALE, run `midclt call system.advanced.update '{"kernel_extra_options": "acpi_enforce_resources=lax"}'` in the shell and reboot.
 
-**The log says the gateway could write `/config`.** The folder of the settings must be writable by root only, since the core trusts what it finds there. The web UI gives it to root and removes the write permission of group and others by itself; when the host refuses (an ACL), the login data go to a temporary folder until the next start, so every start asks for the setup code again. Fix the permissions of the dataset (owner root, no write for others) and restart.
+**The log says the gateway could write `/config`.** The folder of the settings must be writable by root only, since the core trusts what it finds there. The web UI gives it to root and removes the write permission of group and others by itself (also from a folder with the sticky bit, such as mode 1777); when the host refuses (an ACL, NFS with root squash), the web UI does not start at all: the fans are still controlled, but the page is not served until the folder is fixed. Fix the permissions of the dataset (owner root, no write for others) and restart.
 
 **The web UI says it is read only.** `/sys` is mounted read only, which is what Docker does for a container that is not privileged, so no fan can be written: hddfancontrol and hd-idle do not start, and manual control and the PWM test are off. Set `privileged: true` (on TrueNAS SCALE, tick **Privileged** in the app settings) and restart the container.
 
@@ -361,7 +363,7 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 
 **Still no fan, or a server whose fans belong to its BMC (Dell iDRAC, HPE iLO).** In **Fans → Hardware not supported?**, **Prepare a support request** fills in a [hardware support request](https://github.com/anto294/hddfancontrol_webui/issues/new?template=hardware_support.yml) from the host: you see it all, then open it on GitHub, name the machine and say what you need. Or open the form yourself: it says which commands to run and what to paste. Either way, support can be added for hardware we do not own.
 
-**The hwmon number of the fan chip changed after a reboot or a system update.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`, for example after a TrueNAS update loads the modules in another order. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656`, for example): at start it finds the chip under its new number, corrects the settings and the fan's name, and says so in the log. If the chip is not there at all (its module is not loaded, or a new kernel names it differently), those fans are not controlled, and never another chip's outputs in their place; a banner and an alert name them. Load the module, or choose the fans again in **Settings**.
+**The hwmon number of the fan chip changed after a reboot or a system update.** Linux numbers hwmon devices in the order they appear, so `hwmon3` can become `hwmon4`, for example after a TrueNAS update loads the modules in another order. The web UI keeps each chosen fan with its chip (`/sys/devices/platform/nct6775.656`, for example): at start it finds the chip under its new number, corrects the settings and the fan's name, and says so in the log. If the chip is not there at all (its module is not loaded, or a new kernel names it differently), those fans alone are not controlled, and never another chip's outputs in their place; a banner and an alert name them. The other fans are controlled and the drives watched meanwhile. The web UI looks for the chip again every minute and after **Scan again**, and controls those fans as soon as it is back: loading the module is enough. Otherwise, choose the fans again in **Settings**.
 
 **A drive never sleeps.** Something reads or writes it: a pool scrub, SMART tests, an app. The web UI itself reads temperatures only through hddfancontrol, which leaves sleeping drives alone, and SMART data only with `-n standby`.
 

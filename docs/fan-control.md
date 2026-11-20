@@ -16,10 +16,15 @@ hddfancontrol -v INFO daemon --drives … --fan-cmd /bin/true --interval 20s
 
 `--fan-cmd /bin/true` keeps it away from the fans; it still probes the drives the way
 it always has, without waking a sleeping drive, and writes one JSON line per interval
-to the temperature log.
+to the temperature log. It runs whenever drives are chosen, even with no fan chosen yet
+or with the chip of every fan missing: the alerts and the history need the
+temperatures, and a fan that comes back finds them.
 
 `templog.py` reads only the last line of that log, and only when its size or mtime
-changed; it keeps the last sample across the daily rotation. In a line hddfancontrol
+changed; it keeps the last sample across the daily rotation. A line with a temperature
+that is no finite number (`NaN`, an infinity) is no sample at all (`parse_line`): `NaN`
+would pass every comparison with a maximum, so the line ends in the stale failsafe
+rather than in a drive left out. In a line hddfancontrol
 writes every drive first, then every extra hwmon input; an interface name such as
 `ata` gives one entry per drive, so the drives are every value but the last
 `len(hwmons)`.
@@ -54,7 +59,9 @@ control.
 - The first time it writes an output, it saves the output's `pwmN_enable` and value, in
   memory and in `/config/pwm-state.json` together with the boot id. A run after a
   SIGKILL of the same boot then takes the chip's real state from the file, not its own
-  leftovers ("manual, 255"). At start, before anything is taken, `restore_leftovers`
+  leftovers ("manual, 255"). Only entries that are PWM outputs (`is_pwm_path`) with a
+  mode and a value of 0 to 255 are read back; the rest is logged and ignored, and
+  `_give_back` checks the path again. At start, before anything is taken, `restore_leftovers`
   gives every output of that file back its mode (logged): one this run no longer
   drives (a fan taken out of the settings, one moved by a slider in manual control)
   would otherwise stay in manual mode at the killed run's last value until a reboot.
@@ -138,6 +145,14 @@ These hold in every mode, whatever the settings. They must never be weakened.
 | hddfancontrol stops | Full speed until a newer sample; in manual control, every fan at 255 until it ends |
 | An unexpected error in the control or manual loop | Every fan at 255, `error` in the status, the loop goes on |
 | Control ends (stop, apply, exit) | Every output gets its previous mode back |
+| The chip of a chosen fan is missing | Only that fan is left alone (its old path may belong to another chip); the others are controlled and the drives watched |
+
+The fans are always written before the line that says so is logged, and a log that
+fails is dropped (`FanController._log`): a full or broken stdout must never come
+between a failure and full speed. `stop()` gives the outputs back in a `finally`, even
+when the loop it cancels ended with an error. `LogBuffer` echoes to stdout from a
+thread of its own, through a queue of `ECHO_QUEUE` (1000) lines that drops what does
+not fit, so `add()` never waits on the event loop.
 
 The settings themselves are capped: drive temperatures up to 80 °C, the limits of one
 SATA/SAS drive up to 70 °C.

@@ -85,10 +85,11 @@ PUBLIC_PATHS = (
     "/static/manifest.webmanifest",
 )
 PUBLIC_PREFIXES = ("/static/i18n/",)
-# After this many wrong passwords (or setup codes) from one client within
-# LOGIN_WINDOW seconds, that client is refused without checking until the
-# window ends. A client is an IPv4 address or an IPv6 /64: a host holds as
-# many addresses of its /64 as it likes.
+# After this many wrong passwords (or setup codes) from one address within
+# LOGIN_WINDOW seconds, that address is refused without checking until the
+# window ends. An IPv6 /64 that sent as many is slowed down instead (see
+# LoginLimiter.delay): a host holds as many addresses of its /64 as it
+# likes, but a whole LAN often shares one, and nobody may lock the owner out.
 LOGIN_MAX_FAILURES = 10
 LOGIN_WINDOW = 900.0
 LOGIN_MAX_ADDRESSES = 10000
@@ -106,6 +107,8 @@ LOGIN_SLOW_STEP = 25
 LOGIN_SLOW_MAX = 30.0
 # How many global failures are remembered: enough for the delay to reach its maximum.
 LOGIN_GLOBAL_KEEP = 1000
+# Sec-Fetch-Site values of a request sent by a page of another site: never served by the API.
+FOREIGN_SITES = ("same-site", "cross-site")
 # What plain HTTP still serves with FORCE_HTTPS: the health check, and the page that moves the browser to HTTPS.
 HTTP_PATHS = ("/healthz", "/static/https.js", "/static/style.css")
 # The networks allowed by default: loopback, private, link-local, carrier-grade NAT
@@ -129,6 +132,9 @@ LOCAL_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localdomain", "
 # A Host header: a name (letters, digits, dots, hyphens) or an IPv6 address in brackets, then maybe a port.
 _HOST = re.compile(r"^(?:\[(?P<v6>[0-9A-Fa-f:.]+)\]|(?P<name>[A-Za-z0-9.-]{1,253}))(?::[0-9]{1,5})?$")
 REFUSED_LOG_PERIOD = 3600.0
+# Lines about refused addresses and host names in all, per REFUSED_LOG_PERIOD: past it they
+# are counted, and the count is logged once the period is over (RefusalLog).
+REFUSED_LOG_MAX = 20
 # The endpoints the gateway answers itself.
 GATEWAY_API = ("/api/login", "/api/logout", "/api/setup", "/api/auth")
 # Requests to the core: the slowest are a SMART read of every drive and a notification test.
@@ -160,11 +166,14 @@ class TooManyAttempts(Exception):
 #   LoginLimiter
 # ---------------------------
 class LoginLimiter:
-    """Count the wrong passwords of each client and of all of them: refuse a client past its limit, slow down past the global one.
+    """Count the wrong passwords of each address, IPv6 /64 and of all of them.
 
-    The scrypt checks already run one at a time; this stops one client from
-    guessing for hours, and from keeping the checks busy for everyone else.
-    Behind a reverse proxy every client has the address of the proxy.
+    An address past its limit is refused; a /64 past it, or all clients
+    past the global limit, are slowed down only. The scrypt checks already
+    run one at a time; this stops one client from guessing for hours, and
+    from keeping the checks busy for everyone else, without letting a
+    neighbour of the same /64 lock the owner out. Behind a reverse proxy
+    every client has the address of the proxy.
     """
 
     def __init__(
@@ -175,6 +184,8 @@ class LoginLimiter:
         self._max_global = max_global
         self._window = window
         self._failures: dict[str, list[float]] = {}
+        # The failures of each IPv6 /64, which only slow down its addresses.
+        self._networks: dict[str, list[float]] = {}
         self._global: list[float] = []
         # The clients with a password check waiting or running.
         self._busy: set[str] = set()
@@ -193,10 +204,10 @@ class LoginLimiter:
 
     @staticmethod
     def client(address: str) -> str:
-        """The client an address belongs to: itself for IPv4 (or a name), its /64 for IPv6.
+        """The client an address belongs to: the address itself, written one way (or the name given).
 
         An IPv4-mapped address (::ffff:a.b.c.d, from a dual-stack socket) is
-        the IPv4 client, as in allowed(): its /64 would hold every IPv4 host.
+        the IPv4 client, as in allowed().
         """
         try:
             ip = ipaddress.ip_address(address)
@@ -204,17 +215,27 @@ class LoginLimiter:
             return address
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
             return str(ip.ipv4_mapped)
-        if ip.version == 6:
-            return str(ipaddress.ip_network(f"{ip}/64", strict=False))
-        return address
+        return str(ip)
 
-    def _recent(self, key: str, now: float) -> list[float]:
-        """The failures of a client within the window."""
-        recent = [t for t in self._failures.get(key, []) if now - t < self._window]
+    @staticmethod
+    def network(address: str) -> str | None:
+        """The IPv6 /64 of an address, or None (IPv4, IPv4-mapped, a name)."""
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            return None
+        if not isinstance(ip, ipaddress.IPv6Address) or ip.ipv4_mapped is not None:
+            return None
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+
+    def _recent(self, key: str, now: float, table: dict[str, list[float]] | None = None) -> list[float]:
+        """The failures of a client (or, with table, of a /64) within the window."""
+        table = self._failures if table is None else table
+        recent = [t for t in table.get(key, []) if now - t < self._window]
         if recent:
-            self._failures[key] = recent
+            table[key] = recent
         else:
-            self._failures.pop(key, None)
+            table.pop(key, None)
         return recent
 
     def _recent_global(self, now: float) -> int:
@@ -227,39 +248,88 @@ class LoginLimiter:
         return len(self._recent(self.client(address), time.monotonic())) >= self._max
 
     def delay(self, address: str) -> float:
-        """How long the next password check of address waits: 0 below the global limit or for a client without failures.
+        """How long the next password check of address waits; the longer of the global and the /64 delay.
 
-        Past the limit, the delay doubles every LOGIN_SLOW_STEP failures,
-        from LOGIN_SLOW_BASE to LOGIN_SLOW_MAX seconds. When the table of
-        clients is full, a client it does not hold may have failed too:
-        it waits like one that did.
+        Global: 0 below the global limit or for a client without failures;
+        past it, the delay doubles every LOGIN_SLOW_STEP failures, from
+        LOGIN_SLOW_BASE to LOGIN_SLOW_MAX seconds. When the table of
+        clients is full, a client it does not hold may have failed too: it
+        waits like one that did. /64: once its addresses sent max_failures
+        wrong passwords, every address of it waits LOGIN_SLOW_BASE, doubled
+        for every max_failures more, at most LOGIN_SLOW_MAX: a guesser that
+        takes a new address for each try is slowed, its neighbours never
+        refused.
         """
         now = time.monotonic()
+        waits = [0.0]
+        if (network := self.network(address)) is not None:
+            excess = len(self._recent(network, now, self._networks)) - self._max
+            if excess >= 0:
+                waits.append(min(LOGIN_SLOW_MAX, LOGIN_SLOW_BASE * 2 ** (excess // self._max)))
         excess = self._recent_global(now) - self._max_global
-        if excess < 0:
-            return 0.0
-        key = self.client(address)
-        if not self._recent(key, now) and len(self._failures) < LOGIN_MAX_ADDRESSES:
-            return 0.0
-        return float(min(LOGIN_SLOW_MAX, LOGIN_SLOW_BASE * 2 ** (excess // LOGIN_SLOW_STEP)))
+        if excess >= 0 and (self._recent(self.client(address), now) or len(self._failures) >= LOGIN_MAX_ADDRESSES):
+            waits.append(min(LOGIN_SLOW_MAX, LOGIN_SLOW_BASE * 2 ** (excess // LOGIN_SLOW_STEP)))
+        return float(max(waits))
 
     def failed(self, address: str) -> bool:
         """Count a wrong password of address; True when it is the one that starts slowing down the checks."""
         now = time.monotonic()
         self._global.append(now)
         stopped = self._recent_global(now) == self._max_global
-        key = self.client(address)
-        if key not in self._failures and len(self._failures) >= LOGIN_MAX_ADDRESSES:
-            for other in list(self._failures):
-                self._recent(other, now)
-            if len(self._failures) >= LOGIN_MAX_ADDRESSES:
-                return stopped  # the global count still holds this one
-        self._failures.setdefault(key, []).append(now)
+        network = self.network(address)
+        if network is not None:
+            self._count(self._networks, network, now)
+        self._count(self._failures, self.client(address), now)
         return stopped
 
+    def _count(self, table: dict[str, list[float]], key: str, now: float) -> None:
+        """Add a failure of key to table, unless the table is full of recent failures (the global count still holds it)."""
+        if key not in table and len(table) >= LOGIN_MAX_ADDRESSES:
+            for other in list(table):
+                self._recent(other, now, table)
+            if len(table) >= LOGIN_MAX_ADDRESSES:
+                return
+        table.setdefault(key, []).append(now)
+
     def succeeded(self, address: str) -> None:
-        """Forget the failures of the client of address after a right password."""
+        """Forget the failures of address after a right password; not those of its /64, which may hold a guesser."""
         self._failures.pop(self.client(address), None)
+
+
+# ---------------------------
+#   RefusalLog
+# ---------------------------
+class RefusalLog:
+    """The lines about refused addresses and host names, at most REFUSED_LOG_MAX per REFUSED_LOG_PERIOD in all.
+
+    Each address or name is logged once an hour already; random names or
+    the addresses of an IPv6 /64 would still give a line per request and
+    push the audit and the alerts out of the log. Past the cap the lines
+    are counted, and the count is logged with the first line of the next
+    period.
+    """
+
+    def __init__(self, log: Callable[[str], None]) -> None:
+        """Write the lines through log."""
+        self._log = log
+        self._start = -REFUSED_LOG_PERIOD
+        self._written = 0
+        self._skipped = 0
+
+    def write(self, text: str) -> None:
+        """Log one refusal, or count it when the period's lines are used up."""
+        now = time.monotonic()
+        if now - self._start >= REFUSED_LOG_PERIOD:
+            if self._skipped:
+                self._log(f"{self._skipped} more refused requests were not logged in the last hour")
+            self._start, self._written, self._skipped = now, 0, 0
+        if self._written >= REFUSED_LOG_MAX:
+            self._skipped += 1
+            return
+        self._written += 1
+        self._log(text)
+        if self._written == REFUSED_LOG_MAX:
+            self._log(f"{REFUSED_LOG_MAX} refusals logged this hour: the next ones are counted, not logged")
 
 
 # ---------------------------
@@ -302,6 +372,7 @@ LOG: web.AppKey[Callable[[str], None]] = web.AppKey("log")
 REFUSED: web.AppKey[dict[str, float]] = web.AppKey("refused", dict)
 HOSTS: web.AppKey[tuple[str, ...] | None] = web.AppKey("hosts")
 REFUSED_HOSTS: web.AppKey[dict[str, float]] = web.AppKey("refused_hosts", dict)
+REFUSAL_LOG: web.AppKey[RefusalLog] = web.AppKey("refusal_log", RefusalLog)
 
 
 # ---------------------------
@@ -492,18 +563,32 @@ def _failed_login(request: web.Request, address: str) -> None:
 # ---------------------------
 @web.middleware
 async def network_filter(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Answer only the addresses of WEBUI_ALLOW; the others get a bare 403, logged once an hour."""
-    if allowed(request.remote, request.app[ALLOW]):
+    """Answer only the addresses of WEBUI_ALLOW; the others get a bare 403, logged once an hour.
+
+    _serve already closes their connections at accept (admit_address):
+    this is the same rule again, for any other way a request comes in.
+    """
+    if admit_address(request.app, request.remote or ""):
         return await handler(request)
-    address = request.remote or "?"
-    refused = request.app[REFUSED]
+    return web.Response(status=403, text="Forbidden")
+
+
+# ---------------------------
+#   admit_address
+# ---------------------------
+def admit_address(app: web.Application, address: str) -> bool:
+    """Whether a client address is in WEBUI_ALLOW (or loopback); a refused one is logged once an hour."""
+    if allowed(address, app[ALLOW]):
+        return True
+    address = address or "?"
+    refused = app[REFUSED]
     now = time.monotonic()
     if now - refused.get(address, -REFUSED_LOG_PERIOD) >= REFUSED_LOG_PERIOD:
         if len(refused) > LOGIN_MAX_ADDRESSES:
             refused.clear()
         refused[address] = now
-        request.app[LOG](f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
-    return web.Response(status=403, text="Forbidden")
+        app[REFUSAL_LOG].write(f"Refused {address}: not in WEBUI_ALLOW{refused_hint(address)}")
+    return False
 
 
 # ---------------------------
@@ -530,7 +615,7 @@ async def host_check(request: web.Request, handler: Handler) -> web.StreamRespon
         if len(refused) > LOGIN_MAX_ADDRESSES:
             refused.clear()
         refused[host] = now
-        request.app[LOG](
+        request.app[REFUSAL_LOG].write(
             f"Refused the host name {host[:100]!r}: not a name of the LAN (if it is yours, set WEBUI_HOSTS={host[:100]})"
         )
     return web.Response(status=403, text="Forbidden")
@@ -643,7 +728,17 @@ async def csrf(request: web.Request, handler: Handler) -> web.StreamResponse:
     A change needs the X-Requested-With header, which a page of another
     site cannot send without a CORS preflight (never accepted here), and,
     when the browser sends one, an Origin that matches the host.
+
+    The API and /metrics also refuse any request, a GET too, that the
+    browser marks as sent by another site (Sec-Fetch-Site same-site or
+    cross-site): SameSite=Strict counts sites, not ports, so a page of
+    another app of the NAS could otherwise read nothing but still keep
+    manual control alive through GET /api/status. Pages may be linked.
     """
+    if (request.path.startswith("/api/") or request.path == "/metrics") and request.headers.get(
+        "Sec-Fetch-Site"
+    ) in FOREIGN_SITES:
+        return json_error(403, "csrf")
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return await handler(request)
     if request.headers.get(CSRF_HEADER) != "fetch":
@@ -786,6 +881,7 @@ async def post_setup(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the credentials: %s", err)
         return json_error(500, "save_failed")
+    auth.end_all_sessions()  # here, on the event loop: never in the thread of set_credentials
     logins.succeeded(address)
     setup.used()
     _log(request, f"First setup done: credentials of {auth.username} created")
@@ -824,6 +920,7 @@ async def put_auth(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the credentials: %s", err)
         return json_error(500, "save_failed")
+    auth.end_all_sessions()  # here, on the event loop: never in the thread of set_credentials
     _log(request, f"Credentials changed, now for {auth.username}; every other session ended")
     response = web.json_response(auth.status())
     _open_session(request, response)
@@ -895,6 +992,7 @@ def create_gateway(
     app[REFUSED] = {}
     app[HOSTS] = hosts
     app[REFUSED_HOSTS] = {}
+    app[REFUSAL_LOG] = RefusalLog(log)
 
     async def core_session(app: web.Application) -> Any:
         app[CORE] = core() if callable(core) else core
@@ -1000,6 +1098,10 @@ def main() -> None:  # pragma: no cover  # the process entry point; build and _s
 async def _serve(app: web.Application, host: str, port: int, context: ssl.SSLContext | None, access_log: bool = False) -> None:
     """Serve until SIGTERM or SIGINT; with TLS, one port answers both HTTPS and HTTP (DualListener).
 
+    Without TLS the same listener serves plain HTTP: either way an address
+    outside WEBUI_ALLOW is closed at accept, before a byte is read or a
+    handshake made, and the connections are limited per address and in all.
+
     With access_log (WEBUI_ACCESS_LOG) every request of a browser or a
     script is logged; off by default, since the page polls every few
     seconds and would bury everything else.
@@ -1012,14 +1114,11 @@ async def _serve(app: web.Application, host: str, port: int, context: ssl.SSLCon
         loop.add_signal_handler(signum, stop.set)
     listener: DualListener | None = None
     try:
-        if context is None:
-            await web.TCPSite(runner, host, port).start()
-        else:
-            server = runner.server
-            if server is None:  # setup() made it
-                raise RuntimeError("the server was not made")
-            listener = DualListener(server, host, port, context)
-            await listener.start()
+        server = runner.server
+        if server is None:  # setup() made it
+            raise RuntimeError("the server was not made")
+        listener = DualListener(server, host, port, context, admit=lambda address: admit_address(app, address))
+        await listener.start()
         await stop.wait()
     finally:
         for signum in (signal.SIGINT, signal.SIGTERM):

@@ -676,6 +676,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   $("reset-settings").addEventListener("click", resetSettings);
   $("notify-test").addEventListener("click", testNotify);
+  setupNotifyField();
   $("export-settings").addEventListener("click", () => exportSettings().catch((error) => alertBanner(errorText(error))));
   $("import-settings").addEventListener("click", () => $("import-file").click());
   $("import-file").addEventListener("change", async () => {

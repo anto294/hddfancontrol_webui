@@ -52,9 +52,9 @@ from .httputil import json_error as _json_error
 from .httputil import read_json as _read_json
 from .labels import LabelError, Labels
 from .monitor import Monitor
-from .notify import NotifyError
+from .notify import NOTIFY_FORBIDDEN, NotifyError
 from .sensors import SensorReport, scan_sensor_modules
-from .settings import SettingsError, from_dict
+from .settings import SettingsError, from_dict, restore_notify_url
 from .supervisor import Busy, ReadOnly, Supervisor
 from .templog import TempLog
 
@@ -69,6 +69,10 @@ SUPPORT_LOG_LINES = 30
 # colons that has "::" or three colons or more (a time such as 10:17:02 has two).
 _SUPPORT_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _SUPPORT_IPV6 = re.compile(r"[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:]*")
+# A /dev/disk/by-id name (with or without its folder): most hold the drive's serial number.
+_SUPPORT_BY_ID = re.compile(
+    r"(?:/dev/disk/by-id/)?\b(?:ata|nvme|scsi|sata|wwn|usb|mmc|virtio|ieee1394|cciss|memstick)-[^\s,;'\"()\[\]{}<>]+"
+)
 # Files that only exist inside a container.
 CONTAINER_MARKS = (Path("/.dockerenv"), Path("/run/.containerenv"))
 
@@ -162,7 +166,7 @@ def _peer_uid(request: web.Request) -> int | None:
 # ---------------------------
 @web.middleware
 async def core_guard(request: web.Request, handler: Handler) -> web.StreamResponse:
-    """Answer only the users of PEERS (the gateway, and root), and log every change in the audit log.
+    """Answer only the users of PEERS (the gateway, and root), and log every change in the audit log, failed ones too.
 
     The socket's mode already keeps other users out; this checks the peer
     of each connection again, in case the file mode is ever loosened.
@@ -176,6 +180,10 @@ async def core_guard(request: web.Request, handler: Handler) -> web.StreamRespon
         response = await handler(request)
     except web.HTTPException as exc:
         _audit(request, exc.status)
+        raise
+    except Exception:
+        # aiohttp answers 500 for it: a change that failed is a change tried, and is logged too.
+        _audit(request, 500)
         raise
     _audit(request, response.status)
     return response
@@ -370,6 +378,19 @@ def mask_addresses(text: str) -> str:
 
 
 # ---------------------------
+#   mask_drives
+# ---------------------------
+def mask_drives(text: str, names: dict[str, str]) -> str:
+    """Replace the /dev/disk/by-id names of a text (serial numbers) with the kernel name of names, or <drive>."""
+    by_name = {path.rsplit("/", 1)[-1]: kernel for path, kernel in names.items() if path.startswith("/dev/disk/by-id/")}
+
+    def drive(match: re.Match[str]) -> str:
+        return by_name.get(match.group(0).rsplit("/", 1)[-1], "<drive>")
+
+    return _SUPPORT_BY_ID.sub(drive, text)
+
+
+# ---------------------------
 #   get_support
 # ---------------------------
 async def get_support(request: web.Request) -> web.Response:
@@ -377,11 +398,14 @@ async def get_support(request: web.Request) -> web.Response:
 
     The fields are named as the form's (hardware_support.yml): system, host
     (the same lines as the form's shell block), bmc (what the web UI knows of
-    the BMC, experimental) and logs. Nothing leaves the
-    host here: the page shows it all, and the user decides to send it.
+    the BMC, experimental) and logs. Nothing leaves the host here: the page
+    shows it all, and the user decides to send it. The log lines lose their
+    addresses and the serial numbers in the by-id names of the drives, as
+    the form promises.
     """
     app = request.app
     host = await asyncio.to_thread(app[HARDWARE].report)
+    names = await asyncio.to_thread(app[HARDWARE].kernel_names)
     runs_in = "Docker image" if any(mark.exists() for mark in CONTAINER_MARKS) else "bare metal"
     lines = [line for line in app[SUPERVISOR].logs.since(0) if line["source"] in SUPPORT_SOURCES]
     logs = "\n".join(f"[{line['source']}] {line['text']}" for line in lines[-SUPPORT_LOG_LINES:])
@@ -394,7 +418,7 @@ async def get_support(request: web.Request) -> web.Response:
             # masked: it has no address, and an iDRAC firmware (2.83.83.83)
             # looks like one.
             "bmc": bmc.report() if bmc is not None else "",
-            "logs": mask_addresses(logs),
+            "logs": mask_addresses(mask_drives(logs, names)),
         }
     )
 
@@ -490,12 +514,19 @@ async def get_cron(request: web.Request) -> web.Response:
 
 
 # ---------------------------
+#   _settings_answer
+# ---------------------------
+def _settings_answer(supervisor: Supervisor) -> web.Response:
+    """The settings in force, with notify_url masked (its token never leaves the core), and where they come from."""
+    return web.json_response({"settings": supervisor.settings.masked_dict(), "source": supervisor.source})
+
+
+# ---------------------------
 #   get_settings
 # ---------------------------
 async def get_settings(request: web.Request) -> web.Response:
     """The settings in force and where they come from."""
-    supervisor = request.app[SUPERVISOR]
-    return web.json_response({"settings": supervisor.settings.to_dict(), "source": supervisor.source})
+    return _settings_answer(request.app[SUPERVISOR])
 
 
 # ---------------------------
@@ -505,7 +536,7 @@ async def put_settings(request: web.Request) -> web.Response:
     """Check, save and apply new settings."""
     supervisor = request.app[SUPERVISOR]
     try:
-        settings = from_dict(await _read_json(request))
+        settings = from_dict(restore_notify_url(await _read_json(request), supervisor.settings))
     except SettingsError as err:
         return _json_error(400, "invalid_settings", err.problems)
     try:
@@ -517,7 +548,7 @@ async def put_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the settings: %s", err)
         return _json_error(500, "save_failed")
-    return web.json_response({"settings": supervisor.settings.to_dict(), "source": supervisor.source})
+    return _settings_answer(supervisor)
 
 
 # ---------------------------
@@ -533,7 +564,7 @@ async def delete_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot delete the settings: %s", err)
         return _json_error(500, "save_failed")
-    return web.json_response({"settings": supervisor.settings.to_dict(), "source": supervisor.source})
+    return _settings_answer(supervisor)
 
 
 # ---------------------------
@@ -583,7 +614,8 @@ async def post_notify_test(request: web.Request) -> web.Response:
         await alerts.test()
     except NotifyError as err:
         _LOGGER.warning("Test notification failed: %s", err)
-        return _json_error(502, "notify_failed")
+        # A forbidden address is the settings' fault (400); any other failure the server's (502).
+        return _json_error(400 if err.code == NOTIFY_FORBIDDEN else 502, err.code)
     return web.json_response({"ok": True})
 
 
@@ -685,12 +717,22 @@ async def post_sensor_scan(request: web.Request) -> web.Response:
 #   _scan_sensors
 # ---------------------------
 async def _scan_sensors(app: web.Application) -> None:
-    """Run the scan asked by the page and keep its report; it never stays "running"."""
+    """Run the scan asked by the page and keep its report; it never stays "running".
+
+    The scan may have loaded the module of a fan chip that was missing:
+    the supervisor looks for it at once (recheck_fans) instead of at its
+    next PLACE_PERIOD.
+    """
     state = app[STATE]
     try:
         state["sensors"] = await app[SENSOR_SCAN]()
     except Exception as err:  # never left "running": every later scan would answer busy
         state["sensors"] = SensorReport(state="done", detect_error=repr(err), finished_at=datetime.now(UTC).isoformat())
+    supervisor = app[SUPERVISOR]
+    try:
+        await supervisor.recheck_fans()
+    except Exception as err:  # the scan task ends quietly; the periodic look tries again
+        supervisor.logs.add(SOURCE_WEBUI, f"ERROR: cannot look for the missing fan chips: {err!r}")
 
 
 # ---------------------------

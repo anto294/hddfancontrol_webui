@@ -75,6 +75,11 @@ for `data-theme="dark"`.
 | Security | Credentials |
 | Logs | The last lines of every source |
 
+The notification address comes masked (`•••` for its token, password or ntfy topic):
+the field shows it so, with a note, and sends it back unchanged to keep it; a click
+selects it all, so typing replaces it. A backup holds it masked too, and importing one
+keeps the address in force.
+
 The **guided setup** opens by itself while the settings come from the environment with
 no drive and no fan, until it is closed once (`localStorage` `setupSkipped`). It builds
 a settings document from the answers and saves it through `PUT /api/settings`, like the

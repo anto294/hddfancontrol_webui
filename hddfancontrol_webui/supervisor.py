@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import queue
 import re
 import sys
 import threading
@@ -34,6 +35,7 @@ from .const import (
     LOG_BUFFER_LINES,
     MANUAL_IDLE_TIMEOUT,
     MANUAL_WATCH_PERIOD,
+    PLACE_PERIOD,
     RESTART_DELAY_MAX,
     RESTART_DELAY_MIN,
     RESTART_RESET_AFTER,
@@ -58,8 +60,8 @@ MODE_MANUAL = "manual"
 MODE_READ_ONLY = "read_only"
 
 
-# ---------------------------
-#   Busy
+# Lines waiting for stdout at most; more are dropped from stdout (never from the buffer).
+ECHO_QUEUE = 1000
 # The PWM test of one output takes a few minutes; past this it is stopped.
 PWM_TEST_MAX_S = 600.0
 # The temperatures are old, and the PWM test stops, after 3 intervals and at least this.
@@ -68,6 +70,8 @@ PWM_TEST_STALE_MIN_S = 120.0
 PWM_TEST_STOPPED_ERROR = "error"
 
 
+# ---------------------------
+#   Busy
 # ---------------------------
 class Busy(RuntimeError):
     """The request cannot run now, because a PWM test is running."""
@@ -81,6 +85,8 @@ class ReadOnly(RuntimeError):
 
 
 # ---------------------------
+#   NotSelected
+# ---------------------------
 class NotSelected(ValueError):
     """The PWM output is not one of the fans chosen in the settings."""
 
@@ -92,7 +98,12 @@ class LogBuffer:
     """The last lines of every process, numbered so a client asks only for new ones.
 
     Every line also goes to stdout with its source, so docker logs keeps
-    showing what the upstream image showed.
+    showing what the upstream image showed. A thread of its own writes
+    them, from a queue of at most ECHO_QUEUE lines: add() runs on the
+    event loop, next to the fan control, and must never wait for a stdout
+    that is full (a log FIFO nobody reads) nor fail with one that is gone
+    (BrokenPipeError). Lines that do not fit are dropped from stdout only,
+    and counted in the next line that gets through.
     """
 
     def __init__(self, maxlen: int = LOG_BUFFER_LINES, echo: bool = True) -> None:
@@ -103,6 +114,9 @@ class LogBuffer:
         # Lines come from the event loop and from worker threads (the hooks of
         # Daemon run in one): numbering and reading must not interleave.
         self._lock = threading.Lock()
+        self._queue: queue.Queue[str | None] = queue.Queue(maxsize=ECHO_QUEUE)
+        self._dropped = 0
+        self._writer: threading.Thread | None = None
 
     @property
     def last_seq(self) -> int:
@@ -116,7 +130,40 @@ class LogBuffer:
             self._seq += 1
             self._lines.append({"seq": self._seq, "time": datetime.now(UTC).isoformat(), "source": source, "text": text})
         if self._echo:
-            print(f"[{source}] {text}", file=sys.stdout, flush=True)
+            self._echo_line(f"[{source}] {text}")
+
+    def _echo_line(self, line: str) -> None:
+        """Queue a line for stdout without waiting; drop it when the queue is full."""
+        with self._lock:
+            if self._writer is None:
+                self._writer = threading.Thread(target=self._write_echo, name="log-echo", daemon=True)
+                self._writer.start()
+            if self._dropped:
+                line = f"{line} ({self._dropped} earlier lines were not echoed: stdout was too slow)"
+            try:
+                self._queue.put_nowait(line)
+            except queue.Full:
+                self._dropped += 1
+            else:
+                self._dropped = 0
+
+    def _write_echo(self) -> None:
+        """The echo thread: write each queued line to stdout until close(); a failing stdout loses the line, nothing else."""
+        while (line := self._queue.get()) is not None:
+            try:
+                print(line, file=sys.stdout, flush=True)
+            except (OSError, ValueError):  # stdout gone or closed: the line stays in the buffer
+                pass
+
+    def close(self, timeout: float = 2.0) -> None:
+        """Let the echo thread write what is queued, for at most timeout seconds (at exit)."""
+        with self._lock:
+            writer = self._writer
+        if writer is None:
+            return
+        with contextlib.suppress(queue.Full):
+            self._queue.put(None, timeout=timeout)
+        writer.join(timeout)
 
     def since(self, seq: int) -> list[dict[str, Any]]:
         """Return the lines newer than seq that are still kept."""
@@ -225,7 +272,16 @@ class Daemon:
             try:
                 extra: dict[str, Any] = {}
                 if self._user is not None:
-                    extra = {"user": self._user[0], "group": self._user[1], "extra_groups": [], "umask": 0o077}
+                    # Another user (the gateway): no stdin and a session of its own, so it can never
+                    # reach a terminal the core was started from (TIOCSTI into a root shell).
+                    extra = {
+                        "user": self._user[0],
+                        "group": self._user[1],
+                        "extra_groups": [],
+                        "umask": 0o077,
+                        "stdin": asyncio.subprocess.DEVNULL,
+                        "start_new_session": True,
+                    }
                 proc = await asyncio.create_subprocess_exec(
                     self.binary,
                     *args,
@@ -325,6 +381,7 @@ class Supervisor:
         fence_samples: Callable[[], None] | None = None,
         manual_timeout: float = MANUAL_IDLE_TIMEOUT,
         manual_watch_period: float = MANUAL_WATCH_PERIOD,
+        place_period: float = PLACE_PERIOD,
     ) -> None:
         """Use these settings, this log, this fan controller and these programs.
 
@@ -335,14 +392,17 @@ class Supervisor:
         (TempLog.fence) is called before each start of hddfancontrol, so the
         last sample of the run before is never read with new settings. Manual
         control ends by itself after manual_timeout seconds without
-        touch_manual().
+        touch_manual(). While the chip of a fan is missing, it is looked for
+        again every place_period seconds (recheck_fans).
         """
         self.read_only = read_only
         self._fence_samples = fence_samples
         self.hardware = hardware
         self._on_pwm_moved = on_pwm_moved
-        # Chosen fans whose chip is not on the host now: they are not controlled.
+        # Chosen fans whose chip is not on the host now: they alone are not controlled.
         self.missing_pwms: list[str] = []
+        self._place_period = place_period
+        self._place_watch: asyncio.Task[None] | None = None
         self.store = store
         self.logs = logs
         self.temp_log = temp_log
@@ -370,10 +430,13 @@ class Supervisor:
             return MODE_PWM_TEST
         if self.manual:
             return MODE_MANUAL
-        if self.hddfancontrol.active or self.fans.active:
+        if self.fans.active:
             return MODE_RUNNING
         if not self.settings.complete:
+            # hddfancontrol may measure already (drives without fans), but no fan is driven.
             return MODE_WAITING
+        if self.hddfancontrol.active:
+            return MODE_RUNNING
         return MODE_STOPPED
 
     def _log(self, text: str) -> None:
@@ -384,20 +447,59 @@ class Supervisor:
         """Start everything with the settings in force."""
         async with self._lock:
             settings, missing = await self._placed(self.settings)
-            if self.source == SOURCE_FILE and settings != self.settings:
-                # A fan moved, or got its chip recorded: keep that for the next start.
-                # Only a convenience (the next start finds the chip again): a full or
-                # read-only /config must never keep the fans from being controlled.
-                try:
-                    await asyncio.to_thread(self.store.save, settings)
-                except OSError as err:
-                    self._log(f"ERROR: cannot save the settings with the new place of the fans, they are used anyway: {err}")
+            await self._keep_place(settings)
             self.settings, self.missing_pwms = settings, missing
             if not self.read_only:
                 given = await asyncio.to_thread(self.fans.writer.restore_leftovers)
                 if given:
                     self._log("The last run was killed: these fans got their mode back: " + ", ".join(given))
             await self._start_daemons()
+        if self.hardware is not None and not self.read_only and (self._place_watch is None or self._place_watch.done()):
+            self._place_watch = asyncio.create_task(self._watch_place(), name="place-watch")
+
+    async def _keep_place(self, settings: Settings) -> None:
+        """Save settings whose fans moved, or got their chip recorded, when the settings come from the file.
+
+        Only a convenience (the next start finds the chip again): a full or
+        read-only /config must never keep the fans from being controlled.
+        """
+        if self.source != SOURCE_FILE or settings == self.settings:
+            return
+        try:
+            await asyncio.to_thread(self.store.save, settings)
+        except OSError as err:
+            self._log(f"ERROR: cannot save the settings with the new place of the fans, they are used anyway: {err}")
+
+    async def recheck_fans(self) -> bool:
+        """Look again for the chips of the missing fans; restart when one came back. True when it restarted.
+
+        Called every place_period while a fan is missing, and after a sensor
+        scan (which may load the module of its chip). Nothing is done during
+        a PWM test or after release_fans: the next look tries again.
+        """
+        async with self._lock:
+            if self.closing or self.read_only or self.test.running or not self.missing_pwms:
+                return False
+            settings, missing = await self._placed(self.settings)
+            if missing == self.missing_pwms and settings == self.settings:
+                return False
+            await self._keep_place(settings)
+            back = [pwm.path for pwm in settings.pwms if pwm.path not in missing]
+            self.settings, self.missing_pwms = settings, missing
+            self._log("The chip of these fans came back, they are controlled again: " + ", ".join(back))
+            await self._restart()
+            return True
+
+    async def _watch_place(self) -> None:
+        """Every place_period, look for the chips of the missing fans (recheck_fans); a failure is logged and the watch goes on."""
+        while not self.closing:
+            await asyncio.sleep(self._place_period)
+            if not self.missing_pwms:
+                continue
+            try:
+                await self.recheck_fans()
+            except Exception as err:  # the watch must outlive any failure of one look
+                self._log(f"ERROR: cannot look for the missing fan chips: {err!r}")
 
     async def _placed(self, settings: Settings) -> tuple[Settings, list[str]]:
         """Return settings with each fan at its place now, and the fans whose chip is gone.
@@ -524,22 +626,27 @@ class Supervisor:
             self.fans.start_manual(replace(settings, pwms=tuple(p for p in settings.pwms if p.path not in self.missing_pwms)))
             self._log("Manual control: the fans keep the values you set")
             return
-        if self.missing_pwms:
-            self._log(
-                "ERROR: the chip of these fans is not on the host, so they are not controlled: "
-                + ", ".join(self.missing_pwms)
-                + ". Load its kernel module, or choose the fans again in the web UI."
-            )
-            return
+        # hddfancontrol only measures; the fan controller drives the fans in every mode.
+        # The drives are watched (the ceiling, the stale failsafe, the hot alert) whatever the fans.
+        if settings.drives:
+            await self._start_measuring(settings)
         if not settings.complete:
             self._log(
                 "No drive or no fan is set: the fans are not controlled. "
                 "Choose them in the web UI, and use the PWM test to find the values of the fans."
             )
             return
-        # hddfancontrol only measures; the fan controller drives the fans in every mode.
-        await self._start_measuring(settings)
-        self.fans.start_control(settings)
+        if self.missing_pwms:
+            # Only those fans: their path may belong to another chip now, or to nothing.
+            self._log(
+                "ERROR: the chip of these fans is not on the host, so they are not controlled: "
+                + ", ".join(self.missing_pwms)
+                + f". Load its kernel module (it is looked for every {self._place_period:.0f} s), "
+                "or choose the fans again in the web UI."
+            )
+        found = tuple(p for p in settings.pwms if p.path not in self.missing_pwms)
+        if found:
+            self.fans.start_control(replace(settings, pwms=found))
 
     async def _stop_daemons(self, final: bool = False) -> None:
         """Stop both daemons, then the fan controller, which gives the fans back last (final: the web UI exits)."""
@@ -564,8 +671,7 @@ class Supervisor:
         """
         self.closing = True
         await self.cancel_pwm_test()
-        if self._manual_watch is not None:
-            await cancel_and_wait(self._manual_watch)
+        await self._stop_watches()
         async with self._lock:
             await self.fans.stop(final=True)
         self._log("Stopping: the fans are given back")
@@ -573,10 +679,16 @@ class Supervisor:
     async def stop(self) -> None:
         """Stop everything, the PWM test too. Used when the container stops."""
         await self.cancel_pwm_test()
-        if self._manual_watch is not None:
-            await cancel_and_wait(self._manual_watch)
+        await self._stop_watches()
         async with self._lock:
             await self._stop_daemons(final=True)
+
+    async def _stop_watches(self) -> None:
+        """Stop the watch of manual control and the look for missing fan chips."""
+        for task in (self._manual_watch, self._place_watch):
+            if task is not None:
+                await cancel_and_wait(task)
+        self._place_watch = None
 
     async def restart(self) -> None:
         """Restart with the settings in force."""
@@ -588,6 +700,9 @@ class Supervisor:
         """Save new settings and restart with them."""
         async with self._lock:
             self._refuse_during_test()
+            # The chip of a fan is the host's to say: one sent with the settings (the page never
+            # sends it) could only hide a fan from control. _placed finds the real one.
+            settings = replace(settings, pwms=tuple(replace(pwm, chip=None) for pwm in settings.pwms))
             settings, missing = await self._placed(settings)
             if problems := await self._host_problems(settings):
                 raise SettingsError(problems)

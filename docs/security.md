@@ -17,18 +17,48 @@ drives or the rest of `/config`. This split must never be weakened: no new port 
 core, no root work triggered by a request the gateway did not authenticate, no code in
 the gateway that needs root.
 
-The gateway is started by the core through a `Daemon` with its user and group, a
-filtered environment (`privsep.GATEWAY_ENV`: no `NOTIFY_URL`, for example),
+The gateway is started by the core through a `Daemon` with its user and group (no
+supplementary groups, umask 077, stdin from `/dev/null` and a session of its own, so it
+can never reach a terminal the core was started from), a filtered environment (`privsep.GATEWAY_ENV`: no `NOTIFY_URL`, for example),
 `HOME=/nonexistent`, no `PYTHONPATH` and `python -I`, the package root passed as an
-argument. It may write only `/config/web` (credentials, its self-signed certificate).
+argument. The notification address does not reach it through the API either: every
+answer that holds the settings (`GET`, `PUT` and `DELETE /api/settings`, so the backup
+too) masks the user and password, the query values (the Gotify token), the fragment and
+the ntfy topic with `NOTIFY_MASK` (`settings.mask_notify_url`); scheme, host, port and
+the rest of the path stay visible. The masked value sent back keeps the address in
+force (`restore_notify_url`), another value replaces it, an empty one clears it, and a
+value that still holds the mask but is not it is refused (`notify_url_masked`). It may write only `/config/web` (credentials, its self-signed certificate).
 Root never writes in or follows anything inside that folder.
 
+The rest of `/config` must be root's alone: the core trusts the settings, the fans'
+state (`pwm-state.json`) and the temperature log it finds there. A `/config` the
+gateway could write (its own, its group's, or everyone's, even with the sticky bit,
+which protects only names that already exist) is given to root and closed at start
+(`_close_config`). When the host refuses (NFS with `root_squash`, an ACL), there is no
+gateway at all: the core drives the fans alone, as with a missing `WEBUI_USER`, and
+the log says why. Even so, `PwmWriter` reads back from `pwm-state.json` only PWM
+outputs (`is_pwm_path`) with numbers from 0 to 255, and checks the path again before
+each write.
+
 ## A request, step by step
+
+Before any middleware, the listener (`tls.DualListener`, with TLS on or off) closes a
+connection from an address outside `WEBUI_ALLOW` at accept, before reading a byte or
+making a handshake (`admit_address`, logged once an hour). It keeps at most
+`MAX_CONNECTIONS_PER_ADDRESS` (64) open connections per address and `MAX_CONNECTIONS`
+(512) in all, closing the rest at once, and drops a connection whose first request
+(headers, and a body by its `Content-Length`) is not complete `REQUEST_TIMEOUT_S`
+(30 s) after its first byte: aiohttp waits for headers for ever, so silent
+connections could run the gateway out of file descriptors, `/healthz` included.
 
 The gateway's middlewares run in this order:
 
 1. **`network_filter`**: the client address must be in `WEBUI_ALLOW` (private, loopback,
    link-local and CGNAT networks by default); otherwise a bare 403, logged once an hour.
+   The listener already refused such an address; this is the same rule again. The lines
+   about refused addresses and host names are also capped in all (`RefusalLog`,
+   `REFUSED_LOG_MAX`, 20 an hour): past it they are counted, and the count is logged
+   when the hour is over, so random names cannot push the audit out of the log.
 2. **`host_check`**: the `Host` header must be an IP address, `localhost`, a dotless
    name, a name under `LOCAL_SUFFIXES` (`.lan`, `.local`, `.home.arpa`, `.ts.net`…) or
    one of `WEBUI_HOSTS`. This stops DNS rebinding. `/healthz` answers any name.
@@ -39,12 +69,19 @@ The gateway's middlewares run in this order:
    page are served. That page moves the browser to HTTPS from its own `location`, never
    from the `Host` header.
 5. **`authentication`**: without credentials only the setup works (with the one-time
-   code from the log); then a session cookie or HTTP Basic. `LoginLimiter` refuses a
-   client after 10 failures in 15 minutes (an IPv4 address or an IPv6 /64), allows one
-   check at a time per client, and past 100 failures overall slows down only the
+   code from the log); then a session cookie or HTTP Basic. `LoginLimiter` refuses an
+   address after 10 failures in 15 minutes (`LOGIN_MAX_FAILURES`, `LOGIN_WINDOW`) and
+   allows one check at a time per address. An IPv6 /64 that sent as many is only slowed
+   down (every address of it waits 2 s, doubled for every 10 more failures, at most
+   30 s): a LAN often shares one /64, and a host that takes a new address for each try
+   still cannot guess at full speed. Past 100 failures overall it slows down only the
    clients that failed. Nobody is ever locked out by others.
 6. **`csrf`**: every request that is not a GET needs `X-Requested-With: fetch` (a
-   header other sites cannot send without a preflight) and a matching `Origin`.
+   header other sites cannot send without a preflight) and a matching `Origin`. The API
+   and `/metrics` refuse any request, GETs too, that the browser marks as sent by
+   another site (`Sec-Fetch-Site: same-site` or `cross-site`, `FOREIGN_SITES`):
+   `SameSite=Strict` counts sites, not ports, so another app of the same NAS could
+   otherwise keep manual control alive with an `<img>` of `/api/status`.
 
 Then the gateway answers its own endpoints (`/api/login`, `/api/logout`, `/api/setup`,
 `/api/auth`) and pages, or forwards `/api/…` and `/metrics` to the core with
@@ -54,16 +91,24 @@ forge who it is.
 
 In the core, `core_guard` refuses a peer whose user id (`SO_PEERCRED`) is not the
 gateway's or root's, and writes every non-GET request to the audit log with the user
-and client the gateway gave. `settings.from_dict` is the only gate for values: drive
+and client the gateway gave, with its status: a 500 from an unexpected error too.
+A body that is no valid JSON (also one nested too deep, or an integer past Python's
+limit of digits) is a 400 `invalid_json` in both processes (`httputil.read_json`),
+never a 500 whose traceback would fill the log before any login. `settings.from_dict` is the only gate for values: drive
 paths, `pwmN` files under `/sys/class/hwmon`, hwmon inputs and chips under `/sys`, no
-`..`, everything checked before it reaches a command line or a file.
+`..`, everything checked before it reaches a command line or a file. Each pattern is
+matched whole (`fullmatch`, or `\Z`): `$` also matches before a final newline, which
+would have let `/dev/sda\n` through.
 
 ## Credentials and sessions
 
 `auth.py` (in the gateway) stores a scrypt hash in `/config/web/auth.json` (mode 0600),
 or uses `WEBUI_USERNAME`/`WEBUI_PASSWORD`, which win and cannot be changed from the
 page. Sessions live in memory: 7 days, or 12 hours without a request, at most 1000.
-Changing the password needs the current one and ends every session. Credentials can
+Changing the password needs the current one and ends every session: on the event loop
+once the new hash is written (`end_all_sessions`), never in the thread that computes
+it, where a request of a stolen session running at the same moment could put its
+session back. Credentials can
 never be removed: an installation must not go back to "open for setup".
 
 ## TLS
@@ -91,3 +136,26 @@ elsewhere.
 Bandit, ruff with the `S` rules, CodeQL, hadolint and shellcheck run on every push. The
 tests cover the gateway in isolation (it imports nothing that needs root) and the image
 (the gateway runs as its user).
+
+## Release
+
+hddfancontrol, hd-idle and sdparm are pinned in the Dockerfile (a commit for the first
+two, a SHA-256 for sdparm). `upstream.yml` opens an issue every week when one of them
+has a newer release: from GitHub for the first two, from Debian's sources for sdparm,
+whose source the Dockerfile takes from Debian's pool.
+
+The bare metal tarball holds a wheel that `install.sh` runs as root, so the release
+workflow (`release.yml`) builds it only from tools pinned with their hashes:
+`packaging/build-requirements.txt` (`build`, `packaging`, `pyproject-hooks`,
+`setuptools`), installed with `--require-hashes --only-binary :all:`, then
+`python -m build --no-isolation`, which fetches nothing more. The checkout keeps no
+token (`persist-credentials: false`), and the write token (`GH_TOKEN`) is given to the
+upload step alone.
+
+The Python dependencies are in the tarball too: `packaging/requirements.txt` pins
+aiohttp and everything it needs at exact versions with the hash of their pure Python
+wheel (`py3-none-any`, so one set serves every architecture and Python from 3.11). The
+release downloads them with `--require-hashes` into `wheels/`, and `install.sh`
+installs them with `--no-index --find-links wheels --require-hashes`, then the program's
+wheel with `--no-index --no-deps`: nothing comes from PyPI, and nothing is built from
+source, as root on the host. `tests/test_packaging.py` checks all of this.

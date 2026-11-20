@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 from aiohttp import web
+from aiohttp.abc import AbstractResolver, ResolveResult
 from aiohttp.test_utils import TestServer
 
+from hddfancontrol_webui import fancontrol
+from hddfancontrol_webui import notify as notify_module
 from hddfancontrol_webui.alerts import Alerts, render
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
@@ -24,7 +29,14 @@ PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 
 
 @pytest.fixture
-async def receiver(aiohttp_server: Any) -> tuple[TestServer, list[dict[str, Any]]]:
+def allow_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let send() reach the test servers on 127.0.0.1, which it refuses otherwise (the NAS itself)."""
+    real = notify_module.forbidden_ip
+    monkeypatch.setattr(notify_module, "forbidden_ip", lambda ip: not ip.is_loopback and real(ip))
+
+
+@pytest.fixture
+async def receiver(aiohttp_server: Any, allow_loopback: None) -> tuple[TestServer, list[dict[str, Any]]]:
     """A server that keeps what it is sent; /fail answers 500."""
     received: list[dict[str, Any]] = []
 
@@ -63,12 +75,94 @@ async def test_send_never_follows_a_redirect(receiver: tuple[TestServer, list[di
     assert [r["path"] for r in received] == ["/redirect"]
 
 
-async def test_send_errors_say_little(caplog: pytest.LogCaptureFixture) -> None:
+async def test_send_errors_say_little(caplog: pytest.LogCaptureFixture, allow_loopback: None) -> None:
     """The error shown in the web UI's log is generic; the detail (without the address's secrets) is in Python's log."""
     with pytest.raises(NotifyError) as failed:
         await send("http://127.0.0.1:1/message?token=s3cret", "gotify", "x", True)
     assert str(failed.value) == "cannot connect"
     assert "s3cret" not in caplog.text and "127.0.0.1:1" in caplog.text
+
+    caplog.clear()
+    with pytest.raises(NotifyError):
+        await send("http://anto:pa55word@127.0.0.1:1/hook", "json", "x", True)
+    # Only the host and port: the user and password of the address never reach the log.
+    assert "pa55word" not in caplog.text and "anto" not in caplog.text and "127.0.0.1:1" in caplog.text
+    assert notify_module._without_query("bad http://u:p@h:1/x?t=1 y") == "bad http://h:1/x y"
+    assert notify_module._where("http://[fd00::1]:8080/x") == "[fd00::1]:8080" and notify_module._where("nope") == "?"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:1/",
+        "http://[::1]:1/",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[fe80::1]:1/",
+        "http://0.0.0.0:1/",
+        "http://[::ffff:127.0.0.1]:1/",
+        "http://224.0.0.1:1/",
+        "http://localhost:1/",  # a name: checked on what it resolves to
+        "http://127.1:1/",  # an old way to write 127.0.0.1
+    ],
+)
+async def test_send_refuses_the_nas_itself_and_link_local(url: str, caplog: pytest.LogCaptureFixture) -> None:
+    """Loopback, link-local, unspecified and multicast addresses (and IPv4 mapped on them) are never connected to."""
+    with pytest.raises(NotifyError) as refused:
+        await send(url, "json", "x", True)
+    assert refused.value.code == notify_module.NOTIFY_FORBIDDEN and "forbidden" in caplog.text
+
+
+async def test_the_check_is_on_the_address_connected_to(
+    receiver: tuple[TestServer, list[dict[str, Any]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A name is checked on what the connection itself resolved, not on a separate lookup: no DNS rebinding.
+
+    The name below resolves (in this test) to the receiver on 127.0.0.1:
+    delivered while loopback is allowed, refused once it is not, without
+    a byte reaching the server.
+    """
+    server, received = receiver
+
+    class Fake(AbstractResolver):
+        """Every name is 127.0.0.1, like a rebinding DNS server would answer."""
+
+        async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET) -> list[ResolveResult]:
+            return [{"hostname": host, "host": "127.0.0.1", "port": port, "family": socket.AF_INET, "proto": 0, "flags": 0}]
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(notify_module, "_new_resolver", Fake)
+    url = f"http://ntfy.example:{server.port}/topic"
+    await send(url, "ntfy", "x", False)
+    assert [r["path"] for r in received] == ["/topic"]
+    monkeypatch.undo()  # loopback is forbidden again; the fake resolver is gone too
+    monkeypatch.setattr(notify_module, "_new_resolver", Fake)
+    with pytest.raises(NotifyError) as refused:
+        await send(url, "ntfy", "x", False)
+    assert refused.value.code == notify_module.NOTIFY_FORBIDDEN and len(received) == 1
+
+
+async def test_guarded_resolver_keeps_the_allowed_addresses() -> None:
+    """Of a name's addresses, the forbidden ones are dropped; the LAN's are kept."""
+
+    class Mixed(AbstractResolver):
+        """A name with a loopback, a link-local and a LAN address."""
+
+        async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET) -> list[ResolveResult]:
+            return [
+                {"hostname": host, "host": ip, "port": port, "family": socket.AF_INET, "proto": 0, "flags": 0}
+                for ip in ("127.0.0.1", "169.254.1.1", "192.168.1.10", "fe80::1%eth0")
+            ]
+
+        async def close(self) -> None:
+            return None
+
+    guarded = notify_module._GuardedResolver(Mixed())
+    assert [r["host"] for r in await guarded.resolve("nas.lan", 80)] == ["192.168.1.10"]
+    await guarded.close()
+    assert not notify_module.forbidden_ip(ipaddress.ip_address("fd00::1"))
+    assert notify_module.forbidden_ip(ipaddress.ip_address("::ffff:169.254.169.254"))
 
 
 async def test_alerts_start_and_end() -> None:
@@ -174,6 +268,35 @@ def test_conditions_hot_drive_at_the_ceiling(
     monkeypatch.setattr("hddfancontrol_webui.monitor.FRESH_SAMPLE_SECONDS", 10**9)
     monkeypatch.setattr("hddfancontrol_webui.fancontrol.DRIVE_CEILING", 39.0)  # the sample says 40
     assert monitor.conditions({})["hot:sda"] == ("drive_hot", {"drive": "sda", "temp": "40", "max": "39"})
+    monitor.history.close()
+
+
+def test_a_failed_probe_does_not_end_the_hot_alert(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A null reading of a hot drive (a probe that failed during a scrub) keeps drive_hot for NULL_HOLD_INTERVALS, like the fans.
+
+    Without the hold, the alert ended at the null and a new urgent one
+    started at the next sample.
+    """
+    from datetime import datetime, timedelta
+
+    monitor = conditions_monitor(tmp_path, fake_sys, fake_dev, drive_temp_min=30, drive_temp_max=40, target_temp=35)
+    monkeypatch.setattr("hddfancontrol_webui.monitor.FRESH_SAMPLE_SECONDS", 10**9)
+    assert "hot:sda" in monitor.conditions({})
+    log = tmp_path / "temps.jsonl"
+    first = datetime.fromisoformat(json.loads(log.read_text().splitlines()[-1])["time_utc"])
+    interval = monitor._settings().interval_s
+
+    def sample(seconds: float) -> None:
+        when = (first + timedelta(seconds=seconds)).isoformat()
+        line = {"time_utc": when, "measures": [{"device": "sda", "temp_celcius": None}]}
+        log.write_text(log.read_text() + json.dumps(line) + "\n")
+
+    sample(interval)  # one failed probe: still hot
+    assert monitor.conditions({})["hot:sda"][1]["temp"] == "40"
+    sample(interval * (fancontrol.NULL_HOLD_INTERVALS + 2))  # asleep for good: the alert may end
+    assert "hot:sda" not in monitor.conditions({})
     monitor.history.close()
 
 

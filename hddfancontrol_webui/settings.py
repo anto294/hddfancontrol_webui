@@ -20,9 +20,11 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from .const import BMC_PWM, FAN_CMD_NOOP, SETTINGS_FILE, TRUE_WORDS
 from .cron import CronError, parse
+from .notify import forbidden_host
 from .storage import write_atomic
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,7 +40,11 @@ NOTIFY_LANGUAGES = ("en", "it", "es", "fr", "zh", "hi", "ar")
 MAX_REPEAT_H = 168
 MAX_URL_LENGTH = 500
 # The host, then nothing or a path, query or fragment: no overlap, so no slow backtracking.
-_URL = re.compile(r"^https?://[^\s/?#]+(?:[/?#]\S*)?$")
+# What replaces the secrets of notify_url in every answer of the API (mask_notify_url).
+NOTIFY_MASK = "•••"
+# Every pattern of a path or a name is used with fullmatch (or ends in \Z): "$" would
+# also match before a final newline, and "/dev/sda\n" would reach a command line.
+_URL = re.compile(r"https?://[^\s/?#]+(?:[/?#]\S*)?")
 
 SOURCE_ENV = "environment"
 SOURCE_FILE = "file"
@@ -46,23 +52,23 @@ SOURCE_FILE = "file"
 # Path components: letters, digits and the punctuation found in
 # /dev/disk/by-id names and sysfs paths. No "..", no whitespace.
 _COMPONENT = r"[A-Za-z0-9_:+@,.-]+"
-_DEV_PATH = re.compile(rf"^/dev(/{_COMPONENT})+$")
-_SYS_PATH = re.compile(rf"^/sys(/{_COMPONENT})+$")
-_INTERFACE = re.compile(r"^[a-z0-9]+$")
+_DEV_PATH = re.compile(rf"/dev(/{_COMPONENT})+")
+_SYS_PATH = re.compile(rf"/sys(/{_COMPONENT})+")
+_INTERFACE = re.compile(r"[a-z0-9]+")
 # What the fan controller writes as root: only a PWM output of a hwmon chip,
 # never another /sys file (/sys/block/sda/device/delete removes a drive).
-_PWM_PATH = re.compile(r"^/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+$")
+_PWM_PATH = re.compile(r"/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+")
 # A drive: its stable names (by-id, by-path) or the kernel's name of a
 # whole SATA/SAS or NVMe drive. They go to smartctl, hddfancontrol (hdparm)
 # and hd-idle as root: no other /dev node (a partition table, /dev/mem).
-_DRIVE_PATH = re.compile(rf"^/dev/(?:disk/by-(?:id|path)/{_COMPONENT}|sd[a-z]+|nvme[0-9]+n[0-9]+)$")
+_DRIVE_PATH = re.compile(rf"/dev/(?:disk/by-(?:id|path)/{_COMPONENT}|sd[a-z]+|nvme[0-9]+n[0-9]+)")
 # What hddfancontrol reads: a temperature input of a hwmon chip.
-_TEMP_INPUT = re.compile(r"/temp[0-9]+_input$")
+_TEMP_INPUT = re.compile(r"/temp[0-9]+_input\Z")
 # A temperature of HWMONS (path:min:max), as hddfancontrol reads it: a number, maybe negative or with decimals.
 _NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 # Where the chips of the fans live (Hardware.chip_of).
 _CHIP_PREFIX = "/sys/devices/"
-_INTERVAL = re.compile(r"^\s*([0-9]{1,9})\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
+_INTERVAL = re.compile(r"\s*([0-9]{1,9})\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*")
 _INTERVAL_FACTORS = {"": 1, "s": 1, "sec": 1, "secs": 1, "m": 60, "min": 60, "mins": 60, "h": 3600, "hr": 3600, "hrs": 3600}
 _FALSE = ("0", "false", "no", "off", "")
 
@@ -196,6 +202,12 @@ class Settings:
         """Return the settings as JSON-ready data, the shape from_dict reads."""
         return asdict(self)
 
+    def masked_dict(self) -> dict[str, Any]:
+        """to_dict with notify_url masked (mask_notify_url): what leaves the core."""
+        data = self.to_dict()
+        data["notify_url"] = mask_notify_url(self.notify_url, self.notify_format)
+        return data
+
 
 # ---------------------------
 #   _Collector
@@ -308,7 +320,7 @@ class _Collector:
 # ---------------------------
 def is_dev_path(value: str) -> bool:
     """Whether the value is a path under /dev without '..'."""
-    return bool(_DEV_PATH.match(value)) and ".." not in value.split("/")
+    return bool(_DEV_PATH.fullmatch(value)) and ".." not in value.split("/")
 
 
 # ---------------------------
@@ -316,7 +328,7 @@ def is_dev_path(value: str) -> bool:
 # ---------------------------
 def is_sys_path(value: str) -> bool:
     """Whether the value is a path under /sys without '..'."""
-    return bool(_SYS_PATH.match(value)) and ".." not in value.split("/")
+    return bool(_SYS_PATH.fullmatch(value)) and ".." not in value.split("/")
 
 
 # ---------------------------
@@ -324,7 +336,7 @@ def is_sys_path(value: str) -> bool:
 # ---------------------------
 def is_drive_path(value: str) -> bool:
     """Whether the value names a whole drive: /dev/disk/by-id/…, /dev/disk/by-path/…, /dev/sdX or /dev/nvmeNnN."""
-    return is_dev_path(value) and bool(_DRIVE_PATH.match(value))
+    return is_dev_path(value) and bool(_DRIVE_PATH.fullmatch(value))
 
 
 # ---------------------------
@@ -332,7 +344,7 @@ def is_drive_path(value: str) -> bool:
 # ---------------------------
 def is_pwm_path(value: str) -> bool:
     """Whether the value is a PWM output: /sys/class/hwmon/hwmonN/pwmN, or the fans of a Dell iDRAC (BMC_PWM)."""
-    return value == BMC_PWM or bool(_PWM_PATH.match(value))
+    return value == BMC_PWM or bool(_PWM_PATH.fullmatch(value))
 
 
 # ---------------------------
@@ -359,7 +371,7 @@ def from_dict(data: Any) -> Settings:
     drives: list[str] = []
     for index, drive in enumerate(check.items(data, "drives")):
         name = f"drives.{index}"
-        if not isinstance(drive, str) or not (is_drive_path(drive) or _INTERFACE.match(drive)):
+        if not isinstance(drive, str) or not (is_drive_path(drive) or _INTERFACE.fullmatch(drive)):
             check.add(name, "invalid_drive")
         elif drive in drives:
             check.add(name, "duplicate")
@@ -556,14 +568,77 @@ def _smart_schedule(data: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 # ---------------------------
+#   mask_notify_url
+# ---------------------------
+def mask_notify_url(url: str, fmt: str) -> str:
+    """The address with its secrets replaced by NOTIFY_MASK: what the API shows.
+
+    Masked: the user and password, the value of each query parameter (the
+    token of Gotify), the fragment, and for ntfy the topic (the last part
+    of the path), which anyone who knows it can read. Shown: the scheme,
+    host, port and the rest of the path. The same address and format
+    always give the same mask, so restore_notify_url can recognise it.
+    """
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    netloc = parts.netloc
+    if "@" in netloc:
+        netloc = NOTIFY_MASK + "@" + netloc.rsplit("@", 1)[1]
+    path = parts.path
+    if fmt == "ntfy" and path.strip("/"):
+        head, _, _ = path.rstrip("/").rpartition("/")
+        path = f"{head}/{NOTIFY_MASK}"
+    query = "&".join(
+        f"{key}={NOTIFY_MASK}" if sep else NOTIFY_MASK
+        for key, sep, _ in (item.partition("=") for item in parts.query.split("&") if item)
+    )
+    fragment = NOTIFY_MASK if parts.fragment else ""
+    return urlunsplit((parts.scheme, netloc, path, query, fragment))
+
+
+# ---------------------------
+#   restore_notify_url
+# ---------------------------
+def restore_notify_url(data: Any, current: Settings) -> Any:
+    """A settings document with a masked notify_url put back to the address in force; raise SettingsError for a broken one.
+
+    The page shows the masked address and sends it back when it is not
+    changed: that keeps current.notify_url (compared with its mask in the
+    format in force, the one the page got). Any other value replaces the
+    address, an empty one clears it. A value that holds NOTIFY_MASK but is
+    not that mask (edited by hand, another installation's backup) would
+    store a broken address: notify_url_masked.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("notify_url"), str) or NOTIFY_MASK not in data["notify_url"]:
+        return data
+    if data["notify_url"].strip() != mask_notify_url(current.notify_url, current.notify_format):
+        raise SettingsError([{"field": "notify_url", "code": "notify_url_masked", "params": {}}])
+    return {**data, "notify_url": current.notify_url}
+
+
+# ---------------------------
 #   _notify_url
 # ---------------------------
 def _notify_url(check: _Collector, value: Any) -> str:
-    """Read the address alerts are sent to: empty (none), or an http(s) URL."""
+    """Read the address alerts are sent to: empty (none), or an http(s) URL.
+
+    A host that is the NAS itself or a link-local, unspecified or multicast
+    address, written as such (notify.forbidden_host), is refused at once; a
+    name that resolves to one is refused when a message is sent.
+    """
     if value is None or value == "":
         return ""
-    if not isinstance(value, str) or len(value) > MAX_URL_LENGTH or not _URL.match(value.strip()):
+    if not isinstance(value, str) or len(value) > MAX_URL_LENGTH or not _URL.fullmatch(value.strip()):
         check.add("notify_url", "invalid_url")
+        return ""
+    try:
+        host = urlsplit(value.strip()).hostname or ""
+    except ValueError:
+        check.add("notify_url", "invalid_url")
+        return ""
+    if forbidden_host(host):
+        check.add("notify_url", "notify_address_forbidden")
         return ""
     return value.strip()
 
@@ -573,7 +648,7 @@ def _notify_url(check: _Collector, value: Any) -> str:
 # ---------------------------
 def _parse_interval(value: str) -> int | str:
     """Turn '10s', '3min' or '30' into seconds, or leave the text for from_dict to refuse."""
-    match = _INTERVAL.match(value)
+    match = _INTERVAL.fullmatch(value)
     if not match:
         return value
     return int(match.group(1)) * _INTERVAL_FACTORS[match.group(2) or ""]

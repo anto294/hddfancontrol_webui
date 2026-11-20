@@ -171,8 +171,10 @@ def build() -> Core:
     user = web_user(env.get("WEBUI_USER"), log)
     socket_path: Path | None = None
     gateway: Daemon | None = None
-    if user is not None:
-        web_dir = prepare_web_dir(config_dir, user, log)
+    web_dir = prepare_web_dir(config_dir, user, log) if user is not None else None
+    if web_dir is None:
+        user = None  # no gateway: /config could not be closed to it, or no usable WEBUI_USER
+    if user is not None and web_dir is not None:
         cert, key = given_tls(config_dir, user, env.get("TLS_CERT", "").strip(), env.get("TLS_KEY", "").strip(), log)
         socket_path = socket_dir(user) / "core.sock"
         gateway = Daemon(
@@ -202,7 +204,8 @@ def build() -> Core:
         if user is None:
             logs.add(
                 SOURCE_WEBUI,
-                f"ERROR: hddfancontrol-webui {VERSION}: no usable WEBUI_USER, so no web UI; the fans are controlled",
+                f"ERROR: hddfancontrol-webui {VERSION}: no usable WEBUI_USER, or {config_dir} is open to it, "
+                "so no web UI; the fans are controlled",
             )
         else:
             logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}: core started, the gateway runs as {user.name}")
@@ -291,7 +294,10 @@ def main() -> None:
     # Everything the core writes in /config (history, settings, labels) is root's alone.
     os.umask(0o077)
     core = build()
-    asyncio.run(serve(core))
+    try:
+        asyncio.run(serve(core))
+    finally:
+        core.supervisor.logs.close()  # the last lines (the fans given back) reach docker logs
 
 
 if __name__ == "__main__":

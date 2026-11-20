@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -93,7 +94,35 @@ def test_log_buffer(capsys: pytest.CaptureFixture[str]) -> None:
         logs.add("x", f"line {i}\n")
     assert [line["text"] for line in logs.since(0)] == ["line 1", "line 2"]
     assert logs.since(3) == [] and logs.last_seq == 3
+    logs.close()  # the echo thread writes what is queued
     assert "[x] line 2" in capsys.readouterr().out
+
+
+def test_log_echo_never_raises_nor_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stdout gone (BrokenPipeError) or full (a FIFO nobody reads): add() returns at once, and keeps every line itself."""
+    import threading
+
+    release = threading.Event()
+
+    class Stuck:
+        """A stdout whose write waits until released, then fails."""
+
+        def write(self, text: str) -> int:
+            release.wait(5)
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(supervisor_module.sys, "stdout", Stuck())
+    logs = LogBuffer(maxlen=5000)
+    began = time.monotonic()
+    for i in range(3000):
+        logs.add("x", f"line {i}")
+    assert time.monotonic() - began < 2
+    assert logs.last_seq == 3000 and logs.since(2999)[0]["text"] == "line 2999"
+    release.set()
+    logs.close(2)
 
 
 async def test_curve_mode(setup: tuple[Supervisor, Path]) -> None:
@@ -349,8 +378,74 @@ async def test_fans_follow_their_chip(
     supervisor = make()
     await supervisor.start()
     assert supervisor.missing_pwms == [moved_to] and supervisor.status()["missing_pwms"] == [moved_to]
-    assert not supervisor.hddfancontrol.active
+    # The drives are still watched: only the missing fan is left alone.
+    assert supervisor.hddfancontrol.active and not supervisor.fans.active
     assert any("not on the host" in line["text"] for line in supervisor.logs.since(0))
+    # Nothing changed yet: a look finds nothing to do.
+    assert not await supervisor.recheck_fans()
+    # The chip comes back (its module loaded late): the fan is controlled again.
+    (tmp_path / "gone").rename(fake_sys / "class/hwmon/hwmon3")
+    assert await supervisor.recheck_fans()
+    back = "/sys/class/hwmon/hwmon3/pwm1"
+    assert supervisor.missing_pwms == [] and supervisor.settings.pwms[0].path == back
+    assert store.load()[0].pwms[0].path == back
+    await wait_for(lambda: back in supervisor.fans.writer.values)
+    assert any("came back" in line["text"] for line in supervisor.logs.since(0))
+    await supervisor.stop()
+
+
+async def test_missing_chip_is_looked_for_again(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """While a fan's chip is missing, the supervisor looks for it every place_period and starts its control when it is back."""
+    monkeypatch.setenv("FAKE_LOG", str(tmp_path / "calls.log"))
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict(CONFIG))
+    logs = LogBuffer(echo=False)
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+    supervisor = Supervisor(
+        store,
+        logs,
+        None,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", FAKE_HDDFANCONTROL),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+        place_period=0.05,
+    )
+    await supervisor.start()  # records the chip
+    await supervisor.stop()
+    (fake_sys / "class/hwmon/hwmon2").rename(tmp_path / "gone")
+    await supervisor.start()
+    assert supervisor.missing_pwms == [PWM1] and not fans.active
+    await asyncio.sleep(0.2)
+    assert supervisor.missing_pwms == [PWM1]
+    (tmp_path / "gone").rename(fake_sys / "class/hwmon/hwmon2")
+    await wait_for(lambda: not supervisor.missing_pwms and fans.active)
+    await supervisor.stop()
+    assert supervisor._place_watch is None or supervisor._place_watch.done()
+
+
+async def test_a_chip_from_the_api_is_checked(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """apply ignores a chip sent with a fan that is not the chip of its PWM file: it can never hide a fan from control."""
+    monkeypatch.setenv("FAKE_LOG", str(tmp_path / "calls.log"))
+    store = SettingsStore(tmp_path / "config", {})
+    fans = FanController(PwmWriter(fake_sys), lambda: None, lambda text: None)
+    supervisor = Supervisor(
+        store,
+        LogBuffer(echo=False),
+        None,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", FAKE_HDDFANCONTROL),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+    )
+    bogus = {**CONFIG, "pwms": [{"path": PWM1, "start": 200, "stop": 75, "chip": "/sys/devices/platform/it87.552"}]}
+    await supervisor.apply(from_dict(bogus))
+    assert supervisor.missing_pwms == [] and supervisor.settings.pwms[0].chip == "/sys/devices/platform/nct6775.656"
+    await wait_for(lambda: fans.active and PWM1 in fans.writer.values)
     await supervisor.stop()
 
 
@@ -416,6 +511,41 @@ async def test_full_speed_while_hddfancontrol_is_down(
     await wait_for(lambda: not fans.auto.failsafe)
     await supervisor.stop()
     assert (fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1_enable").read_text().strip() == "5"
+
+
+async def test_a_daemon_run_as_another_user_gets_no_terminal(
+    make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gateway (user=) reads nothing from the core's stdin and runs in a session of its own.
+
+    Started by hand from a root shell, a gateway taken over could
+    otherwise push keystrokes into that terminal (TIOCSTI). The change of
+    user needs root: here it is recorded and left out, the rest runs for real.
+    """
+    import os
+
+    real = asyncio.create_subprocess_exec
+    changes: list[dict[str, Any]] = []
+
+    async def as_me(*args: Any, **kwargs: Any) -> Any:
+        changes.append({key: kwargs.pop(key) for key in ("user", "group", "extra_groups") if key in kwargs})
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(supervisor_module.asyncio, "create_subprocess_exec", as_me)
+    logs = LogBuffer(echo=False)
+    body = (
+        "import os\n"
+        "print('stdin', os.path.realpath('/proc/self/fd/0'), flush=True)\n"
+        "print('session', os.getsid(0) == os.getpid(), flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    daemon = Daemon("gateway", make_script("gateway", body), logs, user=(os.getuid(), os.getgid()))
+    daemon.start([])
+    await wait_for(lambda: any(line["text"].startswith("session") for line in logs.since(0)))
+    await daemon.stop()
+    texts = [line["text"] for line in logs.since(0)]
+    assert "stdin /dev/null" in texts and "session True" in texts
+    assert changes[0] == {"user": os.getuid(), "group": os.getgid(), "extra_groups": []}
 
 
 async def test_daemon_hook_errors_are_logged(make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -486,7 +616,10 @@ async def test_fans_must_be_pwm_outputs_of_the_host(
     store.save(from_dict(doc))
     supervisor.settings, supervisor.source = store.load()
     await supervisor.start()
-    assert supervisor.missing_pwms == [ghost] and not supervisor.hddfancontrol.active
+    # The other fan is still controlled, and the drives watched.
+    assert supervisor.missing_pwms == [ghost] and supervisor.hddfancontrol.active
+    await wait_for(lambda: PWM1 in supervisor.fans.writer.values)
+    assert ghost not in supervisor.fans.writer.values
     # Manual control never writes it either, not even at full speed for safety.
     await supervisor.set_manual(True)
     supervisor.fans._full_speed([p.path for p in supervisor.fans._settings.pwms])

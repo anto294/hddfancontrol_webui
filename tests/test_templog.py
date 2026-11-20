@@ -19,6 +19,11 @@ def test_parse_line() -> None:
     sample = parse_line(line("2026-02-13T12:50:01Z", ("sda X", 41.0), ("sdb Y", None)))
     assert sample == {"time": "2026-02-13T12:50:01+00:00", "temps": {"sda X": 41.0, "sdb Y": None}}
     assert parse_line("not json") is None
+    # A value that is no finite number would slip past every maximum (NaN >= 65 is false): the line is not a sample,
+    # so a run of them ends in the stale failsafe, never in a drive left out.
+    for bad in ("NaN", "Infinity", "-Infinity", '"nan"', '"inf"'):
+        text = '{"time_utc": "2026-02-13T12:50:01Z", "measures": [{"device": "sda", "temp_celcius": %s}]}' % bad
+        assert parse_line(text) is None, bad
     assert parse_line('{"time_utc": "2026-02-13T12:50:01"}') is None
     naive = parse_line(line("2026-02-13T12:50:01", ("a", 1)))
     assert naive is not None and naive["time"].endswith("+00:00")

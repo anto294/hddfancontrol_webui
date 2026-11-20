@@ -108,6 +108,17 @@ and goes once a minute grew it to 20 000 entries (560 KB per write) in two weeks
 flash many NAS boot from. Beyond a thousand starts the summary's count is only a floor,
 and the alert itself has long been noticed. (2026-11-20)
 
+**A missing fan chip leaves only its fans alone.** The other fans are controlled,
+hddfancontrol measures the drives, and the supervisor looks for the chip every
+`PLACE_PERIOD` (60 s) and after a sensor scan, starting the fan when it is back. The
+chip of a fan sent through the API is ignored: the host's (`Hardware.chip_of`) counts.
+Why: before, one missing chip stopped everything: every fan stayed where the BIOS left
+it and, with no sample, neither the ceiling nor the stale failsafe nor the hot alert
+could act, until a restart. That happens after a reboot when a module is loaded late
+(the TrueNAS Init Script runs after the app), on the hosts that need the most care.
+Writing the missing fan's old path is still never done: it may belong to another chip.
+(2026-11-20)
+
 **Read only when `/sys` is read only.** Nothing starts, and a red banner says so. Why:
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)
@@ -143,6 +154,24 @@ leave an empty settings file, and only root needs to read them. A corrupt
 port.** Why: the container must be privileged, so the process the network reaches
 must not be root. Never weakened; see [security.md](security.md). (0.8.0, 2026-11-17)
 
+**The log echo never waits.** `LogBuffer` writes stdout from a thread with a queue of
+`ECHO_QUEUE` lines, dropping lines from stdout (never from the buffer) when it is
+full, and the fan controller writes the fans before it logs and ignores a log that
+fails. Why: `print` ran on the event loop, next to the failsafe: a stdout that blocks
+(a log FIFO nobody reads) froze every safety rule, and one that fails
+(`BrokenPipeError`) killed the control loop between a failure and full speed. A line
+missing in `docker logs` is a small price; it stays in the **Logs** tab.
+(2026-11-20)
+
+**A `/config` that cannot be closed to the gateway means no gateway.** Why: the core
+runs as root on what it finds there; a gateway taken over that could write
+`pwm-state.json` would make root write any file (the path was not checked), and one
+that could swap `templog/` would feed cold samples and turn every safety rule off.
+Before, only the gateway's own folder moved to a temporary one and root kept using the
+open `/config`. The fans stay controlled; only the web UI is lost until the folder is
+fixed. The sticky bit does not make a folder closed: it does not stop new names.
+(2026-11-20)
+
 **No open first start.** Without credentials only the setup works, with a one-time code
 printed in the log; credentials can be changed, never removed. Why: someone who merely
 reaches the port must not be able to claim the installation. (0.8.0, 2026-11-17)
@@ -153,6 +182,36 @@ from a web page. (0.8.0–0.9.0, 2026-11-17)
 
 **Past 100 failed logins overall, slow down instead of refusing.** Why: a refusal for
 everyone would let an attacker lock the owner out. (0.9.0, 2026-11-17)
+
+**`notify_url` leaves the core masked, and comes back masked.** Why: it carries a Gotify
+token or an ntfy topic that anyone who knows it can read, and the gateway (and anyone
+with a session) got it in clear from `GET /api/settings`, although the gateway's
+environment was kept free of `NOTIFY_URL` for that reason. Sending the mask back to keep
+the address means the page and the backups never need the secret. Only ntfy's topic is
+masked in the path, since there it is the secret; the paths of the other formats stay
+visible. (2026-11-20)
+
+**Notifications never go to the NAS itself or to link-local addresses; private networks
+stay allowed.** Loopback, link-local, unspecified and multicast addresses are refused,
+checked on the address the connection itself uses. Why: the POST leaves from root's
+process on the NAS's network, and `POST /api/notify/test` answered 200 or 502 with a
+telling delay: a logged-in user (or a gateway taken over) could probe the services that
+listen only on the NAS, or a cloud's metadata service, through it. Private networks stay
+allowed because ntfy and Gotify very often run on the LAN, and refusing them would break
+the main use; a service on the NAS itself is reached by its LAN address. (2026-11-20)
+
+**`WEBUI_ALLOW` is applied at accept, and connections are limited.** One listener
+(`DualListener`) serves both with and without TLS. Why: as a middleware, the filter
+came after the first byte, the TLS handshake and the headers, and aiohttp sets no
+deadline for headers: a client outside the allowed networks could hold thousands of
+one-byte connections until the gateway ran out of file descriptors and the container
+turned unhealthy. (2026-11-20)
+
+**Refuse an address, only slow down its IPv6 /64.** Why: the /64 was the client before,
+so ten wrong passwords from one host of a SLAAC or ULA LAN (and every `fe80::` address)
+locked out every other host of it, the owner too; and a right password of the owner
+reset the count of the guesser. Counting the /64 still keeps a host from taking a new
+address for every ten tries at full speed. (2026-11-20)
 
 **HTTPS on by default, self-signed when no certificate is given, no HSTS.** HTTP and
 HTTPS share one port. Why: encrypted by default without any setup; HSTS would lock users
@@ -191,6 +250,19 @@ confirmed on real hardware; then `experimental` is merged into `main` in one go.
 rebase: both branches are published. Why: the testers of `:experimental` must get every
 fix and function of `main` too (the support request first of all), and a branch that
 drifts apart costs more to bring back the longer it waits. (2026-11-19)
+
+**The release builds from hashed tools, and only its upload step holds the token.**
+Why: a new release of `build` or `setuptools` (taken unpinned before) ran in the job
+that holds `contents: write`; it could change the wheel that `install.sh` runs as root,
+and the provenance attestation would have signed the changed tarball all the same.
+Dependabot proposes the updates of the pinned tools. (2026-11-20)
+
+**The bare metal tarball carries its Python dependencies, hashed, as pure Python
+wheels.** Why: `install.sh` ran `pip install` as root against PyPI, taking the latest
+release of every transitive dependency (and building a source package when no wheel
+fitted). The pure wheels of aiohttp and its dependencies serve every architecture and
+Python version at once; their C speedups are not needed for one page on a LAN.
+(2026-11-20)
 
 ## Server fans through a BMC (experimental)
 

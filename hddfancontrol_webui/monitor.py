@@ -28,7 +28,7 @@ from .alerts import (
 )
 from .const import RECORD_PERIOD
 from .cron import parse
-from .fancontrol import drive_ceiling
+from .fancontrol import NULL_HOLD_INTERVALS, DriveTemps, drive_ceiling
 from .hardware import Hardware
 from .history import History
 from .settings import Settings
@@ -127,6 +127,9 @@ class Monitor:
         # Fans seen turning (so they have a speed sensor), and since when a fan shows 0 RPM.
         self._spun: set[str] = set()
         self._stall_since: dict[str, float] = {}
+        # The last reading of each drive for the hot alert, held over a null like the fan control does.
+        self._hot_temps = DriveTemps(0.0)
+        self._hot_interval: float | None = None
         self._last_sample: str | None = None
         # PWM (%) and speed (RPM) of every output, as read by the last record_once.
         self._fans: dict[str, tuple[float | None, int | None]] = {}
@@ -453,18 +456,24 @@ class Monitor:
         latest = self.temp_log.latest()
         fresh = latest is not None and time.time() - datetime.fromisoformat(latest["time"]).timestamp() < FRESH_SAMPLE_SECONDS
         if latest is not None and fresh and settings.drives:
-            temps = list(latest["temps"].items())
+            # A null reading (sleeping, or a probe that failed during a scrub) keeps the drive's last
+            # temperature for NULL_HOLD_INTERVALS, as for the fans: a failed probe must not end the
+            # alert and start a new urgent one at the next sample.
+            if self._hot_interval != float(settings.interval_s):
+                self._hot_interval = float(settings.interval_s)
+                self._hot_temps = DriveTemps(NULL_HOLD_INTERVALS * self._hot_interval)
+            self._hot_temps.per_drive(latest, len(settings.hwmons))
             # The drive's own maximum, found as the fan controller finds it (by-id, by-path or /dev/sdX).
             names = self.hardware.kernel_names()
             by_kernel = {names[d]: d for d in settings.drives if d in names}
-            for name, temp in temps[: len(temps) - len(settings.hwmons)]:
+            for name, temp in self._hot_temps.raw.items():
                 kernel = name.split()[0]
                 key = f"hot:{kernel}"
                 drive = drives.get(kernel)
                 # The ceiling of the fan controller holds whatever the settings say: the alert too.
                 maximum = min(settings.limits_of(by_kernel.get(kernel, ""))[2], drive_ceiling(kernel))
                 limit = maximum - (HOT_HYSTERESIS if key in active else 0.0)
-                if temp is not None and temp >= limit:
+                if temp >= limit:
                     label = self._drive_name(drive.ids if drive else [], name)
                     found[key] = (KIND_DRIVE_HOT, {"drive": label, "temp": f"{temp:g}", "max": f"{maximum:g}"})
 
