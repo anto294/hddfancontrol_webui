@@ -66,8 +66,9 @@ fi
 
 wheel=$(find "$HERE" -maxdepth 1 -name "hddfancontrol_webui-*.whl" | head -n 1)
 [ -n "$wheel" ] || die "no wheel next to install.sh: run it from the extracted release"
-[ -f "$HERE/requirements.txt" ] && [ -d "$HERE/wheels" ] \
-    || die "no requirements.txt and wheels/ next to install.sh: run it from the extracted release"
+if [ ! -f "$HERE/requirements.txt" ] || [ ! -d "$HERE/wheels" ]; then
+    die "no requirements.txt and wheels/ next to install.sh: run it from the extracted release"
+fi
 
 # The gateway (the part the network reaches) runs as this user, not root.
 if ! getent passwd hddfancontrol-webui >/dev/null; then
