@@ -16,8 +16,8 @@ gateway (gateway.py) as WEBUI_USER, which only gets:
 The address of the notifications (notify_url, from settings.json or
 NOTIFY_URL) never reaches the gateway in clear either: every answer of
 the core API that holds the settings masks its user and password, query
-values and ntfy topic (settings.mask_notify_url), and the masked value
-sent back keeps the saved address (settings.restore_notify_url).
+values, ntfy topic and webhook path (settings.mask_notify_url), and the
+masked value sent back keeps the saved address (settings.restore_notify_url).
 
 Run as another user than root (tests, development), the gateway runs as
 that same user and nothing changes owner.

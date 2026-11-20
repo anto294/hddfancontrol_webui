@@ -24,8 +24,9 @@ can never reach a terminal the core was started from), a filtered environment (`
 argument. The notification address does not reach it through the API either: every
 answer that holds the settings (`GET`, `PUT` and `DELETE /api/settings`, so the backup
 too) masks the user and password, the query values (the Gotify token), the fragment and
-the ntfy topic with `NOTIFY_MASK` (`settings.mask_notify_url`); scheme, host, port and
-the rest of the path stay visible. The masked value sent back keeps the address in
+the ntfy topic with `NOTIFY_MASK` (`settings.mask_notify_url`), and the whole path of
+a JSON webhook (Slack and Discord keep their token there); scheme, host, port and the
+other paths stay visible. The masked value sent back keeps the address in
 force (`restore_notify_url`), another value replaces it, an empty one clears it, and a
 value that still holds the mask but is not it is refused (`notify_url_masked`). It may write only `/config/web` (credentials, its self-signed certificate).
 Root never writes in or follows anything inside that folder.
@@ -46,10 +47,13 @@ Before any middleware, the listener (`tls.DualListener`, with TLS on or off) clo
 connection from an address outside `WEBUI_ALLOW` at accept, before reading a byte or
 making a handshake (`admit_address`, logged once an hour). It keeps at most
 `MAX_CONNECTIONS_PER_ADDRESS` (64) open connections per address and `MAX_CONNECTIONS`
-(512) in all, closing the rest at once, and drops a connection whose first request
-(headers, and a body by its `Content-Length`) is not complete `REQUEST_TIMEOUT_S`
-(30 s) after its first byte: aiohttp waits for headers for ever, so silent
-connections could run the gateway out of file descriptors, `/healthz` included.
+(512) in all, closing the rest at once. It drops a connection when one of its requests
+(headers, then a body by its `Content-Length` or chunked, up to the last chunk and its
+trailers; pipelined requests one after the other, `_RequestWatch`) is not complete
+`REQUEST_TIMEOUT_S` (30 s) after its first byte; the wait between two requests does not
+count, aiohttp's keep-alive ends it. aiohttp itself waits for headers and bodies for
+ever, so slow connections could run the gateway out of file descriptors, `/healthz`
+included.
 
 The gateway's middlewares run in this order:
 

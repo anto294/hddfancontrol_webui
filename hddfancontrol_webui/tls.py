@@ -38,9 +38,13 @@ TLS_HANDSHAKE = 0x16
 # A connection that sends nothing for this long is closed before it is told apart.
 SNIFF_TIMEOUT_S = 10.0
 HANDSHAKE_TIMEOUT_S = 10.0
-# The first request of a connection (its headers, and its body by Content-Length) must
-# be complete this long after the first byte: aiohttp waits for headers for ever.
+# Each request of a connection (its headers, and its body: by Content-Length, or chunked)
+# must be complete this long after its first byte: aiohttp waits for them for ever.
 REQUEST_TIMEOUT_S = 30.0
+# Past these, _RequestWatch stops following a connection: aiohttp refuses headers
+# (8190 bytes a line) and chunk size lines this long by itself.
+MAX_HEAD_BYTES = 65536
+MAX_LINE_BYTES = 1024
 # Open connections at most, of one address and in all; more are closed at once.
 MAX_CONNECTIONS_PER_ADDRESS = 64
 MAX_CONNECTIONS = 512
@@ -127,15 +131,115 @@ def ssl_context(config_dir: Path, cert: str = "", key: str = "", openssl: str = 
 
 
 # ---------------------------
+#   _RequestWatch
+# ---------------------------
+class _RequestWatch:
+    """Follow the requests of one connection as they come in, to tell when each one is complete.
+
+    A request is complete after its headers and its body: as long as its
+    Content-Length says, or, with Transfer-Encoding chunked, up to the last
+    chunk and its trailers. Pipelined requests are followed one after the
+    other. Only the framing is read; aiohttp parses the requests itself and
+    refuses the malformed ones, so a framing this cannot read stops the
+    watch rather than the connection.
+    """
+
+    def __init__(self) -> None:
+        """Wait for the first byte of a request."""
+        self.busy = False  # a request has begun and is not complete
+        self.off = False  # the framing could not be read: no more watching
+        self._state = "head"
+        self._buffer = bytearray()
+        self._left = 0
+
+    def feed(self, data: bytes) -> list[bool]:
+        """Read data; return, in order, True for each request begun and False for each one completed."""
+        events: list[bool] = []
+        view = memoryview(data)
+        while view and not self.off:
+            if not self.busy:
+                self.busy = True
+                events.append(True)
+            used, complete = self._step(view)
+            view = view[used:]
+            if complete:
+                self.busy = False
+                self._state = "head"
+                events.append(False)
+        return events
+
+    def _line(self, view: memoryview, limit: int) -> tuple[int, bytes | None]:
+        """Take bytes up to the end of a line (CRLF); the line without it, or None while it is not whole."""
+        before = len(self._buffer)
+        self._buffer += view
+        end = self._buffer.find(b"\r\n", max(0, before - 1))
+        if end < 0:
+            if len(self._buffer) > limit:
+                self.off = True
+            return len(view), None
+        line = bytes(self._buffer[:end])
+        self._buffer.clear()
+        return end + 2 - before, line
+
+    def _step(self, view: memoryview) -> tuple[int, bool]:
+        """Read some of view in the current state: (bytes used, whether a request is now complete)."""
+        if self._state == "head":
+            before = len(self._buffer)
+            self._buffer += view
+            end = self._buffer.find(b"\r\n\r\n", max(0, before - 3))
+            if end < 0:
+                if len(self._buffer) > MAX_HEAD_BYTES:
+                    self.off = True  # aiohttp refuses headers that long
+                return len(view), False
+            head = bytes(self._buffer[: end + 2]).lower()
+            self._buffer.clear()
+            used = end + 4 - before
+            if re.search(rb"\r\ntransfer-encoding:[^\r]*chunked", head):
+                self._state = "size"
+                return used, False
+            length = re.search(rb"\r\ncontent-length:[ \t]*([0-9]{1,12})[ \t]*\r\n", head)
+            self._left = int(length.group(1)) if length else 0
+            self._state = "body"
+            return used, self._left == 0
+        if self._state in ("body", "data"):
+            used = min(self._left, len(view))
+            self._left -= used
+            if self._left:
+                return used, False
+            if self._state == "data":
+                self._state = "size"
+                return used, False
+            return used, True
+        if self._state == "size":
+            used, line = self._line(view, MAX_LINE_BYTES)
+            if line is None:
+                return used, False
+            try:
+                size = int(line.split(b";", 1)[0].strip(), 16)
+            except ValueError:
+                self.off = True
+                return used, False
+            if size == 0:
+                self._state = "trailers"
+            else:
+                self._state, self._left = "data", size + 2  # the data, then its CRLF
+            return used, False
+        # trailers: lines up to an empty one
+        used, line = self._line(view, MAX_HEAD_BYTES)
+        return used, line == b""
+
+
+# ---------------------------
 #   _Counted
 # ---------------------------
 class _Counted(asyncio.Protocol):
-    """The server's protocol for one connection, with its place in the count and a deadline for its first request.
+    """The server's protocol for one connection, with its place in the count and a deadline for each request.
 
-    Every call is passed on to the server's own protocol. The connection is
-    closed when its first request (the headers, then a body as long as its
-    Content-Length says) is not complete within REQUEST_TIMEOUT_S of the
-    hand-over: aiohttp itself waits for headers for ever. When the
+    Every call is passed on to the server's own protocol. A request (its
+    headers and its body, chunked too) must be complete REQUEST_TIMEOUT_S
+    after its first byte, or the connection is closed: aiohttp itself waits
+    for headers and bodies for ever. The time between two requests is not
+    counted (aiohttp's keep-alive ends an idle connection). When the
     connection ends, its place in the count is given back.
     """
 
@@ -143,46 +247,42 @@ class _Counted(asyncio.Protocol):
         """Pass everything on to inner; call release() once, when the connection ends."""
         self._inner = inner
         self._release: Callable[[], None] | None = release
-        self._received = bytearray()
-        self._needed: int | None = None
+        self._watch = _RequestWatch()
         self._deadline: asyncio.TimerHandle | None = None
         self._transport: asyncio.BaseTransport | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        """Start the deadline of the first request, and hand the transport to the server."""
+        """Start the deadline of the first request (its first byte is in already), and hand the transport to the server."""
         self._transport = transport
-        self._deadline = asyncio.get_running_loop().call_later(REQUEST_TIMEOUT_S, self._too_slow)
+        self._start_deadline()
         self._inner.connection_made(transport)
 
+    def _start_deadline(self) -> None:
+        """A request began: it must be complete within REQUEST_TIMEOUT_S."""
+        if self._deadline is None:
+            self._deadline = asyncio.get_running_loop().call_later(REQUEST_TIMEOUT_S, self._too_slow)
+
+    def _stop_deadline(self) -> None:
+        """The request is complete, or the connection ended."""
+        if self._deadline is not None:
+            self._deadline.cancel()
+            self._deadline = None
+
     def _too_slow(self) -> None:
-        """The first request did not come in time: drop the connection."""
+        """A request did not come whole in time: drop the connection."""
         _LOGGER.debug("Connection dropped: no complete request within %s s", REQUEST_TIMEOUT_S)
         if self._transport is not None:
             self._transport.abort()  # type: ignore[attr-defined]  # a socket transport, given by connect_accepted_socket
 
-    def _watch(self, data: bytes) -> None:
-        """Follow the first request until it is complete, then stop the deadline."""
-        self._received += data
-        if self._needed is None:
-            end = self._received.find(b"\r\n\r\n")
-            if end < 0:
-                return
-            length = re.search(rb"\r\ncontent-length:[ \t]*([0-9]{1,12})[ \t]*\r\n", self._received[: end + 2].lower())
-            self._needed = end + 4 + (int(length.group(1)) if length else 0)
-        if len(self._received) >= self._needed:
-            self._done_waiting()
-
-    def _done_waiting(self) -> None:
-        """Stop the deadline and the copy of the first request."""
-        if self._deadline is not None:
-            self._deadline.cancel()
-            self._deadline = None
-        self._received = bytearray()
-
     def data_received(self, data: bytes) -> None:
-        """Pass the data on, after watching the first request."""
-        if self._deadline is not None:
-            self._watch(data)
+        """Follow the requests (starting and stopping the deadline), then pass the data on."""
+        for began in self._watch.feed(data):
+            if began:
+                self._start_deadline()
+            else:
+                self._stop_deadline()
+        if self._watch.off:
+            self._stop_deadline()  # aiohttp refuses what this cannot follow
         self._inner.data_received(data)  # type: ignore[attr-defined]  # aiohttp's handler is a Protocol
 
     def eof_received(self) -> bool | None:
@@ -199,7 +299,7 @@ class _Counted(asyncio.Protocol):
 
     def connection_lost(self, exc: Exception | None) -> None:
         """Give the place back, then pass it on."""
-        self._done_waiting()
+        self._stop_deadline()
         if self._release is not None:
             self._release()
             self._release = None
@@ -217,8 +317,8 @@ class DualListener:
     (WEBUI_ALLOW), and at most MAX_CONNECTIONS_PER_ADDRESS connections of
     one address, MAX_CONNECTIONS in all, are open: a client that opens
     thousands of silent connections is cut off before it runs the gateway
-    out of file descriptors. A first request must be complete within
-    REQUEST_TIMEOUT_S (_Counted).
+    out of file descriptors. Each request must be complete within
+    REQUEST_TIMEOUT_S of its first byte (_Counted).
     """
 
     def __init__(

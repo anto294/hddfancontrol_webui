@@ -574,9 +574,11 @@ def mask_notify_url(url: str, fmt: str) -> str:
     """The address with its secrets replaced by NOTIFY_MASK: what the API shows.
 
     Masked: the user and password, the value of each query parameter (the
-    token of Gotify), the fragment, and for ntfy the topic (the last part
-    of the path), which anyone who knows it can read. Shown: the scheme,
-    host, port and the rest of the path. The same address and format
+    token of Gotify), the fragment, for ntfy the topic (the last part of
+    the path), which anyone who knows it can read, and for a JSON webhook
+    the whole path, where Slack and Discord keep their token. Shown: the
+    scheme, host and port, and the path of ntfy before its topic and of
+    Gotify (/message). The same address and format
     always give the same mask, so restore_notify_url can recognise it.
     """
     if not url:
@@ -589,6 +591,9 @@ def mask_notify_url(url: str, fmt: str) -> str:
     if fmt == "ntfy" and path.strip("/"):
         head, _, _ = path.rstrip("/").rpartition("/")
         path = f"{head}/{NOTIFY_MASK}"
+    elif fmt == "json" and path.strip("/"):
+        # A webhook keeps its token in the path (Slack, Discord): none of it is shown.
+        path = f"/{NOTIFY_MASK}"
     query = "&".join(
         f"{key}={NOTIFY_MASK}" if sep else NOTIFY_MASK
         for key, sep, _ in (item.partition("=") for item in parts.query.split("&") if item)

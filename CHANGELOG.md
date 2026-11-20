@@ -47,8 +47,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   web side shared that terminal. It now gets no input and a session of
   its own.
 - **The notification token is no longer shown.** The settings returned the
-  notification address in full, with its Gotify token or ntfy topic, to
-  the page and in the settings backup. It is now shown with those parts
+  notification address in full, with its Gotify token, ntfy topic or
+  webhook token (Slack, Discord), to the page and in the settings backup. It is now shown with those parts
   hidden (`•••`); saving without touching the field, or importing a
   backup, keeps the saved address, and typing a new one replaces it.
 - **Notifications can no longer be aimed at the NAS itself.** The
@@ -81,7 +81,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   client could hold thousands of silent connections until the web UI
   answered nobody, its health check included. Now such an address is
   closed before anything is read, each address may keep 64 connections
-  open (512 in all), and a request must arrive complete within 30
+  open (512 in all), and each request must arrive complete within 30
   seconds. The fans were never affected.
 - **The bare metal tarball is built only from pinned tools.** The release
   workflow installed its build tools at their latest version without

@@ -187,9 +187,10 @@ everyone would let an attacker lock the owner out. (0.9.0, 2026-11-17)
 token or an ntfy topic that anyone who knows it can read, and the gateway (and anyone
 with a session) got it in clear from `GET /api/settings`, although the gateway's
 environment was kept free of `NOTIFY_URL` for that reason. Sending the mask back to keep
-the address means the page and the backups never need the secret. Only ntfy's topic is
-masked in the path, since there it is the secret; the paths of the other formats stay
-visible. (2026-11-20)
+the address means the page and the backups never need the secret. In the path, ntfy's
+topic is masked and so is the whole path of a JSON webhook, where Slack and Discord
+keep their token; Gotify's path (`/message`) stays visible, its token is in the query.
+(2026-11-20)
 
 **Notifications never go to the NAS itself or to link-local addresses; private networks
 stay allowed.** Loopback, link-local, unspecified and multicast addresses are refused,
