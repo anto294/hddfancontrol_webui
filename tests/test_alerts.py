@@ -15,6 +15,7 @@ from hddfancontrol_webui.alerts import Alerts, render
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.history import History
 from hddfancontrol_webui.monitor import FAN_STALL_SECONDS, Monitor
+from hddfancontrol_webui import notify as notify_module
 from hddfancontrol_webui.notify import NotifyError, send
 from hddfancontrol_webui.settings import Settings, from_dict
 
@@ -69,6 +70,14 @@ async def test_send_errors_say_little(caplog: pytest.LogCaptureFixture) -> None:
         await send("http://127.0.0.1:1/message?token=s3cret", "gotify", "x", True)
     assert str(failed.value) == "cannot connect"
     assert "s3cret" not in caplog.text and "127.0.0.1:1" in caplog.text
+
+    caplog.clear()
+    with pytest.raises(NotifyError):
+        await send("http://anto:pa55word@127.0.0.1:1/hook", "json", "x", True)
+    # Only the host and port: the user and password of the address never reach the log.
+    assert "pa55word" not in caplog.text and "anto" not in caplog.text and "127.0.0.1:1" in caplog.text
+    assert notify_module._without_query("bad http://u:p@h:1/x?t=1 y") == "bad http://h:1/x y"
+    assert notify_module._where("http://[fd00::1]:8080/x") == "[fd00::1]:8080" and notify_module._where("nope") == "?"
 
 
 async def test_alerts_start_and_end() -> None:

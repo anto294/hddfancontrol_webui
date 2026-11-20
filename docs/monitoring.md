@@ -82,7 +82,9 @@ gets worse. A note ends with its alert.
 
 `notify.send` POSTs to `notify_url` in the ntfy, Gotify or plain JSON format, with a
 10 s timeout and no redirects followed. Texts are the `alert.<kind>` keys of the page's
-translations, in `notify_language`.
+translations, in `notify_language`. The log names the server by host and port only
+(`_where`): the user, password, path and query of the address (a Gotify token, an ntfy
+topic) never reach it, nor an error's copy of the address (`_without_query`).
 
 - `Alerts` queues the messages (at most `QUEUE_SIZE`, 100) for one sender task, so the
   monitor never waits for the notification server. A failed message is logged, never

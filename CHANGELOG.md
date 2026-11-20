@@ -9,6 +9,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **The password of a notification address no longer reaches the log.**
+  An address such as `https://user:password@host/` was logged whole when
+  a message failed. Only the host and port are logged now.
 - **Pages of other sites can no longer reach the API, even to read.**
   Another web app on the same NAS (another port is the same "site" for
   cookies) could keep manual control from ending by asking for the

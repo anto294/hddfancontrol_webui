@@ -8,6 +8,7 @@ and a dead server must not hold anything up.
 from __future__ import annotations
 
 import logging
+import re
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -36,8 +37,7 @@ async def send(url: str, fmt: str, message: str, urgent: bool) -> None:
     json: JSON with title, message and level ("alert" or "ok"), for webhooks.
     """
     timeout = aiohttp.ClientTimeout(total=NOTIFY_TIMEOUT)
-    # Only the host goes to the log: a Gotify token is in the address.
-    where = urlsplit(url).netloc or "?"
+    where = _where(url)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # Never followed: the message (and its headers) would go wherever the server says.
@@ -68,8 +68,24 @@ async def send(url: str, fmt: str, message: str, urgent: bool) -> None:
 
 
 # ---------------------------
+#   _where
+# ---------------------------
+def _where(url: str) -> str:
+    """The host and port of an address, for the log: never its user, password, path or query (tokens live there)."""
+    try:
+        parts = urlsplit(url)
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return "?"
+    if not host:
+        return "?"
+    host = f"[{host}]" if ":" in host else host
+    return f"{host}:{port}" if port is not None else host
+
+
+# ---------------------------
 #   _without_query
 # ---------------------------
 def _without_query(text: str) -> str:
-    """The text of an error with any query string of an address cut off, where a token may be."""
-    return " ".join(word.split("?", 1)[0] if "://" in word else word for word in text.split())
+    """The text of an error with the query string and the user and password of any address cut off, where tokens may be."""
+    return " ".join(re.sub(r"://[^/@\s]*@", "://", word.split("?", 1)[0]) if "://" in word else word for word in text.split())
