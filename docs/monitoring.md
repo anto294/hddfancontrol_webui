@@ -33,6 +33,13 @@ A `[temps]` line goes to the log when the temperatures change, and at least ever
 (`monitor_drives`, which can differ from the drives that drive the fans) at the runs
 of `smart_schedule` (every 6 hours by default), and on demand from the **Drives** tab.
 
+On demand, `POST /api/smart` answers 202 at once and the reading goes on in the
+background (`Monitor.refresh_smart_soon`; a reading under way is not started twice).
+The drives are read one after the other and each may take `SMARTCTL_TIMEOUT`
+(120 s), longer than the gateway waits for the core (`CORE_TIMEOUT_S`, 120 s). The
+status carries `smart_refreshing` (also during a scheduled reading); the page keeps
+the button off meanwhile and reads `GET /api/smart` when it is over.
+
 - `-n standby` never wakes a sleeping drive: it keeps its previous data, marked
   `asleep`.
 - `summarize` keeps what the page shows and the attribute table; warnings are codes
@@ -60,7 +67,7 @@ day ago (`LONG_TEST_GUARD`), since it would abort it.
 | --- | --- |
 | `drive_hot` | A drive at its maximum, or at the 65/80 °C ceiling; it ends 2 °C lower |
 | `fan_stalled` | 0 RPM for `FAN_STALL_SECONDS` (120 s) at a speed where the fan surely turns (halfway between stop and start) |
-| `fan_wear` | At the same PWM, the RPM of a chosen fan over the last week dropped by `WEAR_DROP` (15 %) from its baseline (the first week of its history, taken once that history is two weeks old and then kept, so a slow drop over months still shows); checked daily |
+| `fan_wear` | At the same PWM, the RPM of a chosen fan over the last week dropped by `WEAR_DROP` (15 %) from its baseline (the first week of its history, taken once that history is two weeks old (`WEAR_BASELINE_AGE`) and then kept, so a slow drop over months still shows); checked daily. With `history_days` under 14 the purge never lets a history get that old, so the check never starts: the settings page says so under the field |
 | `smart_failing`, `smart_warning`, `smart_error` | The SMART verdict, worrying attributes, or SMART that cannot be read |
 | `drive_missing` | A monitored drive gone from `/dev` |
 | `fans_missing` | The chip of a chosen fan is gone (often a kernel update) |
@@ -86,7 +93,10 @@ translations, in `notify_language`.
   `safety`, `smart_failing`, `fans_missing`, `drive_missing`) go out; the rest is held
   and sent as one message when the quiet hours end.
 - **Summary** (`notify_summary`): the drives and fans in one message. The time of the
-  last one is kept in `meta`; it is never sent at the very first look.
+  last one is kept in `meta`; it is never sent at the very first look. It counts the
+  alerts started in its period from the starts kept in `meta` (`RAISED_KEEP_S`, 32
+  days), at most the newest `RAISED_MAX` (1000): an alert that comes and goes would
+  otherwise grow that list, rewritten at every start, by over a megabyte a month.
 
 ## Schedules
 

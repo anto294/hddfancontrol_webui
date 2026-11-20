@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import re
 import sys
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -63,6 +64,8 @@ MODE_READ_ONLY = "read_only"
 PWM_TEST_MAX_S = 600.0
 # The temperatures are old, and the PWM test stops, after 3 intervals and at least this.
 PWM_TEST_STALE_MIN_S = 120.0
+# test.stopped_by when the watch itself failed (the others are the safety reasons of fancontrol: hot, stale).
+PWM_TEST_STOPPED_ERROR = "error"
 
 
 # ---------------------------
@@ -97,6 +100,9 @@ class LogBuffer:
         self._lines: deque[dict[str, Any]] = deque(maxlen=maxlen)
         self._seq = 0
         self._echo = echo
+        # Lines come from the event loop and from worker threads (the hooks of
+        # Daemon run in one): numbering and reading must not interleave.
+        self._lock = threading.Lock()
 
     @property
     def last_seq(self) -> int:
@@ -104,16 +110,18 @@ class LogBuffer:
         return self._seq
 
     def add(self, source: str, text: str) -> None:
-        """Add a line."""
-        self._seq += 1
+        """Add a line. Safe from any thread."""
         text = text.rstrip()
-        self._lines.append({"seq": self._seq, "time": datetime.now(UTC).isoformat(), "source": source, "text": text})
+        with self._lock:
+            self._seq += 1
+            self._lines.append({"seq": self._seq, "time": datetime.now(UTC).isoformat(), "source": source, "text": text})
         if self._echo:
             print(f"[{source}] {text}", file=sys.stdout, flush=True)
 
     def since(self, seq: int) -> list[dict[str, Any]]:
         """Return the lines newer than seq that are still kept."""
-        return [line for line in self._lines if line["seq"] > seq]
+        with self._lock:
+            return [line for line in self._lines if line["seq"] > seq]
 
 
 # ---------------------------
@@ -314,6 +322,7 @@ class Supervisor:
         read_only: bool = False,
         hardware: Hardware | None = None,
         on_pwm_moved: Callable[[str, str], None] | None = None,
+        fence_samples: Callable[[], None] | None = None,
         manual_timeout: float = MANUAL_IDLE_TIMEOUT,
         manual_watch_period: float = MANUAL_WATCH_PERIOD,
     ) -> None:
@@ -322,10 +331,14 @@ class Supervisor:
         With read_only, nothing is started and nothing can write the fans:
         the web UI only shows what it can read. With hardware, each fan is
         found again on its chip when the hwmon number changes, and
-        on_pwm_moved(old, new) is told (to move its label). Manual control
-        ends by itself after manual_timeout seconds without touch_manual().
+        on_pwm_moved(old, new) is told (to move its label). fence_samples()
+        (TempLog.fence) is called before each start of hddfancontrol, so the
+        last sample of the run before is never read with new settings. Manual
+        control ends by itself after manual_timeout seconds without
+        touch_manual().
         """
         self.read_only = read_only
+        self._fence_samples = fence_samples
         self.hardware = hardware
         self._on_pwm_moved = on_pwm_moved
         # Chosen fans whose chip is not on the host now: they are not controlled.
@@ -373,8 +386,17 @@ class Supervisor:
             settings, missing = await self._placed(self.settings)
             if self.source == SOURCE_FILE and settings != self.settings:
                 # A fan moved, or got its chip recorded: keep that for the next start.
-                await asyncio.to_thread(self.store.save, settings)
+                # Only a convenience (the next start finds the chip again): a full or
+                # read-only /config must never keep the fans from being controlled.
+                try:
+                    await asyncio.to_thread(self.store.save, settings)
+                except OSError as err:
+                    self._log(f"ERROR: cannot save the settings with the new place of the fans, they are used anyway: {err}")
             self.settings, self.missing_pwms = settings, missing
+            if not self.read_only:
+                given = await asyncio.to_thread(self.fans.writer.restore_leftovers)
+                if given:
+                    self._log("The last run was killed: these fans got their mode back: " + ", ".join(given))
             await self._start_daemons()
 
     async def _placed(self, settings: Settings) -> tuple[Settings, list[str]]:
@@ -402,7 +424,11 @@ class Supervisor:
             elif where != pwm.path:
                 self._log(f"The fan chip moved: {pwm.path} is now {where}")
                 if self._on_pwm_moved is not None:
-                    await asyncio.to_thread(self._on_pwm_moved, pwm.path, where)
+                    # The label follows the fan; a label that cannot be written never stops a start or an apply.
+                    try:
+                        await asyncio.to_thread(self._on_pwm_moved, pwm.path, where)
+                    except OSError as err:
+                        self._log(f"ERROR: cannot move the label of {pwm.path} to {where}: {err}")
             pwms.append(replace(pwm, path=where, chip=chip))
         if self.hardware is not None:
             # A fan that is no PWM output of the host (and not one whose chip is
@@ -436,10 +462,18 @@ class Supervisor:
         return problems
 
     def _measuring_lost(self) -> None:
-        """hddfancontrol ended by itself: the fan controller stops trusting the temperatures until new ones come."""
-        if self.fans.active and not self.manual:
+        """hddfancontrol ended by itself: the fan controller stops trusting the temperatures until new ones come.
+
+        In manual control too: nothing watches the drives any more, so every
+        fan goes to full speed until manual control ends.
+        """
+        if not self.fans.active:
+            return
+        if self.manual:
+            self._log("WARNING: hddfancontrol stopped, so the drives are not watched: every fan goes to full speed")
+        else:
             self._log("WARNING: hddfancontrol stopped, the fans run at full speed until it measures again")
-            self.fans.measuring_lost()
+        self.fans.measuring_lost()
 
     def _temp_log(self) -> Path | None:
         """The temperature log path, if its directory can be created."""
@@ -451,6 +485,19 @@ class Supervisor:
             self._log(f"Cannot create {self.temp_log.parent}, temperatures are not recorded: {err}")
             return None
         return self.temp_log
+
+    async def _start_measuring(self, settings: Settings) -> None:
+        """Start hddfancontrol, measuring only, after fencing off the samples of its run before.
+
+        The drives and sensors of a sample are told apart only by their
+        number (the sensors come last): an old sample read with other
+        settings would make a sensor a drive, or a drive a sensor. Until the
+        new run writes, there is no sample, which fan control treats as
+        waiting (full speed).
+        """
+        if self._fence_samples is not None:
+            await asyncio.to_thread(self._fence_samples)
+        self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
 
     async def _start_daemons(self) -> None:
         """Start what the settings and the mode ask for. Everything must be stopped."""
@@ -470,7 +517,7 @@ class Supervisor:
             self.hdidle.start(hdidle)
         if self.manual:
             if settings.drives:
-                self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
+                await self._start_measuring(settings)
             else:
                 self._log("WARNING: no drive is set, so manual control cannot watch the drive temperatures.")
             # A missing fan's path may belong to another chip now, or to nothing: never written, even for safety.
@@ -491,7 +538,7 @@ class Supervisor:
             )
             return
         # hddfancontrol only measures; the fan controller drives the fans in every mode.
-        self.hddfancontrol.start(hddfancontrol_args(settings, self._temp_log(), measure_only=True))
+        await self._start_measuring(settings)
         self.fans.start_control(settings)
 
     async def _stop_daemons(self, final: bool = False) -> None:
@@ -622,7 +669,7 @@ class Supervisor:
             await self._stop_daemons()
             # hddfancontrol keeps measuring (it never writes a fan this way), so the test can be watched.
             if self.settings.drives:
-                self.hddfancontrol.start(hddfancontrol_args(self.settings, self._temp_log(), measure_only=True))
+                await self._start_measuring(self.settings)
             self.test = PwmTestState(running=True, paths=list(paths), started_at=datetime.now(UTC).isoformat())
             self._test_task = asyncio.create_task(self._run_pwm_test(list(paths)), name="pwm-test")
 
@@ -698,7 +745,10 @@ class Supervisor:
             raise
         finally:
             if watch is not None:
-                await asyncio.shield(cancel_and_wait(watch))
+                try:
+                    await asyncio.shield(cancel_and_wait(watch))
+                except Exception as err:  # the outputs must be given back whatever the watch did
+                    log(f"ERROR: the watch of the PWM test failed: {err!r}")
             await asyncio.shield(self._after_test(log))
 
     async def _watch_test(self, task: asyncio.Task[Any], log: Callable[[str], None]) -> None:
@@ -719,7 +769,13 @@ class Supervisor:
         stale_after = max(3 * interval, PWM_TEST_STALE_MIN_S)
         while True:
             await asyncio.sleep(interval)
-            reason, hottest = await self.fans.watch_drives(settings, temps, started, stale_after)
+            try:
+                reason, hottest = await self.fans.watch_drives(settings, temps, started, stale_after)
+            except Exception as err:  # when in doubt the test stops: the fans go back to their control
+                log(f"ERROR: the drive temperatures cannot be watched ({err!r}): the PWM test stops")
+                self.test.stopped_by = PWM_TEST_STOPPED_ERROR
+                task.cancel()
+                return
             if reason is None:
                 continue
             if reason == SAFETY_HOT:

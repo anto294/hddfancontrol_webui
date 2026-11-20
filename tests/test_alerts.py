@@ -399,3 +399,29 @@ async def test_quiet_hours_keep_a_few_lines_and_a_count() -> None:
     assert len(sent) == 1 and "5000" in sent[0] and "line 0" in sent[0] and "line 4999" not in sent[0]
     assert sent[0].endswith("…") and alerts._held == [] and alerts._held_count == 0
     await alerts.stop()
+
+
+async def test_an_alert_that_comes_and_goes_keeps_a_bounded_record(tmp_path: Path) -> None:
+    """A flapping alert (a fan near the stall limit) must not grow the stored starts without end.
+
+    The list is rewritten in meta at every new start: at one start a minute
+    for a month it would reach tens of thousands of entries, more than a
+    megabyte written every minute.
+    """
+    from hddfancontrol_webui.alerts import RAISED_MAX
+    from hddfancontrol_webui.history import History
+
+    store = History(tmp_path / "history.db")
+    clock = {"now": 1_000_000.0}
+    alerts = Alerts(Settings, lambda _: None, store=store, clock=lambda: clock["now"])
+    stalled = {"stall:pwm1": ("fan_stalled", {"fan": "pwm1"})}
+    for _ in range(3 * RAISED_MAX):
+        clock["now"] += 30
+        await alerts.update(stalled)
+        clock["now"] += 30
+        await alerts.update({})
+    assert len(alerts.raised) == RAISED_MAX
+    assert alerts.raised[-1][0] == clock["now"] - 30  # the newest are kept
+    assert len(store.get_meta("alerts_raised") or "") < 64 * 1024
+    await alerts.stop()
+    store.close()

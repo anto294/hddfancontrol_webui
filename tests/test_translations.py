@@ -56,7 +56,7 @@ def test_codes_of_the_server_are_translated() -> None:
         "mode": ["running", "waiting", "pwm_test", "stopped", "manual", "read_only", "curve", "auto"],
         "daemon": ["running", "stopped", "restarting", "failed"],
         "smart.status": ["ok", "warning", "failing", "standby", "error"],
-        "pwmtest": ["pending", "running", "done", "failed", "cancelled"],
+        "pwmtest": ["pending", "running", "done", "failed", "cancelled", "stopped_hot", "stopped_stale", "stopped_error"],
         "security": ["state_none", "state_environment", "state_file"],
         "settings": ["source_file", "source_environment", "mode_help_curve", "mode_help_auto"],
     }.items():

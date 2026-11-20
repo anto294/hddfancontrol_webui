@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from hddfancontrol_webui.fancontrol import FanController, PwmWriter
 from hddfancontrol_webui.hardware import Hardware
 from hddfancontrol_webui.settings import SettingsError, SettingsStore, from_dict
 from hddfancontrol_webui.supervisor import Busy, Daemon, LogBuffer, ReadOnly, Supervisor
+from hddfancontrol_webui.templog import TempLog
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 CONFIG = {
@@ -635,4 +637,215 @@ async def test_each_output_has_a_time_limit(
     await supervisor.start_pwm_test([PWM1])
     await wait_for(lambda: not supervisor.test.running, 4)
     assert supervisor.test.results[PWM1] == {"status": "failed", "error": "timeout"}
+    await supervisor.stop()
+
+
+async def test_pwm_test_ends_when_its_watch_fails(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unexpected error of the watch stops the test, and the outputs are still given back.
+
+    The test must never stay running: every change would answer Busy and the
+    output would stay in manual mode at the last value of pwm-test.
+    """
+    sample: dict[str, Any] = {"time": datetime.now(UTC).isoformat(), "temps": {"sda": 40.0}}
+    supervisor = watched_supervisor(tmp_path, fake_sys, make_script, lambda: sample)
+    monkeypatch.setattr(supervisor_module, "PWM_TEST_MAX_S", 3.0)
+
+    async def broken(*args: Any) -> Any:
+        raise RuntimeError("watch broken")
+
+    restored: list[bool] = []
+    restore = supervisor.fans.writer.restore
+
+    def counted() -> None:
+        restored.append(True)
+        restore()
+
+    monkeypatch.setattr(supervisor.fans, "watch_drives", broken)
+    monkeypatch.setattr(supervisor.fans.writer, "restore", counted)
+    await supervisor.start_pwm_test([PWM1])
+    await wait_for(lambda: not supervisor.test.running, 6)
+    assert supervisor.test.stopped_by == "error"
+    assert supervisor.test.results[PWM1]["status"] == "cancelled"
+    assert restored
+    assert any("watch broken" in line["text"] for line in supervisor.logs.since(0))
+    await supervisor.restart()  # not Busy
+    await supervisor.stop()
+
+
+async def test_a_full_config_never_stops_the_start(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hwmon number changed and /config cannot be written: the fans are controlled anyway.
+
+    Saving the corrected path and moving the label are extras of the start
+    (the next start finds the chip again); an apply still saves the
+    settings, but a label that cannot follow never makes it fail.
+    """
+    # The fan was recorded with its chip at an earlier start, under hwmon2; after a reboot the chip is hwmon7.
+    store = SettingsStore(tmp_path / "config", {})
+    settings = from_dict(CONFIG)
+    chip = Hardware(fake_dev, fake_sys).chip_of(PWM1)
+    store.save(replace(settings, pwms=(replace(settings.pwms[0], chip=chip),)))
+    (fake_sys / "class/hwmon/hwmon2").rename(fake_sys / "class/hwmon/hwmon7")
+    moved_to = "/sys/class/hwmon/hwmon7/pwm1"
+
+    def full(*args: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    logs = LogBuffer(echo=False)
+    supervisor = Supervisor(
+        store,
+        logs,
+        None,
+        FanController(PwmWriter(fake_sys), lambda: None, lambda text: None),
+        hddfancontrol=make_script("hddfancontrol", FAKE_HDDFANCONTROL),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+        on_pwm_moved=full,
+    )
+    monkeypatch.setattr(store, "save", full)
+    await supervisor.start()
+    assert supervisor.settings.pwms[0].path == moved_to
+    assert supervisor.hddfancontrol.active and supervisor.fans.active
+    texts = [line["text"] for line in logs.since(0)]
+    assert any(text.startswith("ERROR") and "label" in text for text in texts)
+    assert any(text.startswith("ERROR") and "settings" in text for text in texts)
+    monkeypatch.undo()
+    await supervisor.apply(supervisor.settings)  # the label still cannot follow: the apply goes on
+    assert supervisor.fans.active
+    await supervisor.stop()
+
+
+async def test_a_restart_never_reads_the_sample_of_the_run_before(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker
+) -> None:
+    """After an apply that drops an extra sensor, the old sample is not read with the new layout.
+
+    hddfancontrol logs the drives first and the sensors last. Read with one
+    sensor fewer, the last sample of the run before makes the processor
+    (72 °C) a drive; the new run has written nothing yet, so there is no
+    sample at all until it does.
+    """
+    log = tmp_path / "templog" / "temps.jsonl"
+    log.parent.mkdir()
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    measures = [{"device": "sda X", "temp_celcius": 40.0}, {"device": "cpu", "temp_celcius": 72.0}]
+    log.write_text(json.dumps({"time_utc": now, "measures": measures}) + "\n")
+    temp_log = TempLog(log)
+    store = SettingsStore(tmp_path / "config", {})
+    sensor = {"path": "/sys/class/hwmon/hwmon10/temp1_input", "temp_min": 60, "temp_max": 90}
+    store.save(from_dict({**CONFIG, "drives": ["/dev/sda"], "hwmons": [sensor], "drive_temp_max": 50}))
+    fans = FanController(PwmWriter(fake_sys), temp_log.latest, lambda text: None, lambda: {"/dev/sda": "sda"})
+    supervisor = Supervisor(
+        store,
+        LogBuffer(echo=False),
+        log,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        fence_samples=temp_log.fence,
+    )
+    await supervisor.start()
+    await supervisor.apply(from_dict({**CONFIG, "drives": ["/dev/sda"], "drive_temp_max": 50}))
+    await wait_for(lambda: fans.auto.speed is not None)
+    assert fans.auto.hottest is None and temp_log.latest() is None
+    # The first sample of the new run counts again.
+    later = (datetime.now(UTC) + timedelta(seconds=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with log.open("a") as handle:
+        handle.write(json.dumps({"time_utc": later, "measures": measures[:1]}) + "\n")
+    assert temp_log.latest() == {"time": datetime.fromisoformat(later).isoformat(), "temps": {"sda X": 40.0}}
+    await supervisor.stop()
+
+
+async def test_full_speed_in_manual_control_when_hddfancontrol_ends(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In manual control too, hddfancontrol ending puts every fan at full speed at once (safety_reason stale).
+
+    Without it, a hot drive would go unseen until the stale limit,
+    max(3 x interval, 120 s), even though nothing measures any more.
+    """
+    real = asyncio.sleep
+
+    async def quick(delay: float) -> None:
+        await real(0.01)
+
+    monkeypatch.setattr(supervisor_module.asyncio, "sleep", quick)
+    from hddfancontrol_webui import fancontrol as fancontrol_module
+
+    monkeypatch.setattr(fancontrol_module.asyncio, "sleep", quick)
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict({**CONFIG, "drives": ["/dev/sda"], "drive_temp_max": 50}))
+    logs = LogBuffer(echo=False)
+    # A sample from the future: never stale by age, so only the end of hddfancontrol can count.
+    sample = {"time": "2999-01-01T00:00:00+00:00", "temps": {"sda X": 20.0}}
+    fans = FanController(
+        PwmWriter(fake_sys), lambda: sample, lambda text: logs.add("fan-control", text), lambda: {"/dev/sda": "sda"}
+    )
+    crash = make_script("crash", "time.sleep(0.3); sys.exit(3)")
+    supervisor = Supervisor(store, logs, None, fans, hddfancontrol=crash, hdidle="/bin/true")
+    await supervisor.set_manual(True)
+    supervisor.set_pwm(PWM1, 60)
+    await wait_for(lambda: fans.safety, 3)
+    assert fans.safety_reason == "stale"
+    assert (fake_sys / "class" / "hwmon" / "hwmon2" / "pwm1").read_text().strip() == "255"
+    supervisor.hddfancontrol._on_exit = None
+    await supervisor.stop()
+
+
+def test_log_buffer_from_many_threads() -> None:
+    """Lines added from worker threads (the hooks of Daemon) and the event loop at once each get their own number."""
+    import sys
+    import threading
+
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        logs = LogBuffer(maxlen=200_000, echo=False)
+        threads = [threading.Thread(target=lambda: [logs.add("x", "line") for _ in range(20_000)]) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        sys.setswitchinterval(old)
+    seqs = [line["seq"] for line in logs.since(0)]
+    assert logs.last_seq == 160_000 and len(set(seqs)) == 160_000
+
+
+async def test_outputs_a_killed_run_left_are_given_back_at_start(
+    tmp_path: Path, fake_sys: Path, make_script: ScriptMaker
+) -> None:
+    """An output that a killed run took, and that this run does not drive, gets the chip's mode back at start.
+
+    Otherwise it would stay in manual mode at the killed run's last value
+    until a reboot: a fan taken out of the settings, or one moved by a
+    slider in manual control.
+    """
+    pwm2 = "/sys/class/hwmon/hwmon2/pwm2"
+    enable2 = fake_sys / "class/hwmon/hwmon2/pwm2_enable"
+    enable2.write_text("2\n")  # the chip drives it
+    state = tmp_path / "config" / "pwm-state.json"
+    boot_id = tmp_path / "boot_id"
+    boot_id.write_text("boot-1\n")
+    PwmWriter(fake_sys, state, boot_id).write(pwm2, 40)  # then SIGKILL: no restore
+    assert enable2.read_text().strip() == "1"
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(from_dict(CONFIG))  # drives pwm1 only
+    logs = LogBuffer(echo=False)
+    fans = FanController(PwmWriter(fake_sys, state, boot_id), lambda: None, lambda text: None)
+    supervisor = Supervisor(
+        store,
+        logs,
+        None,
+        fans,
+        hddfancontrol=make_script("hddfancontrol", "time.sleep(60)"),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+    )
+    await supervisor.start()
+    assert enable2.read_text().strip() == "2"
+    assert pwm2 not in json.loads(state.read_text())["outputs"]
+    assert any(pwm2 in line["text"] for line in logs.since(0))
     await supervisor.stop()

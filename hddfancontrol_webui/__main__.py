@@ -130,6 +130,7 @@ def build() -> Core:
         read_only=hardware.read_only(),
         hardware=hardware,
         on_pwm_moved=labels.move,
+        fence_samples=temp_log.fence,
     )
     if bmc is not None:
         # The CPU curve of a Dell follows the processors of the host; the

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import stat
 import time
 from dataclasses import replace
@@ -287,6 +288,33 @@ async def test_manual_control_without_recent_temperatures(fake_sys: Path, fast: 
     await asyncio.sleep(0.1)
     assert not fans.safety and read(fake_sys, "pwm1") == "90"
     await fans.stop()
+
+
+def test_manual_step_after_hddfancontrol_ended(fake_sys: Path) -> None:
+    """A stopped hddfancontrol counts as stale in manual control, unless a newer sample came meanwhile."""
+    current: dict[str, Any] = {"value": sample({"sda": 30.0, "coretemp.0/1": 50.0})}
+    fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lambda text: None)
+    started = datetime.now(UTC)
+    fans.measuring_lost()
+    current["value"] = sample({"sda": 30.0, "coretemp.0/1": 50.0}, age=-60)  # newer: measuring again
+    fans._manual_step(SETTINGS, 3600, started)
+    assert not fans.safety and fans._lost is None
+    fans.measuring_lost()
+    fans._manual_step(SETTINGS, 3600, started)
+    assert fans.safety and fans.safety_reason == "stale"
+    assert read(fake_sys, "pwm1") == "255"
+
+
+def test_drive_danger_checks_the_last_reading(fake_sys: Path) -> None:
+    """A drive is at its maximum on its last reading, never on an average that lags behind."""
+    current: dict[str, Any] = {}
+    fans = FanController(PwmWriter(fake_sys), lambda: current["value"], lambda text: None)
+    temps = DriveTemps(60, average=3)
+    started = datetime.now(UTC)
+    for age, temp in ((20, 40.0), (10, 40.0), (0, 52.0)):  # averages 40, 40, then 44: under 50
+        current["value"] = sample({"sda": temp, "coretemp.0/1": 50.0}, age=age)
+        reason, hottest = fans.drive_danger(SETTINGS, temps, started, 3600)
+    assert (reason, hottest) == ("hot", 52.0)
 
 
 async def test_auto_mode_survives_an_error(fake_sys: Path, fast: None) -> None:
@@ -737,3 +765,20 @@ async def test_a_sample_from_the_future_is_stale(fake_sys: Path, fast: None) -> 
     await fans.stop()
     assert not fancontrol._is_stale(-30.0, 120.0) and fancontrol._is_stale(-61.0, 120.0)
     assert fancontrol._is_stale(None, 120.0) and fancontrol._is_stale(121.0, 120.0)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_writer_with_an_enable_file_it_cannot_read(fake_sys: Path) -> None:
+    """An enable file that exists but cannot be read is still switched to manual; giving it back means full speed.
+
+    Its old mode is unknown, so restore cannot put it back: writing only the
+    old value would leave the fan in manual mode at a speed the chip had
+    picked for that moment, for good.
+    """
+    enable = fake_sys / "class/hwmon/hwmon2/pwm1_enable"
+    enable.chmod(0o200)  # writable, not readable
+    writer = PwmWriter(fake_sys)
+    writer.write(PWM1, 40)
+    writer.restore()
+    enable.chmod(0o644)
+    assert read(fake_sys, "pwm1_enable") == "1" and read(fake_sys, "pwm1") == "255"

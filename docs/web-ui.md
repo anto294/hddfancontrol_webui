@@ -36,6 +36,10 @@ ones.
   server keeps no state per client.
 - **Errors are codes.** The API answers `{error: code, problems: [{field, code,
   params}]}`; the page translates `error.<code>` and puts each problem under its field.
+- **A network error is only a network error.** `pollStatus` shows "the server does not
+  answer" only when the request fails; each part of the page is then drawn on its own,
+  and a bug in one goes to the console without hiding the others (the banners of the
+  safety rules first).
 
 ## Languages
 

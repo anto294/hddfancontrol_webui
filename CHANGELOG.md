@@ -25,8 +25,57 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   off. The hardware support request carries what the web UI knows of the
   BMC: model, firmware, configuration, who drives the fans, every sensor.
 
+### Fixed
+
+- **A PWM test always ends.** If the watch of the drive temperatures
+  failed during a PWM test, the test stayed "running" for ever: every
+  change answered Busy, the tested output stayed at the last value of the
+  test and hddfancontrol did not start again. Now an error of the watch
+  stops the test ("the drive temperatures could not be watched"), and the
+  outputs are given back and everything starts again in every case.
+- **A full or read-only `/config` no longer stops fan control at start.**
+  When the hwmon number of a fan chip changed at a reboot and the settings
+  or the fan name could not be written, nothing started. Now the error is
+  logged and the fans are controlled at their new place anyway.
+- **No old temperatures after new settings.** After an apply that added
+  or removed an extra sensor (or changed the drives), the last sample of
+  the run before was read with the new settings: the processor could count
+  as a drive (fans at full speed, a false "drive hot" alert), or a hot
+  drive be ignored for one interval. Samples of an earlier run of
+  hddfancontrol are now ignored until it writes a new one.
+- **A failed sensor scan no longer blocks the next ones.** An unexpected
+  error during **Scan again** left the scan "running" for ever, and every
+  later scan was refused as busy. It now ends with the error shown.
+- **`HWMONS` with a path that holds `:`.** Such a path (a PCI one under
+  `/sys/devices/`) was cut at its first `:` into a wrong path and a wrong
+  range. It is now read whole and refused with a clear message, since
+  hddfancontrol itself cannot read it: give the same input under
+  `/sys/class/hwmon/`.
+- **Reading SMART again and scanning the sensors no longer fail on big
+  servers.** With several drives (or a slow sensors-detect) the page got
+  "core unavailable" while the work went on. Both now start at once and
+  run in the background: the button stays off until the new data are in.
+- **Manual control reacts at once when hddfancontrol stops.** In manual
+  control a crash of hddfancontrol put the fans at full speed only after
+  the stale limit (2 minutes or more); now it does at once, as in the
+  automatic modes.
+- **The history keeps recording after a busy database.** When saving a
+  sample failed at its last step, every later sample failed too, until a
+  restart.
+- **After the web UI was killed, every fan goes back to the chip.** When
+  the container was killed (out of memory, `docker kill`) a fan it had
+  set but no longer drives stayed at its last speed until a reboot. At
+  the next start it now gets its own mode back.
+- **A fan whose mode cannot be read is given back at full speed.** On a
+  driver whose `pwmN_enable` cannot be read, a fan was left at a fixed
+  speed when fan control ended; it now goes to full speed, the safe side.
+
 ### Changed
 
+- **Settings warn when the history is too short for the fan wear check.**
+  Under 14 days of history the check never starts, since it compares
+  each fan with its first week once its history is two weeks old; the
+  field now says so.
 - **The Control card of the Overview in three groups.** Fan control (state,
   mode, the hottest drive and the speed each fan was given), Services
   (hddfancontrol and hd-idle, with the **Restart** button under them) and

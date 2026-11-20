@@ -58,6 +58,8 @@ _PWM_PATH = re.compile(r"^/sys/class/hwmon/hwmon[0-9]+/pwm[0-9]+$")
 _DRIVE_PATH = re.compile(rf"^/dev/(?:disk/by-(?:id|path)/{_COMPONENT}|sd[a-z]+|nvme[0-9]+n[0-9]+)$")
 # What hddfancontrol reads: a temperature input of a hwmon chip.
 _TEMP_INPUT = re.compile(r"/temp[0-9]+_input$")
+# A temperature of HWMONS (path:min:max), as hddfancontrol reads it: a number, maybe negative or with decimals.
+_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 # Where the chips of the fans live (Hardware.chip_of).
 _CHIP_PREFIX = "/sys/devices/"
 _INTERVAL = re.compile(r"^\s*([0-9]{1,9})\s*(s|sec|secs|m|min|mins|h|hr|hrs)?\s*$")
@@ -422,6 +424,10 @@ def from_dict(data: Any) -> Settings:
         if not isinstance(path, str) or not is_temp_input(path):
             check.add(prefix + "path", "invalid_temp_path")
             continue
+        if ":" in path:
+            # hddfancontrol cuts --hwmons at the first ':' (path:min:max): use /sys/class/hwmon/hwmonN/tempN_input.
+            check.add(prefix + "path", "temp_path_colon")
+            continue
         low = check.number(item, "temp_min", None, prefix)
         high = check.number(item, "temp_max", None, prefix)
         if (low is None) != (high is None):
@@ -603,11 +609,17 @@ def env_document(env: Mapping[str, str]) -> dict[str, Any]:
     if env.get("HWMONS", "").strip():
         hwmons: list[Any] = []
         for token in env["HWMONS"].split():
-            parts = token.split(":")
-            hwmon: dict[str, Any] = {"path": parts[0]}
-            if len(parts) > 1:
-                hwmon["temp_min"] = parts[1]
-                hwmon["temp_max"] = parts[2] if len(parts) > 2 else None
+            # path[:min[:max]], the numbers taken from the end: a path may hold ':'.
+            path, numbers = token, list[str]()
+            for _ in range(2):
+                head, colon, tail = path.rpartition(":")
+                if not colon or not _NUMBER.fullmatch(tail):
+                    break
+                path, numbers = head, [tail, *numbers]
+            hwmon: dict[str, Any] = {"path": path}
+            if numbers:
+                hwmon["temp_min"] = numbers[0]
+                hwmon["temp_max"] = numbers[1] if len(numbers) > 1 else None
             hwmons.append(hwmon)
         doc["hwmons"] = hwmons
     if env.get("INTERVAL", "").strip():

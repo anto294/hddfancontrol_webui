@@ -11,6 +11,17 @@ function numberInput(name, value, attrs = {}) {
   return el("input", { type: "number", name, value: value ?? "", ...attrs });
 }
 
+// The fan wear check takes its baseline once a fan's history is this old
+// (WEAR_BASELINE_AGE of monitor.py): a shorter history never gets there.
+const WEAR_MIN_DAYS = 14;
+
+function renderHistoryHint() {
+  const days = Number($("settings-form").history_days.value);
+  const hint = $("history-days-hint");
+  hint.hidden = !(days > 0 && days < WEAR_MIN_DAYS);
+  hint.textContent = t("settings.history_days_wear", { days: WEAR_MIN_DAYS });
+}
+
 function renderModeHelp() {
   const mode = $("settings-form").control_mode.value;
   $("mode-help").textContent = t(`settings.mode_help_${mode}`);
@@ -86,6 +97,7 @@ function renderSettings() {
   }
   form.restore_fan_settings.checked = settings.restore_fan_settings;
   renderModeHelp();
+  renderHistoryHint();
 
   // Drives: one row per drive found, with the name to use and its own spin down time.
   const drives = $("drive-list");
@@ -807,6 +819,7 @@ document.addEventListener("DOMContentLoaded", () => {
     },
     true,
   );
+  $("settings-form").history_days.addEventListener("input", renderHistoryHint);
   for (const name of CRON_FIELDS) {
     $("settings-form")[name].addEventListener("input", () => {
       clearTimeout(cronTimers[name]);

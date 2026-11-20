@@ -424,7 +424,11 @@ class PwmWriter:
         enable = self._read(f"{path}_enable")
         original = self._original.get(path)
         if original is None:
-            original = (enable, self._read(path))
+            # An enable file that exists but cannot be read: its mode is unknown, so it is
+            # saved as manual, which restore gives back as full speed (never the old value
+            # alone, which would leave the fan at the speed of that moment for good).
+            unknown = enable is None and os.path.lexists(enable_file)
+            original = (str(ENABLE_MANUAL) if unknown else enable, self._read(path))
             self._original[path] = original
             self._store_state()
         if enable is None and not os.path.lexists(enable_file):
@@ -471,26 +475,47 @@ class PwmWriter:
         left: its old value is not trusted, and 255 is the safe one. An
         output without an enable file gets its value back.
         """
-        for path, (enable, value) in self._saved.items():
+        for path, state in self._saved.items():
             if path == BMC_PWM:
                 if self.bmc is not None:
                     self.bmc.release()
                 continue
-            try:
-                if enable is not None and enable != str(ENABLE_MANUAL):
-                    self._file(f"{path}_enable").write_text(f"{enable}\n", encoding="utf-8")
-                elif enable is None and value is not None:
-                    self._file(path).write_text(f"{value}\n", encoding="utf-8")
-                else:
-                    self._file(path).write_text(f"{PWM_MAX}\n", encoding="utf-8")
-            except OSError as err:
-                _LOGGER.error("Cannot restore %s: %s", path, err)
-                continue
-            self._original.pop(path, None)
+            self._give_back(path, state)
         if self._saved:
             self._store_state()
         self._saved.clear()
         self.values.clear()
+
+    def restore_leftovers(self) -> list[str]:
+        """Give back the outputs that a killed run of this boot took and this run has not; return their paths.
+
+        Called at start, before any output is taken: an output this run does
+        not drive (a fan taken out of the settings, one moved by a slider in
+        manual control) would otherwise stay in manual mode at the killed
+        run's last value until a reboot. One this run drives is taken again
+        right after, from the chip's state.
+        """
+        leftovers = {path: state for path, state in self._original.items() if path not in self._saved}
+        for path, state in leftovers.items():
+            self._give_back(path, state)
+        if leftovers:
+            self._store_state()
+        return [path for path in leftovers if path not in self._original]
+
+    def _give_back(self, path: str, state: tuple[str | None, str | None]) -> None:
+        """Write the saved mode (or value) of one output and forget it; an error is logged and the entry kept."""
+        enable, value = state
+        try:
+            if enable is not None and enable != str(ENABLE_MANUAL):
+                self._file(f"{path}_enable").write_text(f"{enable}\n", encoding="utf-8")
+            elif enable is None and value is not None:
+                self._file(path).write_text(f"{value}\n", encoding="utf-8")
+            else:
+                self._file(path).write_text(f"{PWM_MAX}\n", encoding="utf-8")
+        except OSError as err:
+            _LOGGER.error("Cannot restore %s: %s", path, err)
+            return
+        self._original.pop(path, None)
 
 
 # ---------------------------
@@ -559,6 +584,7 @@ class FanController:
         self.safety = False
         self.safety_reason = None
         self.error = None
+        self._lost = None
         self._task = asyncio.create_task(self._run_manual(settings), name="fan-manual")
 
     def measuring_lost(self) -> None:
@@ -818,12 +844,13 @@ class FanController:
         """
         now = datetime.now(UTC)
         latest = self._latest()
-        temps = temps_state.per_drive(latest, len(settings.hwmons))
+        temps_state.per_drive(latest, len(settings.hwmons))
         names = self._kernel_names()
         by_kernel = {names[d]: d for d in settings.drives if d in names}
+        # The maximum is checked on the last reading of each drive: an average would only delay full speed.
         hot = [
             temp
-            for name, temp in temps.items()
+            for name, temp in temps_state.raw.items()
             if temp >= min(settings.limits_of(by_kernel.get(name.split()[0], ""))[2], drive_ceiling(name.split()[0]))
         ]
         if hot:
@@ -842,8 +869,18 @@ class FanController:
         return await asyncio.to_thread(self.drive_danger, settings, temps_state, started, stale_after)
 
     def _manual_step(self, settings: Settings, stale_after: float, started: datetime) -> None:
-        """Check the drives once; a drive at its maximum or old temperatures put every fan at full speed."""
-        reason, hottest = self.drive_danger(settings, self._temps, started, stale_after)
+        """Check the drives once; a drive at its maximum, old temperatures or a stopped hddfancontrol put every fan at full speed."""
+        lost = self._lost
+        if lost is not None:
+            latest = self._latest()
+            if latest and latest["time"] > lost:
+                self._lost = lost = None
+        reason: str | None
+        hottest: float | None
+        if lost is not None:
+            reason, hottest = SAFETY_STALE, None
+        else:
+            reason, hottest = self.drive_danger(settings, self._temps, started, stale_after)
         if reason is not None and not self.safety:
             with self._manual_lock:
                 self.safety = True

@@ -156,16 +156,25 @@ async function loadSmart() {
   }
 }
 
+// The drives are read in the background (POST answers 202 at once): the
+// status says while it lasts (smart_refreshing), and renderSmartState reads
+// the new data when it is over.
 async function refreshSmart() {
-  const button = $("smart-refresh");
-  button.disabled = true;
+  $("smart-refresh").disabled = true;
   try {
-    renderSmart(await api("POST", "/api/smart"));
+    await api("POST", "/api/smart");
+    state.smartRefreshing = true;
   } catch (error) {
     alertBanner(errorText(error));
-  } finally {
-    button.disabled = false;
+    $("smart-refresh").disabled = false;
   }
+}
+
+function renderSmartState() {
+  const refreshing = Boolean(state.status.smart_refreshing);
+  $("smart-refresh").disabled = refreshing;
+  if (state.smartRefreshing && !refreshing) loadSmart();
+  state.smartRefreshing = refreshing;
 }
 
 // ---------------------------------------------------------------------------

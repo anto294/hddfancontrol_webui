@@ -513,3 +513,23 @@ def test_drive_limits_stay_within_what_drives_bear() -> None:
     assert from_dict({**doc, "drive_limits": {nvme: {"max": 80}, sata: {"max": 70}}}).limits_of(sata)[2] == 70
     hwmon = {"hwmons": [{"path": TEMP_A, "temp_min": 60, "temp_max": 95}]}
     assert from_dict(hwmon).hwmons[0].temp_max == 95  # a CPU sensor, not a drive
+
+
+PCI_TEMP = "/sys/devices/pci0000:00/0000:00:18.3/hwmon/hwmon2/temp1_input"
+
+
+def test_hwmon_env_with_a_colon_in_the_path() -> None:
+    """HWMONS takes the range from the end, only when it is numbers: the path may hold ':'."""
+    doc = env_document({"HWMONS": f"{PCI_TEMP}:40:80 {PCI_TEMP} {TEMP_A}:45:75"})
+    assert doc["hwmons"] == [
+        {"path": PCI_TEMP, "temp_min": "40", "temp_max": "80"},
+        {"path": PCI_TEMP},
+        {"path": TEMP_A, "temp_min": "45", "temp_max": "75"},
+    ]
+
+
+def test_hwmon_path_with_a_colon_is_refused() -> None:
+    """hddfancontrol splits --hwmons at the first ':' (splitn(3, ':') in its cl.rs): such a path cannot reach it."""
+    with pytest.raises(SettingsError) as raised:
+        from_dict({"hwmons": [{"path": PCI_TEMP, "temp_min": 40, "temp_max": 80}]})
+    assert raised.value.problems == [{"field": "hwmons.0.path", "code": "temp_path_colon", "params": {}}]

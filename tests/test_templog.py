@@ -68,3 +68,19 @@ def test_garbage_only(tmp_path: Path) -> None:
     path = tmp_path / "temps.jsonl"
     path.write_text("garbage\n\n")
     assert TempLog(path).latest() is None
+
+
+def test_fence_hides_the_samples_of_the_run_before(tmp_path: Path) -> None:
+    """After fence() only a newer sample counts, through a rotation too; a fence with no sample hides nothing."""
+    path = tmp_path / "temps.jsonl"
+    log = TempLog(path)
+    log.fence()
+    path.write_text(line("2026-02-13T12:00:00Z", ("sda", 40.0), ("cpu", 72.0)))
+    assert log.latest() is not None
+    log.fence()
+    assert log.latest() is None
+    path.write_text("")  # the daily rotation
+    assert log.latest() is None
+    path.write_text(line("2026-02-13T12:00:20Z", ("sda", 41.0)))
+    latest = log.latest()
+    assert latest is not None and latest["temps"] == {"sda": 41.0}

@@ -96,3 +96,14 @@ async def test_run_kills_a_program_that_hangs(make_script: ScriptMaker) -> None:
     """A program that does not finish in time is killed and reported as an OSError."""
     with pytest.raises(OSError, match="did not finish"):
         await sensors._run(make_script("hung", "time.sleep(30)"), limit_s=0.2)
+
+
+async def test_scan_with_a_sensors_detect_that_hangs(
+    fake_sys: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sensors-detect killed at RUN_TIMEOUT ends the scan: TimeoutError is an OSError (Python 3.3 and later)."""
+    monkeypatch.setattr(sensors._run, "__kwdefaults__", {"limit_s": 0.2})
+    report = await scan_sensor_modules(
+        lambda _: None, make_script("hung", "time.sleep(30)"), make_script("modprobe", ""), fake_sys
+    )
+    assert report.state == "done" and report.detect_error and "did not finish" in report.detect_error

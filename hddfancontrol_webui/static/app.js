@@ -27,6 +27,10 @@ const state = {
   cpuUsage: null,
   // The counters of the snapshot the rates were taken from.
   counters: null,
+  // Whether the last status showed a SMART reading or a sensor scan under way:
+  // both run in the background, and their end is seen in the status.
+  smartRefreshing: false,
+  scanning: false,
 };
 
 const POLL_STATUS_MS = 3000;
@@ -553,16 +557,26 @@ function renderHeader() {
 async function pollStatus() {
   try {
     state.status = await api("GET", "/api/status");
-    renderHeader();
-    renderBanners();
-    renderOverview();
-    renderFansState();
-    renderPwmTest();
-    syncIpmi();
-    wizardOnStatus();
   } catch (error) {
     if (error.message !== "unauthorized") $("banners").replaceChildren(banner("error", t("error.network")));
+    return;
   }
+  // A bug in one part of the page is no network problem: it goes to the console,
+  // and the other parts (the banners of the safety rules first) still render.
+  for (const render of [renderHeader, renderBanners, renderOverview, renderFansState, renderPwmTest, syncIpmi, renderSmartState, wizardOnStatus, followScan]) {
+    try {
+      render();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+}
+
+// A sensor scan just ended: the chips it loaded show up in the hardware.
+function followScan() {
+  const scanning = state.status.sensors.state === "running";
+  if (state.scanning && !scanning) pollHardware();
+  state.scanning = scanning;
 }
 
 // Turn the counters of this snapshot and of the one before into rates.
@@ -611,6 +625,7 @@ async function pollHardware() {
   }
 }
 
+// The scan runs in the background (202 at once); the status shows it until it is over.
 async function rescanSensors() {
   try {
     await api("POST", "/api/sensors/scan");
@@ -618,7 +633,6 @@ async function rescanSensors() {
     alertBanner(errorText(error));
   }
   await pollStatus();
-  await pollHardware();
 }
 
 function alertBanner(text) {

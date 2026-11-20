@@ -79,6 +79,35 @@ can be the hottest thing in a NAS case. (2026-11-16)
 changes.** Why: `hwmonN` numbers can change at every boot, and writing to the wrong
 output is worse than writing to none. (2026-11-16)
 
+**Writing `/config` is never a condition for controlling the fans.** When a fan is found
+at a new hwmon number, saving the corrected settings at start and moving its label are
+logged as errors when they fail, and the start goes on; an apply fails only when the
+settings themselves cannot be saved. Why: after a reboot with a full or read-only
+`/config`, an `OSError` used to stop the whole start (no fan control, no hddfancontrol,
+mode "stopped") with no retry; the next start finds the chip again anyway. (2026-11-20)
+
+**The temperature samples of an earlier run of hddfancontrol are fenced off.** Before
+each start of hddfancontrol, `TempLog.fence` records the time of the newest sample, and
+nothing reads a sample that old again. Why: drives and extra sensors are told apart by
+their place in the line, which depends on the settings; and after a restart fan control
+counted the old sample as fresh. A few seconds without a sample cost full speed; a
+sensor read as a drive costs a false alarm, a drive read as a sensor a missed one.
+(2026-11-20)
+
+**Work that can outlast the gateway's wait runs in the background.** A SMART reading
+asked by the page and a sensor scan answer 202 at once, and the page follows them in the
+status it asks for every few seconds anyway. Why: one drive may take
+`SMARTCTL_TIMEOUT`, several drives are read one after the other and sensors-detect may
+take `RUN_TIMEOUT`, all at or past `CORE_TIMEOUT_S`; the page got 502
+`core_unavailable` while the core worked normally. A longer timeout for some routes
+would only move the limit, and keep a connection open for minutes. (2026-11-20)
+
+**The starts of alerts kept for the summary are capped.** At most `RAISED_MAX` (1000),
+the newest. Why: the list is rewritten in `meta` at every new start; an alert that comes
+and goes once a minute grew it to 20 000 entries (560 KB per write) in two weeks, on the
+flash many NAS boot from. Beyond a thousand starts the summary's count is only a floor,
+and the alert itself has long been noticed. (2026-11-20)
+
 **Read only when `/sys` is read only.** Nothing starts, and a red banner says so. Why:
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)

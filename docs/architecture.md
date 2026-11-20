@@ -96,7 +96,11 @@ anything.
 The PWM outputs are kept with the `/sys/devices/…` path of their chip. When the hwmon
 numbers change at a reboot (`hwmon2` becomes `hwmon3`), `Supervisor._placed` finds the
 same output again (`Hardware.locate`), saves the settings and moves the label. A fan
-whose chip is gone is listed in `missing_pwms` and not controlled.
+whose chip is gone is listed in `missing_pwms` and not controlled. Saving at start and
+moving the label are extras: when `/config` is full or read only, the error is logged
+(`ERROR: …`) and the fans are controlled at their new place anyway. An apply still
+fails with `save_failed` when the settings cannot be saved (that is what was asked),
+but never because of a label.
 
 ## Start and stop
 
@@ -104,7 +108,13 @@ Start, in the background so the web UI answers at once:
 
 1. The BMC, if any: a Dell gets its fans back before anything may take them.
 2. The sensor modules (`sensors-detect`), unless `LOAD_SENSOR_MODULES=false`. A failure
-   never keeps the fans from being controlled.
+   never keeps the fans from being controlled. A scan always ends as `done`, at start
+   and when the page asks for one again (`POST /api/sensors/scan`): a program that
+   hangs is killed at `RUN_TIMEOUT` (300 s) and reported, and an unexpected error
+   lands in `detect_error`, so a later scan is never refused as `busy`. The page's scan
+   answers 202 at once and runs in the background (longer than the gateway's
+   `CORE_TIMEOUT_S`); the page follows `sensors.state` in the status and reads the
+   hardware again when it is `done`.
 3. `Supervisor.start`: hddfancontrol, hd-idle, the fan controller.
 4. `Monitor.start`: recording, SMART, alerts.
 
