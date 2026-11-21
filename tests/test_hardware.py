@@ -314,3 +314,24 @@ def test_hwmons_without_temperatures(fake_sys: Path, fake_dev: Path, monkeypatch
     assert [(d.hwmon, d.name, d.pwms) for d in light] == [(d.hwmon, d.name, d.pwms) for d in full]
     assert all(d.temps == [] for d in light)
     assert not [path for path in opened if "/temp" in path]
+
+
+def test_drives_by_name_only(fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """full=False gives the same names, ids and models, and reads nothing else of a drive."""
+    hardware = Hardware(fake_dev, fake_sys)
+    (fake_sys / "class" / "block" / "sda" / "stat").write_text("1 2 3 4 5 6 7 8 9 10 11\n")
+    full = hardware.drives()
+    opened: list[str] = []
+    real_open = hardware_module.os.open
+
+    def watched(path: Any, flags: int, *args: Any) -> int:
+        opened.append(str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(hardware_module.os, "open", watched)
+    monkeypatch.setattr(Hardware, "_connection", staticmethod(lambda *args: pytest.fail("connection read")))
+    light = hardware.drives(full=False)
+    assert [(d.name, d.ids, d.model) for d in light] == [(d.name, d.ids, d.model) for d in full]
+    assert all((d.size_bytes, d.rotational, d.bus, d.io) == (0, None, "", None) for d in light)
+    assert all(path.endswith("/device/model") for path in opened)
+    assert Hardware(fake_dev / "none", fake_sys).drives(full=False) == []

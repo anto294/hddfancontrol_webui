@@ -239,8 +239,13 @@ class Hardware:
         lines += ["== bmc", "/dev/ipmi0" if (self._dev / "ipmi0").exists() else "no /dev/ipmi0"]
         return "\n".join(lines)
 
-    def drives(self) -> list[Drive]:
-        """List the whole drives that have a name in /dev/disk/by-id."""
+    def drives(self, full: bool = True) -> list[Drive]:
+        """List the whole drives that have a name in /dev/disk/by-id.
+
+        full=False reads only the name, the by-id names and the model of each
+        drive (the rest keeps its default), for a reader that needs no more:
+        not its size, connection or I/O counters.
+        """
         by_id = self._dev / "disk" / "by-id"
         found: dict[str, Drive] = {}
         try:
@@ -256,11 +261,15 @@ class Hardware:
                 continue
             drive = found.get(kernel_name)
             if drive is None:
-                drive = found[kernel_name] = self._drive(kernel_name)
+                drive = found[kernel_name] = self._drive(kernel_name) if full else self._drive_name(kernel_name)
             drive.ids.append(f"/dev/disk/by-id/{entry.name}")
         for drive in found.values():
             drive.ids.sort(key=lambda p: (Path(p).name.startswith(_LOW_PRIORITY), p))
         return sorted(found.values(), key=lambda d: _natural_key(d.name))
+
+    def _drive_name(self, kernel_name: str) -> Drive:
+        """A drive with its name and model only (drives(full=False))."""
+        return Drive(name=kernel_name, model=_read(f"{self._sys}/class/block/{kernel_name}/device/model") or "")
 
     def _drive(self, kernel_name: str) -> Drive:
         """Read what sysfs says about a drive."""

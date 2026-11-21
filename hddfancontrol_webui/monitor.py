@@ -171,7 +171,7 @@ class Monitor:
         order, the same whichever name the settings use.
         """
         names = {}
-        for drive in self.hardware.drives():
+        for drive in self.hardware.drives(full=False):
             if drive.ids:
                 names[drive.name] = min(drive.ids, key=lambda i: (not os.path.basename(i).startswith("wwn-"), i))
         return names
@@ -335,7 +335,7 @@ class Monitor:
         not the one of the settings: once the drive is gone, /dev no longer
         says which they were.
         """
-        drives = self.hardware.drives()
+        drives = self.hardware.drives(full=False)
         for device in self._settings().monitor_drives:
             drive = next((d for d in drives if device in d.ids or device == f"/dev/{d.name}"), None)
             if drive is None:
@@ -363,7 +363,7 @@ class Monitor:
         nothing about the drives, as for the missing drive alert.
         """
         data = self.smart()
-        if self.hardware.drives():
+        if self.hardware.drives(full=False):
             for device, info in data.items():
                 if not self.hardware.dev_exists(device):
                     info["missing"] = True
@@ -450,7 +450,7 @@ class Monitor:
         since = int(max(before or 0, due - MAX_SUMMARY_DAYS * 86400))
         span = {name: time.strftime("%d/%m %H:%M", time.localtime(stamp)) for name, stamp in (("from", since), ("to", due))}
         lines = [render(lang, "summary.title", span)]
-        drives = self.hardware.drives()
+        drives = self.hardware.drives(full=False)
         by_id = {i: drive for drive in drives for i in drive.ids}
         stats = self.history.stats(since)
         for kind, name, _low, avg, high in stats:
@@ -514,7 +514,7 @@ class Monitor:
         settings = self._settings()
         active = self.alerts.active if self.alerts is not None else {}
         found: dict[str, Condition] = {}
-        drives = {drive.name: drive for drive in self.hardware.drives()}
+        drives = {drive.name: drive for drive in self.hardware.drives(full=False)}
 
         latest = self.temp_log.latest()
         fresh = latest is not None and time.time() - datetime.fromisoformat(latest["time"]).timestamp() < FRESH_SAMPLE_SECONDS
