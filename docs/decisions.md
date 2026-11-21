@@ -157,6 +157,13 @@ last SMART, for a warranty claim), as in Scrutiny. A drive that drives the fans 
 refused: if it came back while archived, the fans would not follow its temperature.
 The change restarts nothing, since only the monitor reads `monitor_drives`. (2026-11-21)
 
+**The permissions and devices are checked once at start, and only reported.** Why: a
+container without a device, a capability or a writable volume starts anyway and fails
+one feature at a time, far from the cause ("permission denied" from smartctl). Each
+problem is named in the log and in a banner with what to do. Nothing is fixed by
+itself: the fixes (privileged, a device, a volume) are the user's, and `/config`
+already gets its owner and mode at start (`tighten_config`). (2026-11-21)
+
 ## Security
 
 **Privilege separation: a root core on a Unix socket, an unprivileged gateway on the

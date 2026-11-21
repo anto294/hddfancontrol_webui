@@ -120,6 +120,7 @@ async def test_status_and_health(make_client: ClientMaker) -> None:
     assert "auth" not in status
     assert status["latest"]["temps"] == {"sda": 41.0}
     assert status["mode"] == "waiting"
+    assert status["checks"] == []  # filled at start by __main__ (checks.py)
 
 
 async def test_settings_api(make_client: ClientMaker) -> None:

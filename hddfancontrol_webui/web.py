@@ -221,6 +221,7 @@ async def get_status(request: web.Request) -> web.Response:
         sensors=report.to_dict(),
         latest=await asyncio.to_thread(app[TEMP_LOG].latest),
         smart_refreshing=app[MONITOR].smart_refreshing,
+        checks=app[STATE]["checks"],
         alerts=alerts.status() if alerts is not None else [],
     )
     return web.json_response(data)
@@ -989,7 +990,8 @@ def create_app(
     app[BAYS] = bays or Bays(labels.path.parent)
     app[SENSOR_SCAN] = sensor_scan or default_scan
     app[LOAD_MODULES] = load_modules
-    app[STATE] = {"sensors": SensorReport()}
+    # checks: what the startup checks found (checks.py), filled by the lifecycle of __main__.
+    app[STATE] = {"sensors": SensorReport(), "checks": []}
     router = app.router
     router.add_get("/healthz", healthz)
     router.add_get("/api/status", get_status)

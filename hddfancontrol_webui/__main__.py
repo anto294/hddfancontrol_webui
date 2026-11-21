@@ -23,6 +23,7 @@ from aiohttp import web
 
 from .alerts import Alerts
 from .bays import Bays
+from .checks import run_checks
 from .const import (
     DEFAULT_CONFIG_DIR,
     HDDFANCONTROL_BIN,
@@ -123,6 +124,13 @@ def build() -> Core:
     )
     history = History(config_dir / HISTORY_DB)
     smartctl = env.get("SMARTCTL_BIN", SMARTCTL_BIN)
+    programs = {
+        "hddfancontrol": env.get("HDDFANCONTROL_BIN", HDDFANCONTROL_BIN),
+        "hd-idle": env.get("HDIDLE_BIN", HDIDLE_BIN),
+        "smartctl": smartctl,
+        "sensors-detect": env.get("SENSORS_DETECT_BIN", SENSORS_DETECT_BIN),
+        "modprobe": env.get("MODPROBE_BIN", MODPROBE_BIN),
+    }
 
     async def smart_reader(device: str) -> dict[str, Any]:
         return await read_smart(device, smartctl)
@@ -194,6 +202,16 @@ def build() -> Core:
             logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}: core started, the gateway runs as {user.name}")
 
         async def startup() -> None:
+            # What the container or the host lacks, said once with what to do; it only reports.
+            app[STATE]["checks"] = await asyncio.to_thread(
+                run_checks,
+                lambda text: logs.add(SOURCE_WEBUI, text),
+                config_dir,
+                hardware,
+                supervisor.settings,
+                programs,
+                load_modules,
+            )
             # A failed sensor scan must not keep the fans from being controlled.
             if load_modules:
                 app[STATE]["sensors"] = SensorReport(state="running")

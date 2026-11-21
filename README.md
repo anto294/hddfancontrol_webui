@@ -357,6 +357,8 @@ The web UI is two Python processes with aiohttp, the core and the gateway, which
 
 **The log says the gateway could write `/config`.** The folder of the settings must be writable by root only, since the core trusts what it finds there. The web UI gives it to root and removes the write permission of group and others by itself (also from a folder with the sticky bit, such as mode 1777); when the host refuses (an ACL, NFS with root squash), the web UI does not start at all: the fans are still controlled, but the page is not served until the folder is fixed. Fix the permissions of the dataset (owner root, no write for others) and restart.
 
+**A yellow banner names a problem of permissions, devices or programs.** At start the web UI checks what it needs (root, a writable `/config`, the drives in `/dev`, the fan files, the capabilities for SMART and the sensor modules, the programs) and says what to do for each one it lacks; the log has the same lines (`startup check:`). Most are fixed by `privileged: true` and the volumes of the example; restart after the fix. **Hide** hides one in that browser while it says the same.
+
 **The web UI says it is read only.** `/sys` is mounted read only, which is what Docker does for a container that is not privileged, so no fan can be written: hddfancontrol and hd-idle do not start, and manual control and the PWM test are off. Set `privileged: true` (on TrueNAS SCALE, tick **Privileged** in the app settings) and restart the container.
 
 **A fan does not react to its slider.** The header may be in DC mode, or the BIOS may hold it at a fixed speed. Set the header to PWM mode in the BIOS.

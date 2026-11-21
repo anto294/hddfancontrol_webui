@@ -16,6 +16,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   where it can be monitored again. **Delete** (it asks twice) removes all it
   left: SMART data, history, alert notes, name and bay. A drive that drives
   the fans must leave fan control in Settings first. Nothing restarts.
+- **Permissions and devices checked at start.** The web UI looks for what
+  would keep it from working (not root, `/config` not writable, no drive in
+  `/dev`, a drive or a fan file it cannot open, the capabilities for SMART and
+  the sensor modules, a missing program) and names each problem with what to
+  do, in the log and in a banner that can be hidden.
 
 ## [0.11.1] - 2026-11-20
 
