@@ -39,7 +39,7 @@ body:
     attributes:
       label: System, how you run the web UI, and its version
       description: The version is at the bottom of the web UI.
-      placeholder: TrueNAS SCALE 25.10 (Custom App), image v0.11.1
+      placeholder: TrueNAS SCALE 25.10 (Custom App), image v0.12.0
     validations:
       required: true
 
