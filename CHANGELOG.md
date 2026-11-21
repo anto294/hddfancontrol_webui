@@ -36,7 +36,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - **The page asks for less while it is open.** The log lines are asked for only
   while the **Logs** tab is open (it catches up when opened); the hardware
-  readings redraw only the tab shown.
+  readings and the status redraw only the tab shown (the header and the
+  banners always).
 
 ## [0.11.1] - 2026-11-20
 

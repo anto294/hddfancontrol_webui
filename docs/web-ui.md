@@ -38,6 +38,10 @@ ones.
 - **Only the tab shown is drawn.** `pollHardware` keeps the rates (`updateRates`) from
   every snapshot, but draws the overview, the fans and the PWM test list only while
   their tab is shown; `showTab` draws a tab from what the page has when it opens.
+  `pollStatus` does the same with the overview, the Fans state and the PWM test, but
+  always runs `renderHeader`, `renderBanners` (the banners of the safety rules),
+  `renderSmartState` (a SMART reading that ends reloads the data the bay map and the
+  settings use), `wizardOnStatus` and `followScan`.
 - **Rates in the page.** The hardware snapshot carries raw counters (I/O sectors, CPU
   ticks) and a monotonic `clock`; `updateRates` turns two snapshots into rates, so the
   server keeps no state per client.

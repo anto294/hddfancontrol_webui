@@ -239,8 +239,14 @@ function showTab(name) {
   if (name === "security") loadAuth();
   // A tab hidden until now was not drawn by the polls: draw it from what the page has, then ask again.
   if (name === "overview") renderOverview();
-  if (name === "fans") renderFans();
-  if (name === "pwmtest") renderPwmTestList();
+  if (name === "fans") {
+    renderFansState();
+    renderFans();
+  }
+  if (name === "pwmtest") {
+    renderPwmTestList();
+    if (state.status) renderPwmTest();
+  }
   if (name === "fans" || name === "overview") pollHardware();
 }
 
@@ -574,7 +580,13 @@ async function pollStatus() {
   }
   // A bug in one part of the page is no network problem: it goes to the console,
   // and the other parts (the banners of the safety rules first) still render.
-  for (const render of [renderHeader, renderBanners, renderOverview, renderFansState, renderPwmTest, renderSmartState, wizardOnStatus, followScan]) {
+  // The header, the banners and the followers (a SMART reading or a sensor scan
+  // that ends, the wizard) run always; a tab is drawn only while shown.
+  const renders = [renderHeader, renderBanners];
+  if (state.tab === "overview") renders.push(renderOverview);
+  if (state.tab === "fans") renders.push(renderFansState);
+  if (state.tab === "pwmtest") renders.push(renderPwmTest);
+  for (const render of [...renders, renderSmartState, wizardOnStatus, followScan]) {
     try {
       render();
     } catch (error) {
