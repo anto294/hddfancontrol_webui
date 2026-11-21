@@ -3,6 +3,10 @@
 Everything here reads sysfs and /dev only. Nothing sends a command to a
 drive, so a drive that sleeps is never woken up by the web UI: the drive
 temperatures come from the log that hddfancontrol writes (see templog.py).
+That is why the temperature of a drivetemp chip is never read
+(_NO_READ_CHIPS): the kernel sends the drive a SMART command for each read
+of its temp*_input, whether the drive sleeps or not, and that may keep it
+from spinning down (Documentation/hwmon/drivetemp.rst).
 
 The paths returned are always the real ones (/dev/..., /sys/...), the ones
 hddfancontrol needs, even when the tests read a fake tree somewhere else.
@@ -34,6 +38,8 @@ _HWMON = re.compile(r"^hwmon\d+$")
 _DIGITS = re.compile(r"(\d+)")
 _ATA_PORT = re.compile(r"^ata\d+$")
 _PCI_ADDRESS = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$")
+# hwmon drivers whose temperature inputs reach the drive itself: listed, never read.
+_NO_READ_CHIPS = frozenset({"drivetemp"})
 # The hwmon drivers of processors, and the input of each that stands for the
 # whole package (the first input when none of them is there).
 _CPU_CHIPS = {
@@ -339,6 +345,7 @@ class Hardware:
         """Read one hwmon device: directory is its folder in the tree read, hwmon its name (hwmonN)."""
         real = f"/sys/class/hwmon/{hwmon}"
         device = HwmonDevice(hwmon=hwmon, name=_read(f"{directory}/name") or "")
+        read_temps = device.name not in _NO_READ_CHIPS
         try:
             files = sorted(os.listdir(directory), key=_natural_key)
         except OSError:
@@ -356,7 +363,7 @@ class Hardware:
                 )
             elif match := _TEMP.match(name):
                 number = match.group(1)
-                millidegrees = _read_int(f"{directory}/{name}")
+                millidegrees = _read_int(f"{directory}/{name}") if read_temps else None
                 device.temps.append(
                     TempInput(
                         path=f"{real}/{name}",
