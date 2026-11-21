@@ -231,8 +231,29 @@ async def get_status(request: web.Request) -> web.Response:
 #   get_hardware
 # ---------------------------
 async def get_hardware(request: web.Request) -> web.Response:
-    """Drives and hwmon devices of the host."""
-    return web.json_response(await asyncio.to_thread(request.app[HARDWARE].snapshot))
+    """Drives and hwmon devices of the host.
+
+    Requests that arrive while a snapshot is being read wait for that one
+    instead of starting their own: no cache, the next request after it reads
+    again. Its error reaches every one of them; a client that leaves never
+    cancels it for the others (shield).
+    """
+    state = request.app[STATE]
+    task: asyncio.Task[dict[str, Any]] | None = state.get("hardware_task")
+    if task is None or task.done():
+        task = asyncio.create_task(asyncio.to_thread(request.app[HARDWARE].snapshot))
+        task.add_done_callback(_snapshot_done)
+        state["hardware_task"] = task
+    return web.json_response(await asyncio.shield(task))
+
+
+# ---------------------------
+#   _snapshot_done
+# ---------------------------
+def _snapshot_done(task: asyncio.Task[dict[str, Any]]) -> None:
+    """Take the error of a snapshot whose requests have all left, so asyncio does not warn of it; they log their own."""
+    if not task.cancelled():
+        task.exception()
 
 
 # ---------------------------
