@@ -332,6 +332,21 @@ async def post_smart(request: web.Request) -> web.Response:
 
 
 # ---------------------------
+#   get_smart_history
+# ---------------------------
+async def get_smart_history(request: web.Request) -> web.Response:
+    """The trend of the SMART counters of a monitored or archived drive (?device=): {series: {key: [[ts, value]]}}."""
+    device = request.query.get("device", "")
+    if not is_drive_path(device):
+        return _json_error(400, "invalid_dev_path")
+    app = request.app
+    known = set(app[SUPERVISOR].settings.monitor_drives) | set(await asyncio.to_thread(app[HISTORY].archived))
+    if device not in known:
+        return _json_error(404, "unknown_drive")
+    return web.json_response({"series": await asyncio.to_thread(app[HISTORY].smart_history, device)})
+
+
+# ---------------------------
 #   get_archived
 # ---------------------------
 async def get_archived(request: web.Request) -> web.Response:
@@ -1000,6 +1015,7 @@ def create_app(
     router.add_get("/api/history.csv", get_history_csv)
     router.add_get("/api/smart", get_smart)
     router.add_post("/api/smart", post_smart)
+    router.add_get("/api/smart/history", get_smart_history)
     router.add_get("/api/drives/archived", get_archived)
     router.add_post("/api/drives/archive", post_drive_archive)
     router.add_post("/api/drives/restore", post_drive_restore)

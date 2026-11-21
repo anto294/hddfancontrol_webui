@@ -175,3 +175,25 @@ def test_archive_and_forget_a_drive(tmp_path: Path) -> None:
     history.record(NOW + 3, [("temp", alias, 32)])
     assert {s["name"] for s in history.query(1, now=NOW + 3)["series"]} == {alias, "/dev/keep"}
     history.close()
+
+
+def test_smart_history(tmp_path: Path) -> None:
+    """One reading per drive per day (the newest wins), kept until the drive is forgotten."""
+    history = History(tmp_path / "history.db")
+    day = NOW - NOW % 86400
+    history.record_smart("/dev/a", {"pending_sectors": 0, "power_on_hours": 100}, ts=day + 10)
+    history.record_smart("/dev/a", {"pending_sectors": 2, "power_on_hours": 104}, ts=day + 3600)
+    history.record_smart("/dev/a", {"pending_sectors": 8, "power_on_hours": 130}, ts=day + 86400 + 5)
+    history.record_smart("/dev/b", {"pending_sectors": 1}, ts=day)
+    assert history.smart_history("/dev/a") == {
+        "pending_sectors": [[day + 3600, 2.0], [day + 86400 + 5, 8.0]],
+        "power_on_hours": [[day + 3600, 104.0], [day + 86400 + 5, 130.0]],
+    }
+    history.record_smart("/dev/a", {}, ts=day + 2 * 86400)  # nothing to keep: nothing changes
+    assert len(history.smart_history("/dev/a")["pending_sectors"]) == 2
+    history.save_smart("/dev/b", {"status": "ok"})
+    assert history.forget_smart({"/dev/a"}) == 1
+    assert history.smart_history("/dev/b") == {}
+    history.forget_drive("/dev/a", {"/dev/a"})
+    assert history.smart_history("/dev/a") == {}
+    history.close()

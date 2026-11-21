@@ -164,6 +164,11 @@ problem is named in the log and in a banner with what to do. Nothing is fixed by
 itself: the fixes (privileged, a device, a volume) are the user's, and `/config`
 already gets its owner and mode at start (`tighten_config`). (2026-11-21)
 
+**The SMART counters are kept once a day, for the life of the drive.** Why: a growing
+count (pending sectors, reallocations) says more than any single value, as Scrutiny
+shows; one row per counter per day stays small for years, so it is not cut at
+`history_days`. Only the counters are kept, not the whole attribute table. (2026-11-21)
+
 ## Security
 
 **Privilege separation: a root core on a Unix socket, an unprivileged gateway on the

@@ -50,6 +50,17 @@ the button off meanwhile and reads `GET /api/smart` when it is over.
 - `drivedb.py` names the brand, product line, use and recording (CMR/SMR) from model
   numbers. Only unambiguous patterns go there, never temperature limits.
 
+**Trend.** Each fresh reading (not asleep, not an error) keeps its counters
+(`TREND_KEYS` of `smart.py`: reallocated, pending and uncorrectable sectors,
+reallocation events, CRC errors, spin retries, NVMe media errors, wear, spare and
+power-on hours) in the `smart_history` table of `history.db`, one reading per drive per
+UTC day (the newest of the day wins). `history_days` does not purge it: a counter
+growing over months is the point, and it costs a few rows a day. It goes with the
+drive: `forget_smart` (neither monitored nor archived) and `forget_drive`.
+`GET /api/smart/history?device=` gives it to the **Trend** section of the card's
+details, which draws the counters that were ever above 0 and the wear with the chart
+of the History tab.
+
 **Self-tests.** Every minute the SMART loop starts the short or long tests that are due
 (`selftest_short`, `selftest_long`, cron), with `smartctl -n standby -t short|long`, and
 keeps the times in `meta` so a restart does not run them twice. A due test is tried for

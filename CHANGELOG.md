@@ -21,6 +21,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `/dev`, a drive or a fan file it cannot open, the capabilities for SMART and
   the sensor modules, a missing program) and names each problem with what to
   do, in the log and in a banner that can be hidden.
+- **SMART trend.** The error counters (reallocated, pending and
+  uncorrectable sectors, CRC errors and more) and the wear of SSDs are kept
+  once a day for as long as the drive is monitored; **Details → Trend** on
+  each drive card draws them, so a counter that keeps growing is easy to see.
 
 ## [0.11.1] - 2026-11-20
 

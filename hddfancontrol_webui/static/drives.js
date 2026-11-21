@@ -111,6 +111,12 @@ function smartCard(device, data) {
     }
     details.append(el("h4", { text: t("smart.attributes") }), attrs);
   }
+  // The trend of the counters, read when the details are opened.
+  const trend = el("div", { class: "smart-trend" });
+  details.append(el("h4", { text: t("smart.trend") }), trend);
+  details.addEventListener("toggle", () => {
+    if (details.open && !trend.dataset.loaded) loadTrendOf(device, trend);
+  });
   card.append(details);
   const note = data.asleep ? t("smart.asleep_note") : "";
   card.append(el("p", { class: "muted small", text: `${t("smart.updated", { time: fmtTime(data.time) })} ${note}` }));
@@ -161,6 +167,40 @@ function renderSmart(data) {
   });
   list.replaceChildren(...entries.map(([device, info]) => smartCard(device, info)));
   if (!entries.length) list.append(el("p", { class: "muted", text: t("smart.none") }));
+}
+
+// Counters that should stay at 0, and the wear of an SSD, kept day by day (TREND_KEYS of smart.py).
+const TREND_COUNTERS = ["reallocated_sectors", "reallocation_events", "pending_sectors", "offline_uncorrectable", "reported_uncorrectable", "crc_errors", "spin_retries", "media_errors"];
+const TREND_WEAR = ["percentage_used", "available_spare"];
+
+async function loadTrendOf(device, box) {
+  box.dataset.loaded = "1";
+  let series;
+  try {
+    series = (await api("GET", `/api/smart/history?device=${encodeURIComponent(device)}`)).series;
+  } catch (error) {
+    box.replaceChildren(el("p", { class: "error small", text: errorText(error) }));
+    delete box.dataset.loaded;
+    return;
+  }
+  const times = Object.values(series).flat().map(([ts]) => ts);
+  if (!times.length) {
+    box.replaceChildren(el("p", { class: "muted small", text: t("smart.trend_empty") }));
+    return;
+  }
+  const start = Math.min(...times);
+  const data = { start, end: Math.max(Math.max(...times), start + 86400), bucket: 86400 };
+  const pick = (keys) => keys.filter((key) => series[key] && series[key].some(([, value]) => value > 0)).map((key) => ({ name: key, points: series[key] }));
+  const counters = pick(TREND_COUNTERS);
+  const wear = pick(TREND_WEAR);
+  box.replaceChildren(el("p", { class: "muted small", text: t("smart.trend_since", { time: fmtTime(start), count: new Set(times).size }) }));
+  if (!counters.length) box.append(el("p", { class: "small ok", text: t("smart.trend_clean") }));
+  for (const [list, unit] of [[counters, ""], [wear, "%"]]) {
+    if (!list.length) continue;
+    const chart = el("div", { class: "chart" });
+    box.append(chart);
+    drawChart(chart, data, list, { unit, labelOf: (key) => t(`smart.${key}`), kind: `smart:${device}:${unit}`, title: t("smart.trend") });
+  }
 }
 
 async function loadSmart() {

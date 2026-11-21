@@ -722,3 +722,18 @@ async def test_archive_restore_and_delete_a_drive_that_is_gone(make_client: Clie
     assert (await post("delete", {"device": other}))[0] == 200
     assert client.app[SUPERVISOR].settings.monitor_drives == (DRIVE, controlled)
     assert (await post("delete", {"device": other}))[0] == 404
+
+
+async def test_smart_history_api(make_client: ClientMaker) -> None:
+    """The trend of a monitored or archived drive; anything else is refused."""
+    client = await make_client()
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE]}, headers=FETCH)).status == 200
+    history = client.app[MONITOR].history
+    history.record_smart(DRIVE, {"reallocated_sectors": 4}, ts=1_800_000_000)
+    answer = await (await client.get("/api/smart/history", params={"device": DRIVE})).json()
+    assert answer == {"series": {"reallocated_sectors": [[1_800_000_000, 4.0]]}}
+    assert (await client.get("/api/smart/history", params={"device": "/etc/x"})).status == 400
+    assert (await client.get("/api/smart/history")).status == 400
+    assert (await client.get("/api/smart/history", params={"device": "/dev/sdz"})).status == 404
+    history.archive("/dev/sdz")
+    assert (await client.get("/api/smart/history", params={"device": "/dev/sdz"})).status == 200

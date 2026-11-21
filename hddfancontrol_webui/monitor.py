@@ -32,7 +32,7 @@ from .fancontrol import NULL_HOLD_INTERVALS, DriveTemps, drive_ceiling
 from .hardware import Hardware
 from .history import History
 from .settings import Settings
-from .smart import STATUS_ERROR, STATUS_STANDBY, failed_now, read_smart, start_selftest
+from .smart import STATUS_ERROR, STATUS_STANDBY, failed_now, read_smart, start_selftest, trend_values
 from .templog import TempLog
 
 PURGE_PERIOD = 3600.0
@@ -648,6 +648,8 @@ class Monitor:
                     await asyncio.to_thread(self.history.save_smart, device, old, previous[device]["time"])
                     continue
                 await asyncio.to_thread(self.history.save_smart, device, data)
+                if data.get("status") not in (STATUS_STANDBY, STATUS_ERROR):
+                    await asyncio.to_thread(self.history.record_smart, device, trend_values(data))
             return await asyncio.to_thread(self.smart)
 
     async def run_selftests(self, now: float | None = None) -> list[tuple[str, str]]:
