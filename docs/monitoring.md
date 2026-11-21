@@ -61,6 +61,28 @@ drive: `forget_smart` (neither monitored nor archived) and `forget_drive`.
 details, which draws the counters that were ever above 0 and the wear with the chart
 of the History tab.
 
+**Risk and remaining life** (`health.py`, `assess`, added to each drive of
+`GET /api/smart` as `health`). An estimate, and the page says so:
+
+- **Risk per counter**, as Scrutiny does it: the raw count of reallocated sectors (5),
+  spin retries (10), reported uncorrectable (187), reallocation events (196), pending
+  (197) and offline uncorrectable (198) sectors, and CRC errors (199, not critical) is
+  looked up in the annual failure rates Backblaze observed for drives with that count
+  (Scrutiny's table, MIT License, rounded to four digits). A critical counter at
+  `AFR_FAILED` (10 %) or more fails; CRC errors warn there and fail at
+  `AFR_FAILED_OTHER` (20 %). A count past the last bucket takes the highest rate it
+  passed.
+- **Risk of the drive**: high when SMART fails or a counter fails; medium when a
+  counter warns, the worst rate is `AFR_MEDIUM` (5 %) or more, a critical counter grew
+  in the last `GROWTH_DAYS` (30) of the trend, or an NVMe drive has a warning; low
+  otherwise; unknown without any counter.
+- **Life left**: high risk is "replace soon". SSD/NVMe: the wear left
+  (`percentage_used`) at the pace of the drive's own hours, and of its trend when it
+  covers `WEAR_PACE_DAYS` and moved; the two give the range. Hard drives (a rotation
+  rate) have no wear counter: `HDD_LIFE_YEARS` (5–7 years of power-on time) less their
+  age, halved at medium risk. A SATA SSD gets a risk but no life (its wear is in vendor
+  attributes).
+
 **Self-tests.** Every minute the SMART loop starts the short or long tests that are due
 (`selftest_short`, `selftest_long`, cron), with `smartctl -n standby -t short|long`, and
 keeps the times in `meta` so a restart does not run them twice. A due test is tried for

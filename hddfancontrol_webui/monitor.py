@@ -30,6 +30,7 @@ from .const import RECORD_PERIOD
 from .cron import parse
 from .fancontrol import NULL_HOLD_INTERVALS, DriveTemps, drive_ceiling
 from .hardware import Hardware
+from .health import assess
 from .history import History
 from .settings import Settings
 from .smart import STATUS_ERROR, STATUS_STANDBY, failed_now, read_smart, start_selftest, trend_values
@@ -356,7 +357,7 @@ class Monitor:
         return names
 
     def smart_view(self) -> dict[str, dict[str, Any]]:
-        """smart() for the page: a monitored drive that is not on the host is marked missing. Blocking.
+        """smart() for the page, with the risk and remaining life of each drive (health.py); one gone is marked missing. Blocking.
 
         Without any drive listed, /dev is not readable here: that says
         nothing about the drives, as for the missing drive alert.
@@ -366,6 +367,9 @@ class Monitor:
             for device, info in data.items():
                 if not self.hardware.dev_exists(device):
                     info["missing"] = True
+        now = time.time()
+        for device, info in data.items():
+            info["health"] = assess(info, self.history.smart_history(device), now)
         return data
 
     def archived(self) -> dict[str, dict[str, Any]]:

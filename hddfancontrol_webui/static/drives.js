@@ -52,7 +52,16 @@ function smartCard(device, data) {
     const result = test.running ? t("smart.selftest_running") : test.passed === true ? t("smart.selftest_ok") : test.passed === false ? t("smart.selftest_failed") : test.result;
     fact(t("smart.selftest"), result, test.passed === false ? "hot" : "");
   }
+  // Risk and remaining life (health.py): an estimate, said so under Details.
+  const health = data.health;
+  if (health && health.risk !== "unknown") {
+    const level = { high: "hot", medium: "warm" }[health.risk] || "";
+    const afr = health.afr === null ? "" : ` · ${t("health.afr", { afr: fmtAfr(health.afr) })}`;
+    fact(t("health.risk"), `${t(`health.risk_${health.risk}`)}${afr}`, level);
+  }
+  if (health && health.life) fact(t("health.life"), lifeText(health.life), health.life.years[1] === 0 ? "hot" : "");
   if (facts.children.length) card.append(facts);
+  if (health && health.growing.length) card.append(el("p", { class: "warning small", text: t("health.growing", { counters: health.growing.map((key) => t(`smart.${key}`)).join(", ") }) }));
 
   // The maximum of the settings should stay under what the drive is made for.
   if (limit !== null && state.settings && state.settings.drive_temp_max > limit) {
@@ -111,6 +120,16 @@ function smartCard(device, data) {
     }
     details.append(el("h4", { text: t("smart.attributes") }), attrs);
   }
+  if (health && health.attributes.length) {
+    const risks = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.raw"), t("health.afr_head"), t("health.status")));
+    for (const attr of health.attributes) {
+      const line = row(String(attr.id), t(`smart.${attr.key}`), String(attr.value), fmtAfr(attr.afr), t(`health.status_${attr.status}`));
+      if (attr.status !== "ok") line.className = attr.status === "failed" ? "failed" : "failed-past";
+      risks.append(line);
+    }
+    details.append(el("h4", { text: t("health.title") }), risks);
+  }
+  if (health && health.risk !== "unknown") details.append(el("p", { class: "muted small", text: t(`health.note_${health.life ? health.life.basis : "risk"}`) }));
   // The trend of the counters, read when the details are opened.
   const trend = el("div", { class: "smart-trend" });
   details.append(el("h4", { text: t("smart.trend") }), trend);
@@ -167,6 +186,19 @@ function renderSmart(data) {
   });
   list.replaceChildren(...entries.map(([device, info]) => smartCard(device, info)));
   if (!entries.length) list.append(el("p", { class: "muted", text: t("smart.none") }));
+}
+
+// "2.5 %": an annual failure rate.
+function fmtAfr(afr) {
+  return ltr(`${(afr * 100).toFixed(afr < 0.1 ? 1 : 0)} %`);
+}
+
+// "3–5 years", or what a range of 0 means for its basis.
+function lifeText(life) {
+  const [low, high] = life.years;
+  if (high === 0) return t(life.basis === "risk" ? "health.replace_soon" : life.basis === "wear" ? "health.worn_out" : "health.past_life");
+  if (low === high) return t("health.years_about", { years: low.toFixed(1) });
+  return t("health.years_range", { low: low.toFixed(1), high: high.toFixed(1) });
 }
 
 // Counters that should stay at 0, and the wear of an SSD, kept day by day (TREND_KEYS of smart.py).

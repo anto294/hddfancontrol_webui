@@ -169,6 +169,14 @@ count (pending sectors, reallocations) says more than any single value, as Scrut
 shows; one row per counter per day stays small for years, so it is not cut at
 `history_days`. Only the counters are kept, not the whole attribute table. (2026-11-21)
 
+**Risk from Backblaze's failure rates, life as a labelled estimate.** Why: a raw count
+says little to most users ("2 pending sectors"); the annual failure rate of drives
+with that count (Backblaze's data, as Scrutiny tabulates it) says how serious it is.
+Scrutiny's table and limits are taken as they are (MIT License) rather than tuned by
+hand. Remaining life is only measurable for SSD/NVMe (their own wear); for hard drives
+it is a range from a 5–7 year service life, cut by the risk, and the page says it is
+an estimate. A growing critical counter counts more than its size. (2026-11-21)
+
 ## Security
 
 **Privilege separation: a root core on a Unix socket, an unprivileged gateway on the

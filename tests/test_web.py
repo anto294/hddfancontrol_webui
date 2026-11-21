@@ -681,6 +681,7 @@ async def test_archive_restore_and_delete_a_drive_that_is_gone(make_client: Clie
 
     smart = await (await client.get("/api/smart")).json()
     assert smart[gone]["missing"] is True and "missing" not in smart[DRIVE]
+    assert smart[DRIVE]["health"] == {"risk": "unknown", "afr": None, "attributes": [], "growing": [], "life": None}
 
     async def post(action: str, body: Any) -> tuple[int, Any]:
         response = await client.post(f"/api/drives/{action}", json=body, headers=FETCH)

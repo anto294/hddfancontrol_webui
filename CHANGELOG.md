@@ -25,6 +25,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   uncorrectable sectors, CRC errors and more) and the wear of SSDs are kept
   once a day for as long as the drive is monitored; **Details → Trend** on
   each drive card draws them, so a counter that keeps growing is easy to see.
+- **Failure risk and estimated life left of each drive.** As Scrutiny does,
+  each error counter is matched with the yearly failure rate Backblaze saw on
+  drives with the same count, shown per attribute under **Details**; the card
+  shows the drive's risk (low, medium, high; raised when a counter grew in
+  the last 30 days) and an estimate of the years left: from the wear for
+  SSD and NVMe, from the age and the risk for hard drives.
 
 ## [0.11.1] - 2026-11-20
 
