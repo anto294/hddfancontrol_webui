@@ -35,6 +35,9 @@ ones.
   while the Logs tab is open; opening it first catches up from the last line it has
   (`after=`), then draws the whole log. The server keeps as many lines
   (`LOG_BUFFER_LINES`) as the page (`LOG_MAX_LINES`), 2000, so nothing is missed.
+- **Only the tab shown is drawn.** `pollHardware` keeps the rates (`updateRates`) from
+  every snapshot, but draws the overview, the fans and the PWM test list only while
+  their tab is shown; `showTab` draws a tab from what the page has when it opens.
 - **Rates in the page.** The hardware snapshot carries raw counters (I/O sectors, CPU
   ticks) and a monotonic `clock`; `updateRates` turns two snapshots into rates, so the
   server keeps no state per client.

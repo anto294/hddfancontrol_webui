@@ -237,6 +237,10 @@ function showTab(name) {
   // The log is polled only while its tab is open: catch up first (after=), then draw it whole.
   if (name === "logs") pollLogs().then(renderLogs);
   if (name === "security") loadAuth();
+  // A tab hidden until now was not drawn by the polls: draw it from what the page has, then ask again.
+  if (name === "overview") renderOverview();
+  if (name === "fans") renderFans();
+  if (name === "pwmtest") renderPwmTestList();
   if (name === "fans" || name === "overview") pollHardware();
 }
 
@@ -623,10 +627,11 @@ function updateRates(hardware) {
 async function pollHardware() {
   try {
     state.hardware = await api("GET", "/api/hardware");
+    // The rates need every snapshot; the tabs are drawn only while shown (showTab draws them when opened).
     updateRates(state.hardware);
-    renderOverview();
-    renderFans();
-    renderPwmTestList();
+    if (state.tab === "overview") renderOverview();
+    if (state.tab === "fans") renderFans();
+    if (state.tab === "pwmtest") renderPwmTestList();
   } catch {
     // The next poll tries again; pollStatus shows network problems.
   }
