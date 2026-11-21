@@ -518,3 +518,50 @@ async def test_smart_readings_feed_the_trend(tmp_path: Path, fake_sys: Path, fak
     assert set(trend) == {"pending_sectors", "power_on_hours"}
     assert [value for _, value in trend["pending_sectors"]] == [3.0]
     monitor.history.close()
+
+
+def test_what_the_monitor_takes_from_the_hardware(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """Fan readings, fan names, stable drive names, remembered ids and drive names in alerts, on several chip shapes."""
+    linked = fake_sys / "devices" / "platform" / "it87.2608" / "hwmon" / "hwmon3"
+    linked.mkdir(parents=True)
+    for name, value in {
+        "pwm1": "90",
+        "pwm1_enable": "2",
+        "fan1_input": "1500",
+        "fan2_input": "700",
+        "temp3_input": "-5000",
+    }.items():
+        (linked / name).write_text(value + "\n")
+    (fake_sys / "class" / "hwmon" / "hwmon3").symlink_to(linked)
+    nvme = "/dev/disk/by-id/nvme-Samsung_980_S64"
+    settings = from_dict({"monitor_drives": [DRIVE, nvme]})
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, settings)
+    monitor._labels = lambda: {"/sys/class/hwmon/hwmon2/pwm2": "Rear", nvme: "Boot"}
+    assert monitor.record_once() == 1 + 5
+    assert monitor._fans == {
+        "/sys/class/hwmon/hwmon2/pwm1": (128 * 100 / 255, 812),
+        "/sys/class/hwmon/hwmon2/pwm2": (100.0, None),
+        "/sys/class/hwmon/hwmon3/pwm1": (90 * 100 / 255, 1500),
+    }
+    series = {(s["kind"], s["name"]): s["points"][-1][1] for s in monitor.history.query(24 * 365)["series"]}
+    assert series == {
+        ("temp", "/dev/disk/by-id/wwn-0x5000c500e0000001"): 40.0,
+        ("pwm", "/sys/class/hwmon/hwmon2/pwm1"): 50.2,
+        ("rpm", "/sys/class/hwmon/hwmon2/pwm1"): 812.0,
+        ("pwm", "/sys/class/hwmon/hwmon2/pwm2"): 100.0,
+        ("pwm", "/sys/class/hwmon/hwmon3/pwm1"): 35.3,
+        ("rpm", "/sys/class/hwmon/hwmon3/pwm1"): 1500.0,
+    }
+    assert [monitor._fan_name(path) for path in sorted(monitor._fans)] == ["nct6798 pwm1", "Rear", "hwmon3 pwm1"]
+    assert monitor._fan_name("/sys/class/hwmon/hwmon9/pwm4") == "pwm4"
+    assert monitor._stable_names() == {"sda": "/dev/disk/by-id/wwn-0x5000c500e0000001", "nvme0n1": nvme}
+    monitor.remember_ids()
+    assert monitor.history.drive_ids(DRIVE) == sorted({DRIVE, "/dev/disk/by-id/wwn-0x5000c500e0000001"})
+    assert monitor.history.drive_ids(nvme) == sorted({nvme, "/dev/disk/by-id/nvme-eui.002538"})
+    monitor.history.save_smart(DRIVE, {"status": "error", "messages": ["no"]})
+    monitor.history.save_smart(nvme, {"status": "error", "messages": ["no"]})
+    found = monitor.conditions({})
+    assert found[f"smart_error:{DRIVE}"][1]["drive"] == "ST4000VN006 (sda)"
+    assert found[f"smart_error:{nvme}"][1]["drive"] == "Boot"
+    assert "missing" not in json.dumps(list(monitor.smart_view().values()))
+    monitor.history.close()
