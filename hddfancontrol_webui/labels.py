@@ -12,6 +12,7 @@ import json
 import logging
 import threading
 import unicodedata
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 from .settings import is_dev_path, is_sys_path
@@ -69,6 +70,15 @@ class Labels:
                 return
             labels = dict(self._labels)
             labels[new] = labels.pop(old)
+            write_atomic(self.path, json.dumps(labels, indent=2, ensure_ascii=False) + "\n")
+            self._labels = labels
+
+    def remove(self, keys: AbstractSet[str]) -> None:
+        """Remove the labels of these keys (a drive deleted with its names). Blocking."""
+        with self._lock:
+            if not keys & self._labels.keys():
+                return
+            labels = {key: label for key, label in self._labels.items() if key not in keys}
             write_atomic(self.path, json.dumps(labels, indent=2, ensure_ascii=False) + "\n")
             self._labels = labels
 

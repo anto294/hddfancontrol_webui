@@ -2531,3 +2531,27 @@ input.cron,
 #control-host td:first-child {
   width: 45%;
 }
+
+/* A drive that is gone and was archived: what it was, and what can be done. */
+.archived-drive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.archived-drive p {
+  margin: 0.2rem 0 0;
+}
+
+.archived-drive .actions {
+  margin-top: 0;
+}
+
+#archived-drives summary {
+  cursor: pointer;
+  font-weight: 600;
+}

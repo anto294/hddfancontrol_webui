@@ -61,6 +61,21 @@ function smartCard(device, data) {
   for (const warning of data.warnings || []) card.append(el("p", { class: "warning small", text: t(`smart.warn.${warning}`) }));
   if (data.failed_past && data.failed_past.length) card.append(el("p", { class: "muted small", text: t("smart.failed_past", { attributes: data.failed_past.join(", ") }) }));
   for (const message of data.messages || []) card.append(el("p", { class: "error small", text: message }));
+  // A drive that is gone: archive it (its data kept) or delete it.
+  if (data.missing) {
+    card.append(el("p", { class: "error small", text: t("drive.gone") }));
+    if (driveControlled(device)) card.append(el("p", { class: "muted small", text: t("drive.gone_controlled") }));
+    else {
+      card.append(
+        el(
+          "div",
+          { class: "actions" },
+          el("button", { type: "button", class: "secondary", text: t("action.archive"), onclick: () => changeDrive("archive", device) }),
+          confirmButton(t("action.delete_drive"), t("action.delete_confirm"), () => changeDrive("delete", device)),
+        ),
+      );
+    }
+  }
 
   const table = el("table", { class: "list" });
   const fields = [
@@ -150,10 +165,84 @@ function renderSmart(data) {
 
 async function loadSmart() {
   try {
-    renderSmart(await api("GET", "/api/smart"));
+    const [smart, archived] = await Promise.all([api("GET", "/api/smart"), api("GET", "/api/drives/archived")]);
+    renderSmart(smart);
+    renderArchived(archived);
   } catch (error) {
     alertBanner(errorText(error));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Drives that are gone: archived (data kept, restorable) or deleted
+// ---------------------------------------------------------------------------
+
+// A drive that drives the fans (under any name) leaves fan control in the settings first.
+function driveControlled(device) {
+  return Boolean(state.settings && state.settings.drives.includes(device));
+}
+
+// A button for what cannot be undone: the first click arms it for a few seconds, the second one acts.
+function confirmButton(text, confirmText, action) {
+  let armed = null;
+  const button = el("button", { type: "button", class: "secondary", text });
+  const disarm = () => {
+    clearTimeout(armed);
+    armed = null;
+    button.textContent = text;
+    button.className = "secondary";
+  };
+  button.addEventListener("click", () => {
+    if (armed === null) {
+      button.textContent = confirmText;
+      button.className = "danger";
+      armed = setTimeout(disarm, 5000);
+      return;
+    }
+    disarm();
+    action();
+  });
+  return button;
+}
+
+// action is archive, restore or delete; the answer is the archived drives.
+async function changeDrive(action, device) {
+  try {
+    await api("POST", `/api/drives/${action}`, { device });
+    // The monitored drives changed: the settings form must not save the old list back.
+    await loadSettings();
+    renderSettings();
+    if (action === "delete") state.labels = await api("GET", "/api/labels");
+    if (action === "delete") await loadBays();
+    await loadSmart();
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+}
+
+function archivedRow(device, data) {
+  const what = [shortModel(data.model), data.capacity_bytes ? fmtBytes(data.capacity_bytes) : "", present(data.power_on_hours) ? t("smart.years", { years: (data.power_on_hours / 8766).toFixed(1) }) : ""];
+  const notes = [t("drive.archived_on", { time: fmtTime(data.archived) })];
+  if (data.present) notes.push(t("drive.archived_back"));
+  return el(
+    "div",
+    { class: "archived-drive" },
+    el("div", {}, el("strong", { text: smartTitle(device, data), title: device }), el("p", { class: "muted small", text: what.filter(Boolean).join(" · ") }), el("p", { class: `small ${data.present ? "warning" : "muted"}`, text: notes.join(" · ") })),
+    el(
+      "div",
+      { class: "actions" },
+      el("button", { type: "button", class: "secondary", text: t("action.restore_drive"), onclick: () => changeDrive("restore", device) }),
+      confirmButton(t("action.delete_drive"), t("action.delete_confirm"), () => changeDrive("delete", device)),
+    ),
+  );
+}
+
+function renderArchived(data) {
+  const entries = Object.entries(data).sort((a, b) => b[1].archived - a[1].archived);
+  const box = $("archived-drives");
+  box.hidden = !entries.length;
+  $("archived-count").textContent = t("drive.archived_title", { count: entries.length });
+  $("archived-list").replaceChildren(...entries.map(([device, info]) => archivedRow(device, info)));
 }
 
 // The drives are read in the background (POST answers 202 at once): the

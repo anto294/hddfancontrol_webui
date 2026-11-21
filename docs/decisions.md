@@ -148,6 +148,15 @@ the page for those who do not write cron. (0.7.0, 2026-11-17)
 leave an empty settings file, and only root needs to read them. A corrupt
 `history.db` is set aside instead of stopping the start. (2026-11-17)
 
+**A drive that is gone is archived or deleted from the Drives tab, never by itself.**
+Archiving keeps its last SMART data and its history and stops its reads and alerts;
+deleting drops all it left (SMART data, series under all its names, notes, labels, bay).
+Why: a drive can be gone for a while (a cable, a controller reset) or for good, and
+only the user knows which; keeping the data of a dead drive is worth something (its
+last SMART, for a warranty claim), as in Scrutiny. A drive that drives the fans is
+refused: if it came back while archived, the fans would not follow its temperature.
+The change restarts nothing, since only the monitor reads `monitor_drives`. (2026-11-21)
+
 ## Security
 
 **Privilege separation: a root core on a Unix socket, an unprivileged gateway on the

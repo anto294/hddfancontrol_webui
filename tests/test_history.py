@@ -135,3 +135,43 @@ def test_a_corrupt_database_is_set_aside(tmp_path: Path, caplog: pytest.LogCaptu
     aside = sorted(p.name for p in tmp_path.iterdir() if ".corrupt-" in p.name)
     assert aside and aside[0].startswith("history.db.corrupt-")  # SQLite may already have dropped the -wal junk
     assert any("corrupt" in record.message for record in caplog.records)
+
+
+def test_archive_and_forget_a_drive(tmp_path: Path) -> None:
+    """An archived drive keeps its data; forgetting it drops its SMART data, series, notes, schedules and names."""
+    history = History(tmp_path / "history.db")
+    gone = "/dev/disk/by-id/ata-OLD_1"
+    alias = "/dev/disk/by-id/wwn-0x1"
+    history.save_smart(gone, {"status": "ok", "model": "OLD"}, ts=NOW)
+    history.save_smart("/dev/keep", {"status": "ok"}, ts=NOW)
+    history.record(NOW, [("temp", alias, 30), ("temp", "/dev/keep", 31)])
+    history.save_note(f"smart:{gone}", "x")
+    history.save_note("hot:sda", "y")
+    history.set_meta(f"selftest_long_{gone}", "1")
+    history.set_meta(f"selftest_long_started_{gone}", "1")
+    history.set_meta("selftest_long_/dev/keep", "1")
+    assert history.drive_ids(gone) == []
+    history.remember_ids(gone, [alias, gone])
+    assert history.drive_ids(gone) == [gone, alias]
+
+    history.archive(gone, ts=NOW + 1)
+    assert history.archived() == {gone: NOW + 1}
+    # Archived data are kept by forget_smart when the caller keeps them.
+    assert history.forget_smart({"/dev/keep", gone}) == 0
+    history.unarchive(gone)
+    assert history.archived() == {}
+    history.archive(gone, ts=NOW + 2)
+
+    history.forget_drive(gone, {gone, alias})
+    assert history.archived() == {}
+    assert set(history.smart()) == {"/dev/keep"}
+    assert [s["name"] for s in history.query(1, now=NOW)["series"]] == ["/dev/keep"]
+    assert history.notes() == {"hot:sda": "y"}
+    assert history.get_meta(f"selftest_long_{gone}") is None
+    assert history.get_meta(f"selftest_long_started_{gone}") is None
+    assert history.get_meta("selftest_long_/dev/keep") == "1"
+    assert history.drive_ids(gone) == []
+    # A new sample of a forgotten name starts a new series.
+    history.record(NOW + 3, [("temp", alias, 32)])
+    assert {s["name"] for s in history.query(1, now=NOW + 3)["series"]} == {alias, "/dev/keep"}
+    history.close()

@@ -7,6 +7,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Archive or delete a drive that is gone.** A monitored drive no longer on
+  the host shows as gone on its card in the **Drives** tab, with two
+  buttons. **Archive** stops its SMART reads, self-tests and alerts and keeps
+  its last SMART data and its history, in a new **Archived drives** section
+  where it can be monitored again. **Delete** (it asks twice) removes all it
+  left: SMART data, history, alert notes, name and bay. A drive that drives
+  the fans must leave fan control in Settings first. Nothing restarts.
+
 ## [0.11.1] - 2026-11-20
 
 ### Changed

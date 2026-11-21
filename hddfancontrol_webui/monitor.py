@@ -144,6 +144,8 @@ class Monitor:
         self._wear_at = -WEAR_PERIOD
         # The last error of each loop, logged once until the loop works again.
         self._errors: dict[str, str] = {}
+        # The names of each monitored drive last kept in history.db (remember_ids).
+        self._known_ids: dict[str, list[str]] = {}
 
     def start(self) -> None:
         """Start the background loops."""
@@ -308,14 +310,71 @@ class Monitor:
             if time.monotonic() - last_purge >= PURGE_PERIOD:
                 last_purge = time.monotonic()
                 try:
-                    settings = self._settings()
-                    await asyncio.to_thread(self.history.purge, settings.history_days)
-                    # SMART data of a drive no longer monitored (or gone) is not shown: drop it.
-                    await asyncio.to_thread(self.history.forget_smart, set(settings.monitor_drives))
+                    await asyncio.to_thread(self.tidy)
                     self._worked("purge")
                 except Exception as err:  # the loop must outlive any error
                     self._failed("purge", err)
             await asyncio.sleep(RECORD_PERIOD)
+
+    def tidy(self) -> None:
+        """The hourly cleaning: old samples go, and the SMART data of drives neither monitored nor archived. Blocking.
+
+        The other names of each monitored drive are kept first, so that its
+        series can still be found and deleted once the drive is gone.
+        """
+        settings = self._settings()
+        self.remember_ids()
+        self.history.purge(settings.history_days)
+        self.history.forget_smart(set(settings.monitor_drives) | set(self.history.archived()))
+
+    def remember_ids(self) -> None:
+        """Keep in history.db the /dev/disk/by-id names of each monitored drive that is here, when they changed. Blocking.
+
+        The history keeps a drive under one of them (_stable_names), maybe
+        not the one of the settings: once the drive is gone, /dev no longer
+        says which they were.
+        """
+        drives = self.hardware.drives()
+        for device in self._settings().monitor_drives:
+            drive = next((d for d in drives if device in d.ids or device == f"/dev/{d.name}"), None)
+            if drive is None:
+                continue
+            ids = sorted({device, *drive.ids})
+            if self._known_ids.get(device) != ids:
+                self.history.remember_ids(device, ids)
+                self._known_ids[device] = ids
+
+    def drive_names(self, device: str) -> set[str]:
+        """Every name a drive was known by: the path of the settings and the by-id names kept for it. Blocking."""
+        return {device, *self.history.drive_ids(device)}
+
+    def forget_drive(self, device: str) -> set[str]:
+        """Delete what history.db keeps of a drive (SMART data, series, notes, self-test times); return its names. Blocking."""
+        names = self.drive_names(device)
+        self.history.forget_drive(device, names)
+        self._known_ids.pop(device, None)
+        return names
+
+    def smart_view(self) -> dict[str, dict[str, Any]]:
+        """smart() for the page: a monitored drive that is not on the host is marked missing. Blocking.
+
+        Without any drive listed, /dev is not readable here: that says
+        nothing about the drives, as for the missing drive alert.
+        """
+        data = self.smart()
+        if self.hardware.drives():
+            for device, info in data.items():
+                if not self.hardware.dev_exists(device):
+                    info["missing"] = True
+        return data
+
+    def archived(self) -> dict[str, dict[str, Any]]:
+        """The archived drives: their last SMART data, when they were archived, and whether they are here again. Blocking."""
+        smart = self.history.smart()
+        return {
+            device: {**smart.get(device, {}), "archived": ts, "present": self.hardware.dev_exists(device)}
+            for device, ts in self.history.archived().items()
+        }
 
     async def _record_step(self) -> None:
         """Record once, log the temperatures and update the alerts; the alerts run even if recording fails."""

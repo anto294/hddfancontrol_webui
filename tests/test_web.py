@@ -661,3 +661,63 @@ def test_mask_addresses() -> None:
     assert (
         mask_addresses(text) == "from <address>, <address>, <address> and [<address>]:28462 at 10:17:02, v0.10.1, nct6775.656"
     )
+
+
+async def test_archive_restore_and_delete_a_drive_that_is_gone(make_client: ClientMaker) -> None:
+    """A monitored drive that is gone can be archived (data kept), restored, or deleted with all it left behind."""
+    client = await make_client()
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    alias = "/dev/disk/by-id/wwn-0x5000000000000009"
+    other = "/dev/disk/by-id/ata-GONE_2"
+    controlled = "/dev/disk/by-id/ata-GONE_3"
+    document = {"drives": [controlled], "monitor_drives": [DRIVE, gone, other, controlled]}
+    assert (await client.put("/api/settings", json=document, headers=FETCH)).status == 200
+    monitor = client.app[MONITOR]
+    history = monitor.history
+    for device in (DRIVE, gone):
+        history.save_smart(device, {"status": "ok", "model": "M"})
+    history.record(int(time.time()), [("temp", alias, 30.0)])
+
+    smart = await (await client.get("/api/smart")).json()
+    assert smart[gone]["missing"] is True and "missing" not in smart[DRIVE]
+
+    async def post(action: str, body: Any) -> tuple[int, Any]:
+        response = await client.post(f"/api/drives/{action}", json=body, headers=FETCH)
+        return response.status, await response.json()
+
+    for body in ({}, {"device": 1}, {"device": "/etc/passwd"}, []):
+        assert (await post("archive", body))[0] == 400
+    assert await post("archive", {"device": "/dev/disk/by-id/ata-NONE"}) == (404, {"error": "unknown_drive", "problems": []})
+    assert (await post("archive", {"device": DRIVE}))[1]["error"] == "drive_present"
+    assert (await post("archive", {"device": controlled}))[1]["error"] == "drive_controlled"
+    assert (await post("delete", {"device": DRIVE}))[0] == 409
+    assert (await post("delete", {"device": controlled}))[0] == 409
+    assert (await post("restore", {"device": gone}))[0] == 404
+
+    status, answer = await post("archive", {"device": gone})
+    assert status == 200 and answer[gone]["model"] == "M" and answer[gone]["present"] is False and answer[gone]["archived"]
+    assert gone not in client.app[SUPERVISOR].settings.monitor_drives
+    assert await (await client.get("/api/drives/archived")).json() == answer
+    assert gone not in await (await client.get("/api/smart")).json()
+    # The hourly tidy keeps the data of an archived drive.
+    await asyncio.to_thread(monitor.tidy)
+    assert gone in history.smart()
+
+    status, answer = await post("restore", {"device": gone})
+    assert status == 200 and answer == {}
+    assert gone in client.app[SUPERVISOR].settings.monitor_drives
+
+    history.remember_ids(gone, [gone, alias])
+    await client.put("/api/labels", json={"key": alias, "label": "Old"}, headers=FETCH)
+    await client.put("/api/bays", json={"rows": 1, "cols": 2, "slots": [gone, DRIVE]}, headers=FETCH)
+    await post("archive", {"device": gone})
+    status, answer = await post("delete", {"device": gone})
+    assert status == 200 and answer == {}
+    assert gone not in history.smart() and history.query(1)["series"] == []
+    assert await (await client.get("/api/labels")).json() == {}
+    assert (await (await client.get("/api/bays")).json())["slots"] == ["", DRIVE]
+
+    # A monitored drive that is gone can be deleted without archiving it first.
+    assert (await post("delete", {"device": other}))[0] == 200
+    assert client.app[SUPERVISOR].settings.monitor_drives == (DRIVE, controlled)
+    assert (await post("delete", {"device": other}))[0] == 404

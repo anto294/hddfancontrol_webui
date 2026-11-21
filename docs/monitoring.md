@@ -57,6 +57,31 @@ keeps the times in `meta` so a restart does not run them twice. A due test is tr
 started late still runs it. No test starts on a drive whose long test began less than a
 day ago (`LONG_TEST_GUARD`), since it would abort it.
 
+**Drives that are gone.** A monitored drive no longer in `/dev` shows on its card as gone
+(`GET /api/smart` marks it `missing`, by the same rule as the `drive_missing` alert:
+without any drive listed, `/dev` is not readable and says nothing). The card offers:
+
+- **Archive** (`POST /api/drives/archive`): the drive leaves `monitor_drives` (no
+  SMART read, no self-test, no alert) and is marked in the `archived` table of
+  `history.db`. Its last SMART data and its history are kept: the hourly `tidy` keeps
+  the SMART data of every drive monitored or archived. The **Archived drives** section
+  of the tab lists them (`GET /api/drives/archived`, with `present` when the drive is
+  back) and can monitor one again (`POST /api/drives/restore`, checked by `from_dict`).
+- **Delete** (`POST /api/drives/delete`, the button asks twice), for a gone monitored
+  drive or an archived one: everything it left goes, its SMART data, its series under
+  every name it had, the notes on its alerts, its self-test times, its labels and its
+  bay.
+
+A drive that drives the fans (under any of its names) is refused (`drive_controlled`):
+it leaves fan control in the settings first. A drive still on the host is refused too
+(`drive_present`). Changing `monitor_drives` this way saves the settings and restarts
+nothing (`Supervisor.set_monitor_drives`): only the monitor reads it.
+
+The history keeps a drive under one of its by-id names (`wwn-` first), maybe not the one
+of the settings, and once the drive is gone `/dev` no longer says which they were: the
+hourly `tidy` keeps the names of each monitored drive that is here in `meta`
+(`drive_ids:<path>`, `Monitor.remember_ids`), and deleting uses them.
+
 ## Alerts
 
 `Monitor.conditions()` returns what is wrong now as `{key: (kind, params)}`.

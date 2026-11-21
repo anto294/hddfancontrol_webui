@@ -711,6 +711,21 @@ class Supervisor:
             self._log("Settings saved, restarting")
             await self._restart()
 
+    async def set_monitor_drives(self, drives: tuple[str, ...]) -> None:
+        """Save a new list of monitored drives, restarting nothing (a drive archived, restored or deleted).
+
+        Only the monitor reads monitor_drives (SMART, self-tests, the missing
+        drive alert): hddfancontrol and the fans never see it, so they run on.
+        The drives were checked by the caller (from_dict, or a drive taken off
+        the list). Refused once the web UI is stopping.
+        """
+        async with self._lock:
+            if self.closing:
+                raise Busy("The web UI is stopping")
+            settings = replace(self.settings, monitor_drives=drives)
+            await asyncio.to_thread(self.store.save, settings)
+            self.settings, self.source = settings, SOURCE_FILE
+
     async def reset(self) -> None:
         """Go back to the settings of the environment and restart."""
         async with self._lock:

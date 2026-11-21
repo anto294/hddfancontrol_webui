@@ -52,7 +52,7 @@ from .labels import LabelError, Labels
 from .monitor import Monitor
 from .notify import NOTIFY_FORBIDDEN, NotifyError
 from .sensors import SensorReport, scan_sensor_modules
-from .settings import SettingsError, from_dict, restore_notify_url
+from .settings import SettingsError, from_dict, is_drive_path, restore_notify_url
 from .supervisor import Busy, ReadOnly, Supervisor
 from .templog import TempLog
 
@@ -311,8 +311,8 @@ async def get_history_csv(request: web.Request) -> web.Response:
 #   get_smart
 # ---------------------------
 async def get_smart(request: web.Request) -> web.Response:
-    """The last SMART data of the monitored drives."""
-    return web.json_response(await asyncio.to_thread(request.app[MONITOR].smart))
+    """The last SMART data of the monitored drives; one that is not on the host has missing: true."""
+    return web.json_response(await asyncio.to_thread(request.app[MONITOR].smart_view))
 
 
 # ---------------------------
@@ -328,6 +328,130 @@ async def post_smart(request: web.Request) -> web.Response:
     """
     request.app[MONITOR].refresh_smart_soon()
     return web.json_response({"running": True}, status=202)
+
+
+# ---------------------------
+#   get_archived
+# ---------------------------
+async def get_archived(request: web.Request) -> web.Response:
+    """The archived drives, with their last SMART data."""
+    return web.json_response(await asyncio.to_thread(request.app[MONITOR].archived))
+
+
+# ---------------------------
+#   _drive_change
+# ---------------------------
+async def _drive_change(request: web.Request) -> tuple[str, set[str]] | web.Response:
+    """The drive of an archive, restore or delete request ({device}) and all its names, or the error to answer.
+
+    A drive still on the host is refused (drive_present), and so is one
+    that drives the fans under any of its names (drive_controlled): if it
+    came back, the fans would not follow it. That one leaves fan control in
+    the settings first.
+    """
+    data = await _read_json(request)
+    device = data.get("device") if isinstance(data, dict) else None
+    if not isinstance(device, str) or not is_drive_path(device):
+        return _json_error(400, "invalid_dev_path")
+    names = await asyncio.to_thread(request.app[MONITOR].drive_names, device)
+    if names & set(request.app[SUPERVISOR].settings.drives):
+        return _json_error(409, "drive_controlled")
+    return device, names
+
+
+# ---------------------------
+#   _drive_answer
+# ---------------------------
+async def _drive_answer(request: web.Request, change: Callable[[], Awaitable[None]]) -> web.Response:
+    """Run a change of the monitored drives and answer the archived drives, or the error."""
+    try:
+        await change()
+    except Busy:
+        return _json_error(409, "busy")
+    except OSError as err:
+        _LOGGER.error("Cannot change the monitored drives: %s", err)
+        return _json_error(500, "save_failed")
+    return await get_archived(request)
+
+
+# ---------------------------
+#   post_drive_archive
+# ---------------------------
+async def post_drive_archive(request: web.Request) -> web.Response:
+    """Archive a monitored drive that is gone: no longer read nor alerted on, its SMART data and history kept."""
+    found = await _drive_change(request)
+    if isinstance(found, web.Response):
+        return found
+    device, _names = found
+    app = request.app
+    supervisor = app[SUPERVISOR]
+    if device not in supervisor.settings.monitor_drives:
+        return _json_error(404, "unknown_drive")
+    if await asyncio.to_thread(app[HARDWARE].dev_exists, device):
+        return _json_error(409, "drive_present")
+
+    async def change() -> None:
+        # Marked first: the hourly tidy keeps the SMART data of an archived drive.
+        await asyncio.to_thread(app[HISTORY].archive, device)
+        await supervisor.set_monitor_drives(tuple(d for d in supervisor.settings.monitor_drives if d != device))
+
+    return await _drive_answer(request, change)
+
+
+# ---------------------------
+#   post_drive_restore
+# ---------------------------
+async def post_drive_restore(request: web.Request) -> web.Response:
+    """Monitor an archived drive again, here or not; its data were kept."""
+    found = await _drive_change(request)
+    if isinstance(found, web.Response):
+        return found
+    device, _names = found
+    app = request.app
+    supervisor = app[SUPERVISOR]
+    if device not in await asyncio.to_thread(app[HISTORY].archived):
+        return _json_error(404, "unknown_drive")
+    current = supervisor.settings
+    try:
+        checked = from_dict({**current.to_dict(), "monitor_drives": [*current.monitor_drives, device]})
+    except SettingsError as err:
+        return _json_error(400, "invalid_settings", err.problems)
+
+    async def change() -> None:
+        await supervisor.set_monitor_drives(checked.monitor_drives)
+        await asyncio.to_thread(app[HISTORY].unarchive, device)
+
+    return await _drive_answer(request, change)
+
+
+# ---------------------------
+#   post_drive_delete
+# ---------------------------
+async def post_drive_delete(request: web.Request) -> web.Response:
+    """Delete an archived drive, or a monitored one that is gone, with all it left: SMART data, history, label, bay.
+
+    It cannot be undone; the page asks first.
+    """
+    found = await _drive_change(request)
+    if isinstance(found, web.Response):
+        return found
+    device, names = found
+    app = request.app
+    supervisor = app[SUPERVISOR]
+    monitored = device in supervisor.settings.monitor_drives
+    if not monitored and device not in await asyncio.to_thread(app[HISTORY].archived):
+        return _json_error(404, "unknown_drive")
+    if monitored and await asyncio.to_thread(app[HARDWARE].dev_exists, device):
+        return _json_error(409, "drive_present")
+
+    async def change() -> None:
+        if monitored:
+            await supervisor.set_monitor_drives(tuple(d for d in supervisor.settings.monitor_drives if d != device))
+        gone = await asyncio.to_thread(app[MONITOR].forget_drive, device)
+        await asyncio.to_thread(app[LABELS].remove, gone | names)
+        await asyncio.to_thread(app[BAYS].clear, gone | names)
+
+    return await _drive_answer(request, change)
 
 
 # ---------------------------
@@ -874,6 +998,10 @@ def create_app(
     router.add_get("/api/history.csv", get_history_csv)
     router.add_get("/api/smart", get_smart)
     router.add_post("/api/smart", post_smart)
+    router.add_get("/api/drives/archived", get_archived)
+    router.add_post("/api/drives/archive", post_drive_archive)
+    router.add_post("/api/drives/restore", post_drive_restore)
+    router.add_post("/api/drives/delete", post_drive_delete)
     router.add_get("/api/labels", get_labels)
     router.add_put("/api/labels", put_labels)
     router.add_get("/api/bays", get_bays)
