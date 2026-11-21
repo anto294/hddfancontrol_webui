@@ -12,6 +12,8 @@ const state = {
   tab: "overview",
   logSeq: 0,
   logLines: [],
+  // The request for log lines under way, shared by whoever asks meanwhile.
+  logsPolling: null,
   dragging: new Set(),
   showAcked: false,
   pending: new Map(),
@@ -243,9 +245,20 @@ function showTab(name) {
   if (name === "history") loadHistory();
   if (name === "smart") loadSmart();
   if (name === "settings") renderSettings();
-  if (name === "logs") renderLogs();
+  // The log is polled only while its tab is open: catch up first (after=), then draw it whole.
+  if (name === "logs") pollLogs().then(renderLogs);
   if (name === "security") loadAuth();
   if (name === "ipmi") loadIpmi();
+  // A tab hidden until now was not drawn by the polls: draw it from what the page has, then ask again.
+  if (name === "overview") renderOverview();
+  if (name === "fans") {
+    renderFansState();
+    renderFans();
+  }
+  if (name === "pwmtest") {
+    renderPwmTestList();
+    if (state.status) renderPwmTest();
+  }
   if (name === "fans" || name === "overview") pollHardware();
 }
 
@@ -590,7 +603,13 @@ async function pollStatus() {
   }
   // A bug in one part of the page is no network problem: it goes to the console,
   // and the other parts (the banners of the safety rules first) still render.
-  for (const render of [renderHeader, renderBanners, renderOverview, renderFansState, renderPwmTest, syncIpmi, renderSmartState, wizardOnStatus, followScan]) {
+  // The header, the banners and the followers (a SMART reading or a sensor scan
+  // that ends, the wizard, the IPMI tab button) run always; a tab is drawn only while shown.
+  const renders = [renderHeader, renderBanners];
+  if (state.tab === "overview") renders.push(renderOverview);
+  if (state.tab === "fans") renders.push(renderFansState);
+  if (state.tab === "pwmtest") renders.push(renderPwmTest);
+  for (const render of [...renders, syncIpmi, renderSmartState, wizardOnStatus, followScan]) {
     try {
       render();
     } catch (error) {
@@ -643,10 +662,11 @@ function updateRates(hardware) {
 async function pollHardware() {
   try {
     state.hardware = await api("GET", "/api/hardware");
+    // The rates need every snapshot; the tabs are drawn only while shown (showTab draws them when opened).
     updateRates(state.hardware);
-    renderOverview();
-    renderFans();
-    renderPwmTestList();
+    if (state.tab === "overview") renderOverview();
+    if (state.tab === "fans") renderFans();
+    if (state.tab === "pwmtest") renderPwmTestList();
   } catch {
     // The next poll tries again; pollStatus shows network problems.
   }
@@ -738,7 +758,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch {
     // pollStatus shows the problem.
   }
-  await Promise.all([pollStatus(), pollHardware(), pollLogs(), loadBays()]);
+  await Promise.all([pollStatus(), pollHardware(), loadBays()]);
   let first;
   try {
     first = localStorage.getItem("tab") || "overview";
@@ -752,7 +772,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // server ends manual control only when the page is really closed.
   every(POLL_STATUS_MS, pollStatus, () => Boolean(state.status && state.status.manual));
   every(() => (state.tab === "fans" || state.tab === "overview" ? POLL_HARDWARE_FAST_MS : POLL_HARDWARE_SLOW_MS), pollHardware);
-  every(POLL_LOGS_MS, pollLogs);
+  every(POLL_LOGS_MS, () => state.tab === "logs" && pollLogs());
   every(POLL_HISTORY_MS, () => state.tab === "history" && loadHistory());
   every(POLL_HISTORY_MS, () => state.tab === "overview" && loadTrend());
   loadTrend();

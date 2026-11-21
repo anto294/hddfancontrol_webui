@@ -65,7 +65,14 @@ function renderLogs() {
   $("log").scrollTop = $("log").scrollHeight;
 }
 
-async function pollLogs() {
+// One request at a time: opening the tab during a poll waits for that one,
+// so no line is added twice.
+function pollLogs() {
+  if (!state.logsPolling) state.logsPolling = readLogs().finally(() => (state.logsPolling = null));
+  return state.logsPolling;
+}
+
+async function readLogs() {
   try {
     const data = await api("GET", `/api/logs?after=${state.logSeq}`);
     if (!data.lines.length) return;

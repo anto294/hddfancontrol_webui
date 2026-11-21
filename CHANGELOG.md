@@ -47,6 +47,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the last 30 days) and an estimate of the years left: from the wear for
   SSD and NVMe, from the age and the risk for hard drives.
 
+### Changed
+
+- **The page asks for less while it is open.** The log lines are asked for only
+  while the **Logs** tab is open (it catches up when opened); the hardware
+  readings and the status redraw only the tab shown (the header and the
+  banners always).
+
 ## [0.11.1] - 2026-11-20
 
 ### Changed

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -794,3 +795,47 @@ async def test_smart_history_api(make_client: ClientMaker) -> None:
     assert (await client.get("/api/smart/history", params={"device": "/dev/sdz"})).status == 404
     history.archive("/dev/sdz")
     assert (await client.get("/api/smart/history", params={"device": "/dev/sdz"})).status == 200
+
+
+async def test_hardware_requests_share_the_snapshot_under_way(
+    make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Requests during a snapshot wait for it; the next one reads again; an error reaches them all."""
+    client = await make_client()
+    hardware = client.app[HARDWARE]
+    original = hardware.snapshot
+    release, started = threading.Event(), threading.Event()
+    calls: list[int] = []
+
+    def slow() -> dict[str, Any]:
+        calls.append(1)
+        started.set()
+        release.wait(5)
+        return original()
+
+    monkeypatch.setattr(hardware, "snapshot", slow)
+    pending = [asyncio.ensure_future(client.get("/api/hardware")) for _ in range(3)]
+    assert await asyncio.to_thread(started.wait, 5)
+    await asyncio.sleep(0.05)  # the other two requests reach the handler
+    release.set()
+    answers = [await (await response).json() for response in pending]
+    assert len(calls) == 1
+    assert answers[0] == answers[1] == answers[2]
+    assert (await client.get("/api/hardware")).status == 200
+    assert len(calls) == 2
+
+    def broken() -> dict[str, Any]:
+        calls.append(1)
+        started.set()
+        release.wait(5)
+        raise OSError("sysfs is gone")
+
+    release.clear()
+    started.clear()
+    monkeypatch.setattr(hardware, "snapshot", broken)
+    pending = [asyncio.ensure_future(client.get("/api/hardware")) for _ in range(2)]
+    assert await asyncio.to_thread(started.wait, 5)
+    await asyncio.sleep(0.05)
+    release.set()
+    assert [(await response).status for response in pending] == [500, 500]
+    assert len(calls) == 3

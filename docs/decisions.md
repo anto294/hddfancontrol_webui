@@ -259,6 +259,20 @@ and log lines cannot inject HTML. See [web-ui.md](web-ui.md). (2026-11-16)
 **Rates are computed by the page from counters.** Why: the server keeps no state per
 client, and the network delay does not skew the rates. (0.10.0, 2026-11-18)
 
+**The page asks for the log lines only while the Logs tab is open.** Opening the tab
+catches up with `after=` and then draws it. Why: every open page asked for them every 2
+s (`POLL_LOGS_MS`) on every tab, though only the Logs tab shows them; the server keeps
+the same 2000 lines the page would, so catching up loses nothing. (2026-11-21)
+
+**Requests for the hardware snapshot that come together share it, with no cache.** A
+`GET /api/hardware` that arrives while a snapshot is being read waits for that one
+(`asyncio.shield`, so a client that leaves never cancels it for the others); the first
+request after it reads again, and an error reaches every request that waited. Why:
+every open page asks for it every few seconds, and two tabs or two users at once read
+the same hundreds of sysfs files twice for the same answer. A cache with a lifetime
+would hand out older counters, and the page turns two snapshots into rates by their
+`clock`. (2026-11-21)
+
 **Seven languages, translated by meaning.** English, Italian, Spanish, French, Chinese,
 Hindi and Arabic (right to left). Why: the most spoken languages; a literal translation
 reads badly. (0.10.0, 2026-11-18)
