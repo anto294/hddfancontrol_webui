@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 _PART = re.compile(r"-part\d+$")
+# The size of each raw read of a sysfs file (a sysfs attribute is at most a page).
+READ_BLOCK = 65536
 # What a drive is in /dev. The tests, whose /dev holds plain files, accept those too.
 _IS_DRIVE_NODE = stat.S_ISBLK
 # Several names point at the same drive. These say less than the model and
@@ -139,12 +141,25 @@ class HwmonDevice:
 # ---------------------------
 #   _read
 # ---------------------------
-def _read(path: Path) -> str | None:
-    """Read a small sysfs file, or None when it is missing or unreadable."""
+def _read(path: str | os.PathLike[str]) -> str | None:
+    """Read a small sysfs file, or None when it is missing or unreadable.
+
+    The same text as Path.read_text(encoding="utf-8", errors="replace")
+    stripped, without its buffered text layer: raw reads of READ_BLOCK bytes
+    until the end, bytes that are not UTF-8 replaced, \\r\\n and \\r as \\n.
+    """
     try:
-        return path.read_text(encoding="utf-8", errors="replace").strip()
+        handle = os.open(path, os.O_RDONLY)
+        try:
+            chunks = []
+            while chunk := os.read(handle, READ_BLOCK):
+                chunks.append(chunk)
+        finally:
+            os.close(handle)
     except OSError:
         return None
+    text = b"".join(chunks).decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 # ---------------------------
