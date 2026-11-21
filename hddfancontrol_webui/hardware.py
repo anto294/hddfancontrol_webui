@@ -30,6 +30,8 @@ _LOW_PRIORITY = ("wwn-", "nvme-eui.", "nvme-nvme.", "eui.")
 _PWM = re.compile(r"^pwm(\d+)$")
 _TEMP = re.compile(r"^temp(\d+)_input$")
 _HWMON = re.compile(r"^hwmon\d+$")
+# The runs of digits of a name, for _natural_key.
+_DIGITS = re.compile(r"(\d+)")
 _ATA_PORT = re.compile(r"^ata\d+$")
 _PCI_ADDRESS = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$")
 # The hwmon drivers of processors, and the input of each that stands for the
@@ -165,7 +167,7 @@ def _read(path: str | os.PathLike[str]) -> str | None:
 # ---------------------------
 #   _read_int
 # ---------------------------
-def _read_int(path: Path) -> int | None:
+def _read_int(path: str | os.PathLike[str]) -> int | None:
     """Read an integer sysfs file, or None."""
     text = _read(path)
     if text is None:
@@ -189,7 +191,7 @@ _REPORT_MODULES = re.compile(r"^(nct|it87|f71|w83|asus|dell|hp|coretemp|k10temp|
 # ---------------------------
 def _natural_key(text: str) -> list[Any]:
     """Sort hwmon2 before hwmon10 and pwm2 before pwm10."""
-    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
+    return [int(part) if part.isdigit() else part for part in _DIGITS.split(text)]
 
 
 # ---------------------------
@@ -325,19 +327,20 @@ class Hardware:
 
     def hwmons(self) -> list[HwmonDevice]:
         """List the hwmon devices, with their PWM outputs and temperatures."""
-        base = self._sys / "class" / "hwmon"
+        base = f"{self._sys}/class/hwmon"
         try:
-            names = sorted((p.name for p in base.iterdir() if _HWMON.match(p.name)), key=_natural_key)
+            names = sorted((name for name in os.listdir(base) if _HWMON.match(name)), key=_natural_key)
         except OSError:
             return []
-        return [self._hwmon(base / name) for name in names]
+        return [self._hwmon(f"{base}/{name}", name) for name in names]
 
-    def _hwmon(self, directory: Path) -> HwmonDevice:
-        """Read one hwmon device."""
-        real = f"/sys/class/hwmon/{directory.name}"
-        device = HwmonDevice(hwmon=directory.name, name=_read(directory / "name") or "")
+    @staticmethod
+    def _hwmon(directory: str, hwmon: str) -> HwmonDevice:
+        """Read one hwmon device: directory is its folder in the tree read, hwmon its name (hwmonN)."""
+        real = f"/sys/class/hwmon/{hwmon}"
+        device = HwmonDevice(hwmon=hwmon, name=_read(f"{directory}/name") or "")
         try:
-            files = sorted((p.name for p in directory.iterdir()), key=_natural_key)
+            files = sorted(os.listdir(directory), key=_natural_key)
         except OSError:
             return device
         for name in files:
@@ -346,18 +349,18 @@ class Hardware:
                 device.pwms.append(
                     PwmOutput(
                         path=f"{real}/{name}",
-                        value=_read_int(directory / name),
-                        enable=_read_int(directory / f"pwm{number}_enable"),
-                        rpm=_read_int(directory / f"fan{number}_input"),
+                        value=_read_int(f"{directory}/{name}"),
+                        enable=_read_int(f"{directory}/pwm{number}_enable"),
+                        rpm=_read_int(f"{directory}/fan{number}_input"),
                     )
                 )
             elif match := _TEMP.match(name):
                 number = match.group(1)
-                millidegrees = _read_int(directory / name)
+                millidegrees = _read_int(f"{directory}/{name}")
                 device.temps.append(
                     TempInput(
                         path=f"{real}/{name}",
-                        label=_read(directory / f"temp{number}_label") or f"temp{number}",
+                        label=_read(f"{directory}/temp{number}_label") or f"temp{number}",
                         celsius=None if millidegrees is None else millidegrees / 1000,
                     )
                 )
