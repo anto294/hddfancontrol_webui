@@ -331,18 +331,22 @@ class Hardware:
                 link = f"{speed} x{width}" if width else speed
         return bus, controller, link
 
-    def hwmons(self) -> list[HwmonDevice]:
-        """List the hwmon devices, with their PWM outputs and temperatures."""
+    def hwmons(self, temps: bool = True) -> list[HwmonDevice]:
+        """List the hwmon devices, with their PWM outputs and temperatures.
+
+        temps=False leaves the temperature inputs out (temps stays empty), for
+        a reader that needs only the fans: their files are not even read.
+        """
         base = f"{self._sys}/class/hwmon"
         try:
             names = sorted((name for name in os.listdir(base) if _HWMON.match(name)), key=_natural_key)
         except OSError:
             return []
-        return [self._hwmon(f"{base}/{name}", name) for name in names]
+        return [self._hwmon(f"{base}/{name}", name, temps) for name in names]
 
     @staticmethod
-    def _hwmon(directory: str, hwmon: str) -> HwmonDevice:
-        """Read one hwmon device: directory is its folder in the tree read, hwmon its name (hwmonN)."""
+    def _hwmon(directory: str, hwmon: str, temps: bool = True) -> HwmonDevice:
+        """Read one hwmon device: directory is its folder in the tree read, hwmon its name (hwmonN); temps as hwmons()."""
         real = f"/sys/class/hwmon/{hwmon}"
         device = HwmonDevice(hwmon=hwmon, name=_read(f"{directory}/name") or "")
         read_temps = device.name not in _NO_READ_CHIPS
@@ -361,7 +365,7 @@ class Hardware:
                         rpm=_read_int(f"{directory}/fan{number}_input"),
                     )
                 )
-            elif match := _TEMP.match(name):
+            elif temps and (match := _TEMP.match(name)):
                 number = match.group(1)
                 millidegrees = _read_int(f"{directory}/{name}") if read_temps else None
                 device.temps.append(

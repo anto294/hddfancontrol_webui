@@ -296,3 +296,21 @@ def test_drivetemp_is_listed_never_read(fake_sys: Path, fake_dev: Path, monkeypa
     # The values the kernel asks the drive for; name and labels are the driver's own.
     assert not [path for path in opened if path.startswith(str(chip)) and re.search(r"/temp\d+_(input|lowest|highest)$", path)]
     assert any(path == f"{fake_sys}/class/hwmon/hwmon2/temp1_input" for path in opened)
+
+
+def test_hwmons_without_temperatures(fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """temps=False gives the same chips and fans, no temperature, and opens no temperature file."""
+    hardware = Hardware(fake_dev, fake_sys)
+    full = hardware.hwmons()
+    opened: list[str] = []
+    real_open = hardware_module.os.open
+
+    def watched(path: Any, flags: int, *args: Any) -> int:
+        opened.append(str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(hardware_module.os, "open", watched)
+    light = hardware.hwmons(temps=False)
+    assert [(d.hwmon, d.name, d.pwms) for d in light] == [(d.hwmon, d.name, d.pwms) for d in full]
+    assert all(d.temps == [] for d in light)
+    assert not [path for path in opened if "/temp" in path]

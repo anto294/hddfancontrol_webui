@@ -192,7 +192,7 @@ class Monitor:
                 self.history.record(ts, values)
         fans: list[tuple[str, str, float]] = []
         self._fans = {}
-        for device in self.hardware.hwmons():
+        for device in self.hardware.hwmons(temps=False):
             for pwm in device.pwms:
                 self._fans[pwm.path] = (None if pwm.value is None else pwm.value * 100 / 255, pwm.rpm)
                 if pwm.value is not None:
@@ -499,7 +499,7 @@ class Monitor:
         label = self._labels().get(path)
         if label:
             return label
-        for device in self.hardware.hwmons():
+        for device in self.hardware.hwmons(temps=False):
             if any(pwm.path == path for pwm in device.pwms):
                 return f"{device.name or device.hwmon} {os.path.basename(path)}"
         return os.path.basename(path)
