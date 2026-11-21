@@ -52,7 +52,16 @@ function smartCard(device, data) {
     const result = test.running ? t("smart.selftest_running") : test.passed === true ? t("smart.selftest_ok") : test.passed === false ? t("smart.selftest_failed") : test.result;
     fact(t("smart.selftest"), result, test.passed === false ? "hot" : "");
   }
+  // Risk and remaining life (health.py): an estimate, said so under Details.
+  const health = data.health;
+  if (health && health.risk !== "unknown") {
+    const level = { high: "hot", medium: "warm" }[health.risk] || "";
+    const afr = health.afr === null ? "" : ` · ${t("health.afr", { afr: fmtAfr(health.afr) })}`;
+    fact(t("health.risk"), `${t(`health.risk_${health.risk}`)}${afr}`, level);
+  }
+  if (health && health.life) fact(t("health.life"), lifeText(health.life), health.life.years[1] === 0 ? "hot" : "");
   if (facts.children.length) card.append(facts);
+  if (health && health.growing.length) card.append(el("p", { class: "warning small", text: t("health.growing", { counters: health.growing.map((key) => t(`smart.${key}`)).join(", ") }) }));
 
   // The maximum of the settings should stay under what the drive is made for.
   if (limit !== null && state.settings && state.settings.drive_temp_max > limit) {
@@ -61,6 +70,21 @@ function smartCard(device, data) {
   for (const warning of data.warnings || []) card.append(el("p", { class: "warning small", text: t(`smart.warn.${warning}`) }));
   if (data.failed_past && data.failed_past.length) card.append(el("p", { class: "muted small", text: t("smart.failed_past", { attributes: data.failed_past.join(", ") }) }));
   for (const message of data.messages || []) card.append(el("p", { class: "error small", text: message }));
+  // A drive that is gone: archive it (its data kept) or delete it.
+  if (data.missing) {
+    card.append(el("p", { class: "error small", text: t("drive.gone") }));
+    if (driveControlled(device)) card.append(el("p", { class: "muted small", text: t("drive.gone_controlled") }));
+    else {
+      card.append(
+        el(
+          "div",
+          { class: "actions" },
+          el("button", { type: "button", class: "secondary", text: t("action.archive"), onclick: () => changeDrive("archive", device) }),
+          confirmButton(t("action.delete_drive"), t("action.delete_confirm"), () => changeDrive("delete", device)),
+        ),
+      );
+    }
+  }
 
   const table = el("table", { class: "list" });
   const fields = [
@@ -96,6 +120,22 @@ function smartCard(device, data) {
     }
     details.append(el("h4", { text: t("smart.attributes") }), attrs);
   }
+  if (health && health.attributes.length) {
+    const risks = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.raw"), t("health.afr_head"), t("health.status")));
+    for (const attr of health.attributes) {
+      const line = row(String(attr.id), t(`smart.${attr.key}`), String(attr.value), fmtAfr(attr.afr), t(`health.status_${attr.status}`));
+      if (attr.status !== "ok") line.className = attr.status === "failed" ? "failed" : "failed-past";
+      risks.append(line);
+    }
+    details.append(el("h4", { text: t("health.title") }), risks);
+  }
+  if (health && health.risk !== "unknown") details.append(el("p", { class: "muted small", text: t(`health.note_${health.life ? health.life.basis : "risk"}`) }));
+  // The trend of the counters, read when the details are opened.
+  const trend = el("div", { class: "smart-trend" });
+  details.append(el("h4", { text: t("smart.trend") }), trend);
+  details.addEventListener("toggle", () => {
+    if (details.open && !trend.dataset.loaded) loadTrendOf(device, trend);
+  });
   card.append(details);
   const note = data.asleep ? t("smart.asleep_note") : "";
   card.append(el("p", { class: "muted small", text: `${t("smart.updated", { time: fmtTime(data.time) })} ${note}` }));
@@ -148,12 +188,133 @@ function renderSmart(data) {
   if (!entries.length) list.append(el("p", { class: "muted", text: t("smart.none") }));
 }
 
+// "2.5 %": an annual failure rate.
+function fmtAfr(afr) {
+  return ltr(`${(afr * 100).toFixed(afr < 0.1 ? 1 : 0)} %`);
+}
+
+// "3–5 years", or what a range of 0 means for its basis.
+function lifeText(life) {
+  const [low, high] = life.years;
+  if (high === 0) return t(life.basis === "risk" ? "health.replace_soon" : life.basis === "wear" ? "health.worn_out" : "health.past_life");
+  if (low === high) return t("health.years_about", { years: low.toFixed(1) });
+  return t("health.years_range", { low: low.toFixed(1), high: high.toFixed(1) });
+}
+
+// Counters that should stay at 0, and the wear of an SSD, kept day by day (TREND_KEYS of smart.py).
+const TREND_COUNTERS = ["reallocated_sectors", "reallocation_events", "pending_sectors", "offline_uncorrectable", "reported_uncorrectable", "crc_errors", "spin_retries", "media_errors"];
+const TREND_WEAR = ["percentage_used", "available_spare"];
+
+async function loadTrendOf(device, box) {
+  box.dataset.loaded = "1";
+  let series;
+  try {
+    series = (await api("GET", `/api/smart/history?device=${encodeURIComponent(device)}`)).series;
+  } catch (error) {
+    box.replaceChildren(el("p", { class: "error small", text: errorText(error) }));
+    delete box.dataset.loaded;
+    return;
+  }
+  const times = Object.values(series).flat().map(([ts]) => ts);
+  if (!times.length) {
+    box.replaceChildren(el("p", { class: "muted small", text: t("smart.trend_empty") }));
+    return;
+  }
+  const start = Math.min(...times);
+  const data = { start, end: Math.max(Math.max(...times), start + 86400), bucket: 86400 };
+  const pick = (keys) => keys.filter((key) => series[key] && series[key].some(([, value]) => value > 0)).map((key) => ({ name: key, points: series[key] }));
+  const counters = pick(TREND_COUNTERS);
+  const wear = pick(TREND_WEAR);
+  box.replaceChildren(el("p", { class: "muted small", text: t("smart.trend_since", { time: fmtTime(start), count: new Set(times).size }) }));
+  if (!counters.length) box.append(el("p", { class: "small ok", text: t("smart.trend_clean") }));
+  for (const [list, unit] of [[counters, ""], [wear, "%"]]) {
+    if (!list.length) continue;
+    const chart = el("div", { class: "chart" });
+    box.append(chart);
+    drawChart(chart, data, list, { unit, labelOf: (key) => t(`smart.${key}`), kind: `smart:${device}:${unit}`, title: t("smart.trend") });
+  }
+}
+
 async function loadSmart() {
   try {
-    renderSmart(await api("GET", "/api/smart"));
+    const [smart, archived] = await Promise.all([api("GET", "/api/smart"), api("GET", "/api/drives/archived")]);
+    renderSmart(smart);
+    renderArchived(archived);
   } catch (error) {
     alertBanner(errorText(error));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Drives that are gone: archived (data kept, restorable) or deleted
+// ---------------------------------------------------------------------------
+
+// A drive that drives the fans (under any name) leaves fan control in the settings first.
+function driveControlled(device) {
+  return Boolean(state.settings && state.settings.drives.includes(device));
+}
+
+// A button for what cannot be undone: the first click arms it for a few seconds, the second one acts.
+function confirmButton(text, confirmText, action) {
+  let armed = null;
+  const button = el("button", { type: "button", class: "secondary", text });
+  const disarm = () => {
+    clearTimeout(armed);
+    armed = null;
+    button.textContent = text;
+    button.className = "secondary";
+  };
+  button.addEventListener("click", () => {
+    if (armed === null) {
+      button.textContent = confirmText;
+      button.className = "danger";
+      armed = setTimeout(disarm, 5000);
+      return;
+    }
+    disarm();
+    action();
+  });
+  return button;
+}
+
+// action is archive, restore or delete; the answer is the archived drives.
+async function changeDrive(action, device) {
+  try {
+    await api("POST", `/api/drives/${action}`, { device });
+    // The monitored drives changed: the settings form must not save the old list back.
+    await loadSettings();
+    renderSettings();
+    if (action === "delete") state.labels = await api("GET", "/api/labels");
+    if (action === "delete") await loadBays();
+    await loadSmart();
+  } catch (error) {
+    alertBanner(errorText(error));
+  }
+}
+
+function archivedRow(device, data) {
+  const what = [shortModel(data.model), data.capacity_bytes ? fmtBytes(data.capacity_bytes) : "", present(data.power_on_hours) ? t("smart.years", { years: (data.power_on_hours / 8766).toFixed(1) }) : ""];
+  const notes = [t("drive.archived_on", { time: fmtTime(data.archived) })];
+  if (data.present) notes.push(t("drive.archived_back"));
+  return el(
+    "div",
+    { class: "archived-drive" },
+    el("div", {}, el("strong", { text: smartTitle(device, data), title: device }), el("p", { class: "muted small", text: what.filter(Boolean).join(" · ") }), el("p", { class: `small ${data.present ? "warning" : "muted"}`, text: notes.join(" · ") })),
+    el(
+      "div",
+      { class: "actions" },
+      el("button", { type: "button", class: "secondary", text: t("action.restore_drive"), onclick: () => changeDrive("restore", device) }),
+      confirmButton(t("action.delete_drive"), t("action.delete_confirm"), () => changeDrive("delete", device)),
+    ),
+  );
+}
+
+function renderArchived(data) {
+  const entries = Object.entries(data).sort((a, b) => b[1].archived - a[1].archived);
+  const box = $("archived-drives");
+  box.hidden = !entries.length;
+  $("archived-count").textContent = t("drive.archived_title", { count: entries.length });
+  $("archived-list").replaceChildren(...entries.map(([device, info]) => archivedRow(device, info)));
 }
 
 // The drives are read in the background (POST answers 202 at once): the

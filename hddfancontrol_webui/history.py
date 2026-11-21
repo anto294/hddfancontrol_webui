@@ -3,10 +3,14 @@
 The database is /config/history.db. A series is one thing measured over time:
 the temperature of a drive or a hwmon input, or the PWM (in %) or the speed
 (in RPM) of a fan. Every sample is a time in seconds and a value. It also
-keeps the notes taken on alerts (alerts.py).
+keeps the notes taken on alerts (alerts.py), and the trend of the SMART
+counters: one reading per drive per day (record_smart), which the purge of
+history_days does not touch: a counter that grows over months is the point.
 
 It cleans itself: purge() deletes old samples and the series left without
-any, and forget_smart() the SMART data of drives no longer monitored.
+any, and forget_smart() the SMART data of drives no longer monitored (an
+archived drive keeps its own: the caller keeps it). forget_drive() drops
+everything of one drive, when the user deletes a drive that is gone.
 
 Long windows are answered by averaging the samples of equal time buckets in
 SQL, so a month never sends more than HISTORY_MAX_POINTS points per series.
@@ -59,7 +63,22 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS smart_history (
+    device TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (device, key, ts)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS archived (
+    device TEXT PRIMARY KEY,
+    ts INTEGER NOT NULL
+);
 """
+
+# The alerts and the meta keys that belong to one monitored drive (alerts.py, monitor.py).
+DRIVE_ALERT_KEYS = ("missing:{}", "smart:{}", "smart_error:{}")
+DRIVE_META_KEYS = ("selftest_short_{}", "selftest_long_{}", "selftest_long_started_{}", "drive_ids:{}")
 
 
 # ---------------------------
@@ -192,12 +211,48 @@ class History:
         return {device: {"time": ts, **json.loads(data)} for device, ts, data in rows}
 
     def forget_smart(self, keep: set[str]) -> int:
-        """Delete the SMART data of every drive not in keep (no longer monitored or gone); return how many."""
+        """Delete the SMART data and trend of every drive not in keep (no longer monitored or gone); return how many."""
         with self._lock:
             devices = [row[0] for row in self._db.execute("SELECT device FROM smart")]
             gone = [(device,) for device in devices if device not in keep]
             self._db.executemany("DELETE FROM smart WHERE device = ?", gone)
+            trends = [row[0] for row in self._db.execute("SELECT DISTINCT device FROM smart_history")]
+            self._db.executemany("DELETE FROM smart_history WHERE device = ?", [(d,) for d in trends if d not in keep])
             return len(gone)
+
+    def record_smart(self, device: str, values: dict[str, float], ts: int | None = None) -> None:
+        """Keep the SMART counters of a reading in the trend: one reading per drive per UTC day, the newest."""
+        if not values:
+            return
+        ts = int(ts or time.time())
+        day = ts - ts % 86400
+        with self._lock:
+            self._db.execute("BEGIN")
+            try:
+                self._db.execute(
+                    "DELETE FROM smart_history WHERE device = ? AND ts >= ? AND ts < ?", (device, day, day + 86400)
+                )
+                self._db.executemany(
+                    "INSERT INTO smart_history (device, ts, key, value) VALUES (?, ?, ?, ?)",
+                    [(device, ts, key, float(value)) for key, value in values.items()],
+                )
+                self._db.execute("COMMIT")
+            except sqlite3.Error:
+                if self._db.in_transaction:
+                    with contextlib.suppress(sqlite3.Error):
+                        self._db.execute("ROLLBACK")
+                raise
+
+    def smart_history(self, device: str) -> dict[str, list[list[float]]]:
+        """The trend of a drive: {key: [[ts, value], ...]} in time order."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT key, ts, value FROM smart_history WHERE device = ? ORDER BY key, ts", (device,)
+            ).fetchall()
+        series: dict[str, list[list[float]]] = {}
+        for key, ts, value in rows:
+            series.setdefault(key, []).append([ts, value])
+        return series
 
     def notes(self) -> dict[str, str]:
         """Return the notes taken on alerts, as key -> signature."""
@@ -266,3 +321,52 @@ class History:
                 (step, step, path, path, start, end),
             ).fetchall()
         return {float(band): (float(rpm), int(count)) for band, rpm, count in rows}
+
+    def remember_ids(self, device: str, ids: list[str]) -> None:
+        """Keep the other names of a monitored drive (its by-id links), to find its series once it is gone."""
+        self.set_meta(f"drive_ids:{device}", json.dumps(sorted(ids)))
+
+    def drive_ids(self, device: str) -> list[str]:
+        """The names of a drive kept by remember_ids, or []."""
+        saved = self.get_meta(f"drive_ids:{device}")
+        return [] if saved is None else [str(name) for name in json.loads(saved)]
+
+    def archive(self, device: str, ts: int | None = None) -> None:
+        """Mark a drive as archived: no longer monitored, its last SMART data and its series kept."""
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO archived (device, ts) VALUES (?, ?)", (device, int(ts or time.time())))
+
+    def unarchive(self, device: str) -> None:
+        """A drive monitored again is no longer archived."""
+        with self._lock:
+            self._db.execute("DELETE FROM archived WHERE device = ?", (device,))
+
+    def archived(self) -> dict[str, int]:
+        """The archived drives, with when they were archived."""
+        with self._lock:
+            return dict(self._db.execute("SELECT device, ts FROM archived").fetchall())
+
+    def forget_drive(self, device: str, names: set[str]) -> None:
+        """Delete everything kept of a drive: SMART data, archive mark, the series named in names, notes and meta keys."""
+        with self._lock:
+            self._db.execute("BEGIN")
+            try:
+                self._db.execute("DELETE FROM smart WHERE device = ?", (device,))
+                self._db.execute("DELETE FROM smart_history WHERE device = ?", (device,))
+                self._db.execute("DELETE FROM archived WHERE device = ?", (device,))
+                for pattern in DRIVE_ALERT_KEYS:
+                    self._db.execute("DELETE FROM alert_notes WHERE key = ?", (pattern.format(device),))
+                for pattern in DRIVE_META_KEYS:
+                    self._db.execute("DELETE FROM meta WHERE key = ?", (pattern.format(device),))
+                gone = [(key, series_id) for key, series_id in self._series.items() if key[1] in names]
+                for _key, series_id in gone:
+                    self._db.execute("DELETE FROM samples WHERE series = ?", (series_id,))
+                    self._db.execute("DELETE FROM series WHERE id = ?", (series_id,))
+                self._db.execute("COMMIT")
+            except sqlite3.Error:
+                if self._db.in_transaction:
+                    with contextlib.suppress(sqlite3.Error):
+                        self._db.execute("ROLLBACK")
+                raise
+            for key, _series_id in gone:
+                self._series.pop(key, None)

@@ -148,6 +148,35 @@ the page for those who do not write cron. (0.7.0, 2026-11-17)
 leave an empty settings file, and only root needs to read them. A corrupt
 `history.db` is set aside instead of stopping the start. (2026-11-17)
 
+**A drive that is gone is archived or deleted from the Drives tab, never by itself.**
+Archiving keeps its last SMART data and its history and stops its reads and alerts;
+deleting drops all it left (SMART data, series under all its names, notes, labels, bay).
+Why: a drive can be gone for a while (a cable, a controller reset) or for good, and
+only the user knows which; keeping the data of a dead drive is worth something (its
+last SMART, for a warranty claim), as in Scrutiny. A drive that drives the fans is
+refused: if it came back while archived, the fans would not follow its temperature.
+The change restarts nothing, since only the monitor reads `monitor_drives`. (2026-11-21)
+
+**The permissions and devices are checked once at start, and only reported.** Why: a
+container without a device, a capability or a writable volume starts anyway and fails
+one feature at a time, far from the cause ("permission denied" from smartctl). Each
+problem is named in the log and in a banner with what to do. Nothing is fixed by
+itself: the fixes (privileged, a device, a volume) are the user's, and `/config`
+already gets its owner and mode at start (`tighten_config`). (2026-11-21)
+
+**The SMART counters are kept once a day, for the life of the drive.** Why: a growing
+count (pending sectors, reallocations) says more than any single value, as Scrutiny
+shows; one row per counter per day stays small for years, so it is not cut at
+`history_days`. Only the counters are kept, not the whole attribute table. (2026-11-21)
+
+**Risk from Backblaze's failure rates, life as a labelled estimate.** Why: a raw count
+says little to most users ("2 pending sectors"); the annual failure rate of drives
+with that count (Backblaze's data, as Scrutiny tabulates it) says how serious it is.
+Scrutiny's table and limits are taken as they are (MIT License) rather than tuned by
+hand. Remaining life is only measurable for SSD/NVMe (their own wear); for hard drives
+it is a range from a 5–7 year service life, cut by the risk, and the page says it is
+an estimate. A growing critical counter counts more than its size. (2026-11-21)
+
 ## Security
 
 **Privilege separation: a root core on a Unix socket, an unprivileged gateway on the

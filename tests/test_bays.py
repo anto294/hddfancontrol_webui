@@ -44,3 +44,15 @@ def test_a_broken_file_starts_without_a_map(tmp_path: Path, content: bytes) -> N
     """bays.json nested too deep or not UTF-8: no map, never a failed start."""
     (tmp_path / "bays.json").write_bytes(content)
     assert Bays(tmp_path).get()["slots"] == []
+
+
+def test_clear(tmp_path: Path) -> None:
+    """clear empties the bays of these drives, keeps the map, and writes nothing when none is there."""
+    bays = Bays(tmp_path)
+    bays.set({"rows": 1, "cols": 3, "slots": ["/dev/a", "/dev/b", ""]})
+    assert bays.clear({"/dev/b", "/dev/x"}) is True
+    assert bays.get() == {"rows": 1, "cols": 3, "slots": ["/dev/a", "", ""]}
+    assert Bays(tmp_path).get() == bays.get()
+    (tmp_path / "bays.json").unlink()
+    assert bays.clear({"/dev/x"}) is False
+    assert not (tmp_path / "bays.json").exists()

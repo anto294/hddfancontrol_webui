@@ -432,6 +432,36 @@ class Hardware:
         """Whether a /dev path (a by-id link or a device) leads to something now."""
         return (self._dev / path.removeprefix("/dev/")).exists()
 
+    def open_error(self, path: str) -> str | None:
+        """Why a /dev path that is here cannot be opened for reading, or None (it opens, or it is not here).
+
+        Only opens and closes the node (O_NONBLOCK): nothing is read from
+        the drive, and a sleeping drive does not wake.
+        """
+        node = self._dev / path.removeprefix("/dev/")
+        if not node.exists():
+            return None
+        try:
+            os.close(os.open(node, os.O_RDONLY | os.O_NONBLOCK))
+        except OSError as err:
+            return err.strerror or str(err)
+        return None
+
+    def writable(self, path: str) -> bool | None:
+        """Whether a /sys file can be written by this process: None when it is not here."""
+        node = self._sys / path.removeprefix("/sys/")
+        if not node.exists():
+            return None
+        return os.access(node, os.W_OK)
+
+    def capabilities(self) -> int | None:
+        """The effective capabilities of this process (CapEff of /proc/self/status), or None when unreadable."""
+        for line in (_read(self._proc / "self" / "status") or "").splitlines():
+            if line.startswith("CapEff:"):
+                with contextlib.suppress(ValueError):
+                    return int(line.split(":", 1)[1].strip(), 16)
+        return None
+
     def is_block_device(self, path: str) -> bool | None:
         """Whether a /dev path leads to a block device: None when it leads nowhere (an unplugged drive)."""
         try:

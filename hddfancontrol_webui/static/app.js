@@ -262,6 +262,29 @@ function banner(kind, text, ...extra) {
   );
 }
 
+// A startup check hidden by the user stays hidden while it says the same (localStorage checksHidden).
+function checkKey(check) {
+  return JSON.stringify([check.code, check.params]);
+}
+
+function hiddenChecks() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("checksHidden") || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+function hideCheck(check) {
+  try {
+    localStorage.setItem("checksHidden", JSON.stringify([...hiddenChecks(), checkKey(check)]));
+  } catch {
+    // Storage off (a private window): it shows again at the next page load.
+  }
+  renderBanners();
+}
+
 function renderBanners() {
   const status = state.status;
   const box = $("banners");
@@ -289,6 +312,10 @@ function renderBanners() {
     box.append(banner("warning", t("banner.no_pwm"), el("button", { class: "secondary", text: t("support.prepare"), onclick: () => prepareSupport(true) })));
   }
   if (status.read_only) box.append(banner("error", t("banner.read_only")));
+  // What the startup checks found (permissions, devices, programs): hidden one by one in this browser.
+  for (const check of (status.checks || []).filter((c) => !hiddenChecks().includes(checkKey(c)))) {
+    box.append(banner("warning", t(`check.${check.code}`, check.params), el("div", { class: "banner-actions" }, el("button", { class: "link", text: t("action.hide"), onclick: () => hideCheck(check) }))));
+  }
   if (status.missing_pwms.length) box.append(banner("error", t("banner.missing_pwms", { paths: status.missing_pwms.map(pwmLabel).join(", ") })));
   if (status.settings_error) box.append(banner("error", t("banner.settings_error")));
   // Safety and missing fans have their own banners.

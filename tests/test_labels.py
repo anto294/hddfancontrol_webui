@@ -73,3 +73,17 @@ def test_a_broken_file_starts_empty(tmp_path: Path, content: bytes) -> None:
     """labels.json nested too deep or not UTF-8: no labels, never a failed start."""
     (tmp_path / "labels.json").write_bytes(content)
     assert Labels(tmp_path).all() == {}
+
+
+def test_remove(tmp_path: Path) -> None:
+    """remove drops the labels of these keys only, and writes nothing when there is none."""
+    labels = Labels(tmp_path)
+    labels.set("/dev/disk/by-id/ata-A", "Parity")
+    labels.set("/dev/disk/by-id/wwn-0x1", "Old")
+    labels.set("/sys/class/hwmon/hwmon2/pwm1", "Front")
+    labels.remove({"/dev/disk/by-id/wwn-0x1", "/dev/disk/by-id/ata-A"})
+    assert labels.all() == {"/sys/class/hwmon/hwmon2/pwm1": "Front"}
+    assert Labels(tmp_path).all() == labels.all()
+    (tmp_path / "labels.json").unlink()
+    labels.remove({"/dev/nothing"})
+    assert not (tmp_path / "labels.json").exists()

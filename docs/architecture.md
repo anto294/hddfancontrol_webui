@@ -114,7 +114,20 @@ but never because of a label.
 Start, in the background so the web UI answers at once:
 
 1. The BMC, if any: a Dell gets its fans back before anything may take them.
-2. The sensor modules (`sensors-detect`), unless `LOAD_SENSOR_MODULES=false`. A failure
+2. The startup checks (`checks.py`, `run_checks`): what the host or the container keeps
+   the web UI from doing, each logged as a WARNING with what to do and shown as a
+   banner (`checks` in the status; the page can hide one while it says the same,
+   `localStorage` `checksHidden`): the core not root (`not_root`), `/config` not
+   writable (`config_not_writable`, a temporary file written and removed), no drive in
+   `/dev/disk/by-id` (`no_drives`), a drive of the settings that is here but does not
+   open (`drive_not_readable`, an open with `O_NONBLOCK`, nothing read), a chosen PWM
+   file not writable (`pwm_not_writable`), root without `CAP_SYS_RAWIO`,
+   `CAP_SYS_ADMIN` or, with `LOAD_SENSOR_MODULES`, `CAP_SYS_MODULE`
+   (`missing_capabilities`, from `CapEff` of `/proc/self/status`), a program not in
+   `PATH` (`program_missing`). It changes nothing, and a check that breaks is logged,
+   never raised. `/sys` read only is left to its own mode and banner, a drive that is
+   gone to the `drive_missing` alert. They run once: a fix needs a restart anyway.
+3. The sensor modules (`sensors-detect`), unless `LOAD_SENSOR_MODULES=false`. A failure
    never keeps the fans from being controlled. A scan always ends as `done`, at start
    and when the page asks for one again (`POST /api/sensors/scan`): a program that
    hangs is killed at `RUN_TIMEOUT` (300 s) and reported, and an unexpected error
@@ -122,8 +135,8 @@ Start, in the background so the web UI answers at once:
    answers 202 at once and runs in the background (longer than the gateway's
    `CORE_TIMEOUT_S`); the page follows `sensors.state` in the status and reads the
    hardware again when it is `done`.
-3. `Supervisor.start`: hddfancontrol, hd-idle, the fan controller.
-4. `Monitor.start`: recording, SMART, alerts.
+4. `Supervisor.start`: hddfancontrol, hd-idle, the fan controller.
+5. `Monitor.start`: recording, SMART, alerts.
 
 Stop (SIGTERM or SIGINT):
 

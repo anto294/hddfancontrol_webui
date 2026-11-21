@@ -7,7 +7,7 @@ import json
 import pytest
 from conftest import ScriptMaker
 
-from hddfancontrol_webui.smart import read_smart, start_selftest, summarize
+from hddfancontrol_webui.smart import read_smart, start_selftest, summarize, trend_values
 
 ATA = {
     "model_name": "ST4000VN006-3CW104",
@@ -250,3 +250,16 @@ def test_ata_selftest_status_byte(value: int, passed: bool | None) -> None:
         "standard": {"table": [{"type": {"string": "Short offline"}, "status": {"value": value}}]}
     }
     assert summarize(data, 0)["selftest"]["passed"] is passed
+
+
+def test_trend_values() -> None:
+    """Only the numbers of TREND_KEYS go to the trend: never a missing value, a flag or text."""
+    summary = {
+        "pending_sectors": 2,
+        "power_on_hours": 12.5,
+        "media_errors": None,
+        "crc_errors": True,
+        "model": "X",
+        "available_spare": "9",
+    }
+    assert trend_values(summary) == {"pending_sectors": 2.0, "power_on_hours": 12.5}

@@ -67,7 +67,7 @@ for `data-theme="dark"`.
 | --- | --- |
 | Overview | The Control card in three groups (fan control: state, mode, the speeds given; services: the programs and **Restart**; host: CPU), drives with bars and trends, fans, the bay map with animated drives (spinning platters, a head and a LED driven by real I/O; moving electrons for SSDs), the BMC state |
 | Fans | Every PWM output, its speed, RPM and name; manual control; the hardware support request |
-| Drives | SMART per drive, self-tests |
+| Drives | SMART per drive, self-tests; a drive that is gone can be archived or deleted, and the archived ones restored |
 | History | Charts of temperatures, PWM and RPM, CSV export |
 | Settings | Everything of `settings.json`, folded sections, a cron composer for each schedule, backup |
 | IPMI | Only with a BMC (experimental, [bmc.md](bmc.md)) |

@@ -982,3 +982,20 @@ async def test_outputs_a_killed_run_left_are_given_back_at_start(
     assert pwm2 not in json.loads(state.read_text())["outputs"]
     assert any(pwm2 in line["text"] for line in logs.since(0))
     await supervisor.stop()
+
+
+async def test_monitored_drives_change_without_a_restart(setup: tuple[Supervisor, Path]) -> None:
+    """set_monitor_drives saves the list and restarts nothing: only the monitor reads it."""
+    supervisor, calls = setup
+    await supervisor.start()
+    await wait_for(lambda: "--fan-cmd /bin/true" in read(calls))
+    runs = read(calls).count("--fan-cmd")
+    await supervisor.set_monitor_drives(("/dev/sdb",))
+    assert supervisor.settings.monitor_drives == ("/dev/sdb",)
+    assert supervisor.store.load()[0].monitor_drives == ("/dev/sdb",)
+    await asyncio.sleep(0.2)
+    assert read(calls).count("--fan-cmd") == runs
+    await supervisor.release_fans()
+    with pytest.raises(Busy):
+        await supervisor.set_monitor_drives(())
+    await supervisor.stop()

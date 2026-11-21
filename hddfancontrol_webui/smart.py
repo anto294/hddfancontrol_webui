@@ -27,6 +27,20 @@ WATCHED_ATTRIBUTES = {
 }
 COUNTERS = {4: "start_stop_count", 193: "load_cycle_count"}
 NVME_WEAR_WARNING = 90
+# The fields of a summary kept day by day in the trend (History.record_smart).
+TREND_KEYS = (
+    "reallocated_sectors",
+    "reallocation_events",
+    "pending_sectors",
+    "offline_uncorrectable",
+    "reported_uncorrectable",
+    "crc_errors",
+    "spin_retries",
+    "media_errors",
+    "percentage_used",
+    "available_spare",
+    "power_on_hours",
+)
 # A failing drive can keep smartctl waiting for minutes; the SMART refresh
 # reads the drives one after the other and must not hang on one.
 SMARTCTL_TIMEOUT = 120.0
@@ -216,6 +230,18 @@ def summarize(data: dict[str, Any], exit_code: int) -> dict[str, Any]:
     else:
         summary["status"] = STATUS_OK
     return summary
+
+
+# ---------------------------
+#   trend_values
+# ---------------------------
+def trend_values(summary: dict[str, Any]) -> dict[str, float]:
+    """The numbers of a summary that the trend keeps (TREND_KEYS); a missing or odd value is left out."""
+    return {
+        key: float(value)
+        for key in TREND_KEYS
+        if isinstance(value := summary.get(key), int | float) and not isinstance(value, bool)
+    }
 
 
 # ---------------------------

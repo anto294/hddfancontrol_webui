@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import Any
 
@@ -92,3 +93,14 @@ class Bays:
             write_atomic(self.path, json.dumps(checked, indent=2) + "\n")
             self._map = checked
             return dict(checked, slots=list(checked["slots"]))
+
+    def clear(self, drives: AbstractSet[str]) -> bool:
+        """Empty the bays that hold one of these drives (a drive deleted with its names); True when one did. Blocking."""
+        with self._lock:
+            slots = ["" if slot in drives else slot for slot in self._map["slots"]]
+            if slots == self._map["slots"]:
+                return False
+            cleared = dict(self._map, slots=slots)
+            write_atomic(self.path, json.dumps(cleared, indent=2) + "\n")
+            self._map = cleared
+            return True

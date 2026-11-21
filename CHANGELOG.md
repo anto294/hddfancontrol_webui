@@ -24,6 +24,28 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   to set a fan speed. The image now has `ipmitool`; `BMC=false` turns it
   off. The hardware support request carries what the web UI knows of the
   BMC: model, firmware, configuration, who drives the fans, every sensor.
+- **Archive or delete a drive that is gone.** A monitored drive no longer on
+  the host shows as gone on its card in the **Drives** tab, with two
+  buttons. **Archive** stops its SMART reads, self-tests and alerts and keeps
+  its last SMART data and its history, in a new **Archived drives** section
+  where it can be monitored again. **Delete** (it asks twice) removes all it
+  left: SMART data, history, alert notes, name and bay. A drive that drives
+  the fans must leave fan control in Settings first. Nothing restarts.
+- **Permissions and devices checked at start.** The web UI looks for what
+  would keep it from working (not root, `/config` not writable, no drive in
+  `/dev`, a drive or a fan file it cannot open, the capabilities for SMART and
+  the sensor modules, a missing program) and names each problem with what to
+  do, in the log and in a banner that can be hidden.
+- **SMART trend.** The error counters (reallocated, pending and
+  uncorrectable sectors, CRC errors and more) and the wear of SSDs are kept
+  once a day for as long as the drive is monitored; **Details → Trend** on
+  each drive card draws them, so a counter that keeps growing is easy to see.
+- **Failure risk and estimated life left of each drive.** As Scrutiny does,
+  each error counter is matched with the yearly failure rate Backblaze saw on
+  drives with the same count, shown per attribute under **Details**; the card
+  shows the drive's risk (low, medium, high; raised when a counter grew in
+  the last 30 days) and an estimate of the years left: from the wear for
+  SSD and NVMe, from the age and the risk for hard drives.
 
 ## [0.11.1] - 2026-11-20
 

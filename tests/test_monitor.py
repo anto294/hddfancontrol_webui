@@ -498,3 +498,23 @@ async def test_a_failing_job_does_not_stop_the_purge(
     assert sum("summary failed" in line for line in lines) == 1
     assert not any("recording failed" in line for line in lines)
     monitor.history.close()
+
+
+async def test_smart_readings_feed_the_trend(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """A fresh reading keeps its counters in the trend; a drive asleep or unreadable adds nothing."""
+    answers = [
+        {"status": "warning", "pending_sectors": 3, "power_on_hours": 900, "model": "X", "percentage_used": None},
+        {"status": "standby"},
+        {"status": "error", "messages": ["x"]},
+    ]
+
+    async def reader(device: str) -> dict[str, Any]:
+        return answers.pop(0)
+
+    monitor = make_monitor(tmp_path, fake_sys, fake_dev, from_dict({"drives": [DRIVE]}), reader)
+    for _ in range(3):
+        await monitor.refresh_smart()
+    trend = monitor.history.smart_history(DRIVE)
+    assert set(trend) == {"pending_sectors", "power_on_hours"}
+    assert [value for _, value in trend["pending_sectors"]] == [3.0]
+    monitor.history.close()

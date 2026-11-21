@@ -50,12 +50,70 @@ the button off meanwhile and reads `GET /api/smart` when it is over.
 - `drivedb.py` names the brand, product line, use and recording (CMR/SMR) from model
   numbers. Only unambiguous patterns go there, never temperature limits.
 
+**Trend.** Each fresh reading (not asleep, not an error) keeps its counters
+(`TREND_KEYS` of `smart.py`: reallocated, pending and uncorrectable sectors,
+reallocation events, CRC errors, spin retries, NVMe media errors, wear, spare and
+power-on hours) in the `smart_history` table of `history.db`, one reading per drive per
+UTC day (the newest of the day wins). `history_days` does not purge it: a counter
+growing over months is the point, and it costs a few rows a day. It goes with the
+drive: `forget_smart` (neither monitored nor archived) and `forget_drive`.
+`GET /api/smart/history?device=` gives it to the **Trend** section of the card's
+details, which draws the counters that were ever above 0 and the wear with the chart
+of the History tab.
+
+**Risk and remaining life** (`health.py`, `assess`, added to each drive of
+`GET /api/smart` as `health`). An estimate, and the page says so:
+
+- **Risk per counter**, as Scrutiny does it: the raw count of reallocated sectors (5),
+  spin retries (10), reported uncorrectable (187), reallocation events (196), pending
+  (197) and offline uncorrectable (198) sectors, and CRC errors (199, not critical) is
+  looked up in the annual failure rates Backblaze observed for drives with that count
+  (Scrutiny's table, MIT License, rounded to four digits). A critical counter at
+  `AFR_FAILED` (10 %) or more fails; CRC errors warn there and fail at
+  `AFR_FAILED_OTHER` (20 %). A count past the last bucket takes the highest rate it
+  passed.
+- **Risk of the drive**: high when SMART fails or a counter fails; medium when a
+  counter warns, the worst rate is `AFR_MEDIUM` (5 %) or more, a critical counter grew
+  in the last `GROWTH_DAYS` (30) of the trend, or an NVMe drive has a warning; low
+  otherwise; unknown without any counter.
+- **Life left**: high risk is "replace soon". SSD/NVMe: the wear left
+  (`percentage_used`) at the pace of the drive's own hours, and of its trend when it
+  covers `WEAR_PACE_DAYS` and moved; the two give the range. Hard drives (a rotation
+  rate) have no wear counter: `HDD_LIFE_YEARS` (5–7 years of power-on time) less their
+  age, halved at medium risk. A SATA SSD gets a risk but no life (its wear is in vendor
+  attributes).
+
 **Self-tests.** Every minute the SMART loop starts the short or long tests that are due
 (`selftest_short`, `selftest_long`, cron), with `smartctl -n standby -t short|long`, and
 keeps the times in `meta` so a restart does not run them twice. A due test is tried for
 `SELFTEST_GRACE` (3 h): a sleeping drive is tried again every minute, and a web UI
 started late still runs it. No test starts on a drive whose long test began less than a
 day ago (`LONG_TEST_GUARD`), since it would abort it.
+
+**Drives that are gone.** A monitored drive no longer in `/dev` shows on its card as gone
+(`GET /api/smart` marks it `missing`, by the same rule as the `drive_missing` alert:
+without any drive listed, `/dev` is not readable and says nothing). The card offers:
+
+- **Archive** (`POST /api/drives/archive`): the drive leaves `monitor_drives` (no
+  SMART read, no self-test, no alert) and is marked in the `archived` table of
+  `history.db`. Its last SMART data and its history are kept: the hourly `tidy` keeps
+  the SMART data of every drive monitored or archived. The **Archived drives** section
+  of the tab lists them (`GET /api/drives/archived`, with `present` when the drive is
+  back) and can monitor one again (`POST /api/drives/restore`, checked by `from_dict`).
+- **Delete** (`POST /api/drives/delete`, the button asks twice), for a gone monitored
+  drive or an archived one: everything it left goes, its SMART data, its series under
+  every name it had, the notes on its alerts, its self-test times, its labels and its
+  bay.
+
+A drive that drives the fans (under any of its names) is refused (`drive_controlled`):
+it leaves fan control in the settings first. A drive still on the host is refused too
+(`drive_present`). Changing `monitor_drives` this way saves the settings and restarts
+nothing (`Supervisor.set_monitor_drives`): only the monitor reads it.
+
+The history keeps a drive under one of its by-id names (`wwn-` first), maybe not the one
+of the settings, and once the drive is gone `/dev` no longer says which they were: the
+hourly `tidy` keeps the names of each monitored drive that is here in `meta`
+(`drive_ids:<path>`, `Monitor.remember_ids`), and deleting uses them.
 
 ## Alerts
 
