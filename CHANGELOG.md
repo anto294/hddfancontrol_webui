@@ -54,6 +54,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   readings and the status redraw only the tab shown (the header and the
   banners always).
 
+### Fixed
+
+- **The web UI no longer keeps drives awake through `drivetemp`.** With the
+  `drivetemp` kernel module loaded, each reading of the hardware (every few
+  seconds while a page is open, and for the history) read the drive
+  temperatures of its sensors, and the kernel answers each one with a command
+  to the drive, which may keep it from spinning down. Those inputs are now
+  listed without a value; the drive temperatures still come from
+  hddfancontrol, which leaves sleeping drives alone.
+
 ## [0.11.1] - 2026-11-20
 
 ### Changed

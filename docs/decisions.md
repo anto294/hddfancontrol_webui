@@ -136,6 +136,15 @@ hour. (2026-11-16)
 **SMART with `-n standby`.** Why: reading SMART must never be the reason a drive spins
 up. A sleeping drive keeps its previous data. (2026-11-16)
 
+**The temperature of a drivetemp chip is listed, never read.** `hwmons()` lists the
+inputs of a `drivetemp` chip (`_NO_READ_CHIPS`) with their path and label, and no
+value. Why: the kernel answers each read of its `temp*_input` with a SMART command to
+the drive, without looking whether it sleeps; its documentation says this may reset
+the spin down timer. The page and the monitor read the hwmon chips every few seconds,
+so a drive could never spin down. The drive temperatures come from hddfancontrol, which
+checks first whether a drive sleeps. The inputs stay in the list, so a setting that
+names one is still shown. (2026-11-21)
+
 **The temperature limits a drive reports (SCT) are a hint, never applied.** Why: some
 drives (Seagate Exos) report 40 °C, far under their datasheet; applying it would run the
 fans flat out. (0.7.0, 2026-11-17)

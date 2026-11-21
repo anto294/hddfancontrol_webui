@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from hddfancontrol_webui import hardware as hardware_module
 from hddfancontrol_webui.hardware import DriveIo, Hardware, HwmonDevice, PwmOutput, TempInput, _read, _read_int
 
 
@@ -276,3 +279,70 @@ def test_hwmon_shapes(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
         temps=[TempInput(path="/sys/class/hwmon/hwmon3/temp3_input", label="temp3", celsius=-5.0)],
     )
     assert devices[2] == HwmonDevice(hwmon="hwmon5", name="")
+
+
+def test_drivetemp_is_listed_never_read(fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A drivetemp chip keeps its inputs and labels, but its temperature files are never opened: each read reaches the drive."""
+    chip = fake_sys / "class" / "hwmon" / "hwmon4"
+    chip.mkdir()
+    for name, value in {"name": "drivetemp", "temp1_input": "35000", "temp1_lowest": "20000"}.items():
+        (chip / name).write_text(value + "\n")
+    opened: list[str] = []
+    real_open = hardware_module.os.open
+
+    def watched(path: Any, flags: int, *args: Any) -> int:
+        opened.append(str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(hardware_module.os, "open", watched)
+    hardware = Hardware(fake_dev, fake_sys)
+    for read in (hardware.hwmons, hardware.snapshot, hardware.pwm_paths, hardware.cpu):
+        read()
+    device = next(d for d in hardware.hwmons() if d.hwmon == "hwmon4")
+    assert device == HwmonDevice(
+        hwmon="hwmon4",
+        name="drivetemp",
+        temps=[TempInput(path="/sys/class/hwmon/hwmon4/temp1_input", label="temp1", celsius=None)],
+    )
+    # The values the kernel asks the drive for; name and labels are the driver's own.
+    assert not [path for path in opened if path.startswith(str(chip)) and re.search(r"/temp\d+_(input|lowest|highest)$", path)]
+    assert any(path == f"{fake_sys}/class/hwmon/hwmon2/temp1_input" for path in opened)
+
+
+def test_hwmons_without_temperatures(fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """temps=False gives the same chips and fans, no temperature, and opens no temperature file."""
+    hardware = Hardware(fake_dev, fake_sys)
+    full = hardware.hwmons()
+    opened: list[str] = []
+    real_open = hardware_module.os.open
+
+    def watched(path: Any, flags: int, *args: Any) -> int:
+        opened.append(str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(hardware_module.os, "open", watched)
+    light = hardware.hwmons(temps=False)
+    assert [(d.hwmon, d.name, d.pwms) for d in light] == [(d.hwmon, d.name, d.pwms) for d in full]
+    assert all(d.temps == [] for d in light)
+    assert not [path for path in opened if "/temp" in path]
+
+
+def test_drives_by_name_only(fake_sys: Path, fake_dev: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """full=False gives the same names, ids and models, and reads nothing else of a drive."""
+    hardware = Hardware(fake_dev, fake_sys)
+    (fake_sys / "class" / "block" / "sda" / "stat").write_text("1 2 3 4 5 6 7 8 9 10 11\n")
+    full = hardware.drives()
+    opened: list[str] = []
+    real_open = hardware_module.os.open
+
+    def watched(path: Any, flags: int, *args: Any) -> int:
+        opened.append(str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(hardware_module.os, "open", watched)
+    monkeypatch.setattr(Hardware, "_connection", staticmethod(lambda *args: pytest.fail("connection read")))
+    light = hardware.drives(full=False)
+    assert [(d.name, d.ids, d.model) for d in light] == [(d.name, d.ids, d.model) for d in full]
+    assert all((d.size_bytes, d.rotational, d.bus, d.io) == (0, None, "", None) for d in light)
+    assert all(path.endswith("/device/model") for path in opened)
+    assert Hardware(fake_dev / "none", fake_sys).drives(full=False) == []

@@ -469,6 +469,9 @@ async def test_hardware_shows_the_bmc(tmp_path: Path, fake_sys: Path, fake_dev: 
     assert BMC_PWM in hardware.pwm_paths()
     assert hardware.chip_of(BMC_PWM) is None
     assert Hardware(fake_dev, tmp_path / "nothing", bmc=bmc.hwmon).hwmons()[0].hwmon == "ipmi"
+    # The monitor reads only the fans: the BMC keeps its output, without its temperatures.
+    full, light = hardware.hwmons()[-1], hardware.hwmons(temps=False)[-1]
+    assert full.temps and light.temps == [] and light.pwms == full.pwms and light.name == full.name
     await bmc.close()
 
 

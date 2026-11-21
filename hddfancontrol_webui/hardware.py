@@ -3,6 +3,10 @@
 Everything here reads sysfs and /dev only. Nothing sends a command to a
 drive, so a drive that sleeps is never woken up by the web UI: the drive
 temperatures come from the log that hddfancontrol writes (see templog.py).
+That is why the temperature of a drivetemp chip is never read
+(_NO_READ_CHIPS): the kernel sends the drive a SMART command for each read
+of its temp*_input, whether the drive sleeps or not, and that may keep it
+from spinning down (Documentation/hwmon/drivetemp.rst).
 
 The paths returned are always the real ones (/dev/..., /sys/...), the ones
 hddfancontrol needs, even when the tests read a fake tree somewhere else.
@@ -16,7 +20,7 @@ import re
 import stat
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +39,8 @@ _HWMON = re.compile(r"^hwmon\d+$")
 _DIGITS = re.compile(r"(\d+)")
 _ATA_PORT = re.compile(r"^ata\d+$")
 _PCI_ADDRESS = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$")
+# hwmon drivers whose temperature inputs reach the drive itself: listed, never read.
+_NO_READ_CHIPS = frozenset({"drivetemp"})
 # The hwmon drivers of processors, and the input of each that stands for the
 # whole package (the first input when none of them is there).
 _CPU_CHIPS = {
@@ -245,8 +251,13 @@ class Hardware:
         lines += ["== bmc", "/dev/ipmi0" if (self._dev / "ipmi0").exists() else "no /dev/ipmi0"]
         return "\n".join(lines)
 
-    def drives(self) -> list[Drive]:
-        """List the whole drives that have a name in /dev/disk/by-id."""
+    def drives(self, full: bool = True) -> list[Drive]:
+        """List the whole drives that have a name in /dev/disk/by-id.
+
+        full=False reads only the name, the by-id names and the model of each
+        drive (the rest keeps its default), for a reader that needs no more:
+        not its size, connection or I/O counters.
+        """
         by_id = self._dev / "disk" / "by-id"
         found: dict[str, Drive] = {}
         try:
@@ -262,11 +273,15 @@ class Hardware:
                 continue
             drive = found.get(kernel_name)
             if drive is None:
-                drive = found[kernel_name] = self._drive(kernel_name)
+                drive = found[kernel_name] = self._drive(kernel_name) if full else self._drive_name(kernel_name)
             drive.ids.append(f"/dev/disk/by-id/{entry.name}")
         for drive in found.values():
             drive.ids.sort(key=lambda p: (Path(p).name.startswith(_LOW_PRIORITY), p))
         return sorted(found.values(), key=lambda d: _natural_key(d.name))
+
+    def _drive_name(self, kernel_name: str) -> Drive:
+        """A drive with its name and model only (drives(full=False))."""
+        return Drive(name=kernel_name, model=_read(f"{self._sys}/class/block/{kernel_name}/device/model") or "")
 
     def _drive(self, kernel_name: str) -> Drive:
         """Read what sysfs says about a drive."""
@@ -337,22 +352,29 @@ class Hardware:
                 link = f"{speed} x{width}" if width else speed
         return bus, controller, link
 
-    def hwmons(self) -> list[HwmonDevice]:
-        """List the hwmon devices, with their PWM outputs and temperatures."""
+    def hwmons(self, temps: bool = True) -> list[HwmonDevice]:
+        """List the hwmon devices, with their PWM outputs and temperatures.
+
+        temps=False leaves the temperature inputs out (temps stays empty), for
+        a reader that needs only the fans: their files are not even read.
+        """
         base = f"{self._sys}/class/hwmon"
         try:
             names = sorted((name for name in os.listdir(base) if _HWMON.match(name)), key=_natural_key)
         except OSError:
             names = []
-        devices = [self._hwmon(f"{base}/{name}", name) for name in names]
+        devices = [self._hwmon(f"{base}/{name}", name, temps) for name in names]
         bmc = self._bmc() if self._bmc is not None else None
+        if bmc is not None and not temps:
+            bmc = replace(bmc, temps=[])
         return devices + [bmc] if bmc is not None else devices
 
     @staticmethod
-    def _hwmon(directory: str, hwmon: str) -> HwmonDevice:
-        """Read one hwmon device: directory is its folder in the tree read, hwmon its name (hwmonN)."""
+    def _hwmon(directory: str, hwmon: str, temps: bool = True) -> HwmonDevice:
+        """Read one hwmon device: directory is its folder in the tree read, hwmon its name (hwmonN); temps as hwmons()."""
         real = f"/sys/class/hwmon/{hwmon}"
         device = HwmonDevice(hwmon=hwmon, name=_read(f"{directory}/name") or "")
+        read_temps = device.name not in _NO_READ_CHIPS
         try:
             files = sorted(os.listdir(directory), key=_natural_key)
         except OSError:
@@ -368,9 +390,9 @@ class Hardware:
                         rpm=_read_int(f"{directory}/fan{number}_input"),
                     )
                 )
-            elif match := _TEMP.match(name):
+            elif temps and (match := _TEMP.match(name)):
                 number = match.group(1)
-                millidegrees = _read_int(f"{directory}/{name}")
+                millidegrees = _read_int(f"{directory}/{name}") if read_temps else None
                 device.temps.append(
                     TempInput(
                         path=f"{real}/{name}",
