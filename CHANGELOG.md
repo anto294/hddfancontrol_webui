@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-21
+
 ### Added
 
 - **Archive or delete a drive that is gone.** A monitored drive no longer on
@@ -38,6 +40,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   while the **Logs** tab is open (it catches up when opened); the hardware
   readings and the status redraw only the tab shown (the header and the
   banners always).
+- **Lighter readings of the hardware.** The sysfs files are read with fewer
+  system calls, the history reads only the fans and the names of the drives,
+  and pages that ask for the hardware at the same moment share one reading.
 
 ### Fixed
 
@@ -826,7 +831,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.1...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.12.0...main
+[0.12.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.0...v0.10.1
