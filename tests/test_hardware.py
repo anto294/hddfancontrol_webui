@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from hddfancontrol_webui.hardware import DriveIo, Hardware, HwmonDevice, TempInput
+from hddfancontrol_webui.hardware import DriveIo, Hardware, HwmonDevice, PwmOutput, TempInput, _read, _read_int
 
 
 def test_drives(fake_sys: Path, fake_dev: Path) -> None:
@@ -215,3 +215,53 @@ def test_report(fake_sys: Path, fake_dev: Path, tmp_path: Path) -> None:
     (proc / "modules").write_text("zfs 1 0\n")
     report = Hardware(fake_dev, tmp_path / "nothing", proc).report()
     assert "== hwmon\n== modules\nnone of the usual ones" in report and report.endswith("/dev/ipmi0")
+
+
+def test_read_rules(tmp_path: Path) -> None:
+    """_read strips spaces, turns \\r\\n and \\r into \\n, replaces bad UTF-8, reads big files whole; None when it cannot."""
+    sample = tmp_path / "sample"
+    sample.write_bytes(b"  one\r\ntwo\rthree\n\t")
+    assert _read(sample) == "one\ntwo\nthree"
+    sample.write_bytes(b"caf\xe9 \xff\n")
+    assert _read(sample) == "caf� �"
+    big = "".join(f"{n:07d}\n" for n in range(30000))  # 240 000 bytes, many reads of a block
+    sample.write_text(big)
+    assert _read(sample) == big.strip()
+    sample.write_bytes(b"")
+    assert _read(sample) == ""
+    sample.write_bytes(b" \n\n")
+    assert _read(sample) == ""
+    assert _read(tmp_path / "missing") is None
+    assert _read(tmp_path) is None
+    sample.write_text(" -42 \n")
+    assert _read_int(sample) == -42
+    sample.write_text("n/a\n")
+    assert _read_int(sample) is None
+    sample.write_text("")
+    assert _read_int(sample) is None
+    assert _read_int(tmp_path / "missing") is None
+
+
+def test_hwmon_shapes(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """A hwmon reached through a link, one that is a file, a chip without a name, stray entries, a negative temperature."""
+    base = fake_sys / "class" / "hwmon"
+    linked = fake_sys / "devices" / "platform" / "it87.2608" / "hwmon" / "hwmon3"
+    linked.mkdir(parents=True)
+    for name, value in {"pwm1": "90", "fan1_input": "1500", "temp3_input": "-5000"}.items():
+        (linked / name).write_text(value + "\n")
+    for stray in ("uevent", "temp1_max", "fan2_input", "pwm1_mode", "pwmx", "temp_input"):
+        (linked / stray).write_text("1\n")
+    (linked / "power").mkdir()
+    (base / "hwmon3").symlink_to(linked)
+    (base / "hwmon5").write_text("not a folder\n")
+    (base / "other").mkdir()
+    devices = Hardware(fake_dev, fake_sys).hwmons()
+    assert [d.hwmon for d in devices] == ["hwmon2", "hwmon3", "hwmon5", "hwmon10"]
+    chip = devices[1]
+    assert chip == HwmonDevice(
+        hwmon="hwmon3",
+        name="",
+        pwms=[PwmOutput(path="/sys/class/hwmon/hwmon3/pwm1", value=90, enable=None, rpm=1500)],
+        temps=[TempInput(path="/sys/class/hwmon/hwmon3/temp3_input", label="temp3", celsius=-5.0)],
+    )
+    assert devices[2] == HwmonDevice(hwmon="hwmon5", name="")
