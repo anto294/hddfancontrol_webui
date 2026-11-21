@@ -31,6 +31,10 @@ ones.
   at every poll; `prefers-reduced-motion` turns them off.
 - **No polling while the tab is hidden** (`every()`), except the status during manual
   control: the server ends manual control when no page asks any more.
+- **Only the tab shown asks for its data.** The log lines (`pollLogs`) are asked for only
+  while the Logs tab is open; opening it first catches up from the last line it has
+  (`after=`), then draws the whole log. The server keeps as many lines
+  (`LOG_BUFFER_LINES`) as the page (`LOG_MAX_LINES`), 2000, so nothing is missed.
 - **Rates in the page.** The hardware snapshot carries raw counters (I/O sectors, CPU
   ticks) and a monotonic `clock`; `updateRates` turns two snapshots into rates, so the
   server keeps no state per client.

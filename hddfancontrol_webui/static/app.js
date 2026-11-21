@@ -12,6 +12,8 @@ const state = {
   tab: "overview",
   logSeq: 0,
   logLines: [],
+  // The request for log lines under way, shared by whoever asks meanwhile.
+  logsPolling: null,
   dragging: new Set(),
   showAcked: false,
   pending: new Map(),
@@ -232,7 +234,8 @@ function showTab(name) {
   if (name === "history") loadHistory();
   if (name === "smart") loadSmart();
   if (name === "settings") renderSettings();
-  if (name === "logs") renderLogs();
+  // The log is polled only while its tab is open: catch up first (after=), then draw it whole.
+  if (name === "logs") pollLogs().then(renderLogs);
   if (name === "security") loadAuth();
   if (name === "fans" || name === "overview") pollHardware();
 }
@@ -715,7 +718,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch {
     // pollStatus shows the problem.
   }
-  await Promise.all([pollStatus(), pollHardware(), pollLogs(), loadBays()]);
+  await Promise.all([pollStatus(), pollHardware(), loadBays()]);
   let first;
   try {
     first = localStorage.getItem("tab") || "overview";
@@ -729,7 +732,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // server ends manual control only when the page is really closed.
   every(POLL_STATUS_MS, pollStatus, () => Boolean(state.status && state.status.manual));
   every(() => (state.tab === "fans" || state.tab === "overview" ? POLL_HARDWARE_FAST_MS : POLL_HARDWARE_SLOW_MS), pollHardware);
-  every(POLL_LOGS_MS, pollLogs);
+  every(POLL_LOGS_MS, () => state.tab === "logs" && pollLogs());
   every(POLL_HISTORY_MS, () => state.tab === "history" && loadHistory());
   every(POLL_HISTORY_MS, () => state.tab === "overview" && loadTrend());
   loadTrend();

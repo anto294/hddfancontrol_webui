@@ -259,6 +259,11 @@ and log lines cannot inject HTML. See [web-ui.md](web-ui.md). (2026-11-16)
 **Rates are computed by the page from counters.** Why: the server keeps no state per
 client, and the network delay does not skew the rates. (0.10.0, 2026-11-18)
 
+**The page asks for the log lines only while the Logs tab is open.** Opening the tab
+catches up with `after=` and then draws it. Why: every open page asked for them every 2
+s (`POLL_LOGS_MS`) on every tab, though only the Logs tab shows them; the server keeps
+the same 2000 lines the page would, so catching up loses nothing. (2026-11-21)
+
 **Requests for the hardware snapshot that come together share it, with no cache.** A
 `GET /api/hardware` that arrives while a snapshot is being read waits for that one
 (`asyncio.shield`, so a client that leaves never cancels it for the others); the first
