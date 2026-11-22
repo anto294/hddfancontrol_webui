@@ -15,6 +15,7 @@
   "action.restore_drive": "重新监视",
   "action.delete_drive": "删除",
   "action.delete_confirm": "确认：删除其数据",
+  "action.close": "关闭",
   "action.hide": "隐藏",
   "action.start_test": "开始测试",
   "action.cancel_test": "取消测试",

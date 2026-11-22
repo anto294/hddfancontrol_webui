@@ -15,6 +15,7 @@
   "action.restore_drive": "Surveiller à nouveau",
   "action.delete_drive": "Supprimer",
   "action.delete_confirm": "Confirmer : supprimer ses données",
+  "action.close": "Fermer",
   "action.hide": "Masquer",
   "action.start_test": "Lancer le test",
   "action.cancel_test": "Annuler le test",

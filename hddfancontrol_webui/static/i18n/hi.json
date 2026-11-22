@@ -15,6 +15,7 @@
   "action.restore_drive": "फिर से निगरानी करें",
   "action.delete_drive": "हटाएँ",
   "action.delete_confirm": "पुष्टि करें: इसका डेटा हटाएँ",
+  "action.close": "बंद करें",
   "action.hide": "छिपाएँ",
   "action.start_test": "टेस्ट शुरू करें",
   "action.cancel_test": "टेस्ट रद्द करें",

@@ -15,6 +15,7 @@
   "action.restore_drive": "راقب من جديد",
   "action.delete_drive": "حذف",
   "action.delete_confirm": "تأكيد: حذف بياناته",
+  "action.close": "إغلاق",
   "action.hide": "إخفاء",
   "action.start_test": "بدء الاختبار",
   "action.cancel_test": "إلغاء الاختبار",

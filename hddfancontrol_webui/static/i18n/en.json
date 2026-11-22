@@ -15,6 +15,7 @@
   "action.restore_drive": "Monitor again",
   "action.delete_drive": "Delete",
   "action.delete_confirm": "Confirm: delete its data",
+  "action.close": "Close",
   "action.hide": "Hide",
   "action.start_test": "Start test",
   "action.cancel_test": "Cancel test",
