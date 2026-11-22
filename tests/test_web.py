@@ -901,7 +901,8 @@ async def test_an_archived_drive_monitored_again_from_the_settings(make_client: 
     assert await (await client.get(archived)).json() == {}
 
     assert (await client.post("/api/drives/archive", json={"device": gone}, headers=FETCH)).status == 200
-    assert (await client.delete("/api/settings", headers=FETCH)).status == 200  # the environment monitors it
+    reset = await client.delete("/api/settings", headers=FETCH)  # the environment monitors it
+    assert reset.status == 200
     assert gone in supervisor.settings.monitor_drives
     assert await (await client.get(archived)).json() == {}
 
