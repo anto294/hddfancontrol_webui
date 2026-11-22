@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sqlite3
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -872,3 +873,18 @@ async def test_an_archive_that_cannot_be_saved_leaves_no_mark(
     assert response.status == 500 and (await response.json())["error"] == "save_failed"
     assert gone in supervisor.settings.monitor_drives
     assert client.app[MONITOR].history.archived() == {}
+
+
+async def test_a_database_error_on_delete_is_answered(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A history.db that fails while a drive is deleted gives save_failed, as a /config that fails does."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client()
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    monitor = client.app[MONITOR]
+
+    def locked(device: str) -> set[str]:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(monitor, "forget_drive", locked)
+    response = await client.post("/api/drives/delete", json={"device": gone}, headers=FETCH)
+    assert response.status == 500 and (await response.json())["error"] == "save_failed"

@@ -410,7 +410,7 @@ async def _drive_answer(request: web.Request, change: Callable[[], Awaitable[Non
         return _json_error(409, "busy")
     except SettingsBroken:
         return _json_error(409, "settings_broken")
-    except OSError as err:
+    except (OSError, sqlite3.Error) as err:  # /config, or history.db (forget_drive, the archive marks)
         _LOGGER.error("Cannot change the monitored drives: %s", err)
         return _json_error(500, "save_failed")
     return await get_archived(request)

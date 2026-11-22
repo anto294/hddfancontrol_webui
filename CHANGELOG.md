@@ -48,6 +48,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **An archive that cannot be saved no longer leaves the drive marked.** When
   the settings could not be written (a full or read-only `/config`), the drive
   stayed monitored but marked as archived; the mark is now taken off again.
+- **A database error while a drive is deleted is reported clearly.** A failing
+  `history.db` gave a bare server error; it now gives the same "cannot save"
+  message as a failing `/config`.
 
 ## [0.12.0] - 2026-11-21
 
