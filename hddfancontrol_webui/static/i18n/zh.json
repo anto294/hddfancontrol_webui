@@ -154,7 +154,7 @@
   "health.worn_out": "额定磨损已用尽",
   "health.past_life": "已超过使用寿命",
   "health.growing": "过去 30 天在增长：{counters}。持续增长的计数是硬盘即将故障的最明显信号：请备份数据。",
-  "health.title": "各属性的故障率（Backblaze，与 Scrutiny 相同）",
+  "health.title": "各属性的故障率（Backblaze 数据）",
   "health.afr_head": "年故障率",
   "health.status": "状态",
   "health.status_ok": "正常",

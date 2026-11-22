@@ -7,6 +7,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- The title of the failure rates under **Details** names only their source,
+  Backblaze's data.
+
 ## [0.12.0] - 2026-11-21
 
 ### Added

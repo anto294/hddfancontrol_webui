@@ -1,14 +1,14 @@
 """How likely a drive is to fail, and how long it may last: an estimate from its SMART data and their trend.
 
-Risk, as Scrutiny does it: each critical ATA counter is looked up in the
+Risk, from Backblaze's data: each critical ATA counter is looked up in the
 annual failure rates (AFR) that Backblaze observed on its fleet for drives
 with that count. The table is Scrutiny's
 (github.com/AnalogJ/scrutiny, pkg/thresholds/ata_attribute_metadata.go,
 MIT License, Copyright (c) 2020 Jason Kulatunga), reduced to the counters
 smart.py reads, with the rates rounded to four digits. A count past the
-last bucket takes the highest rate of the buckets it passed. As in
-Scrutiny, a critical counter at an AFR of AFR_FAILED (10 %) or more fails,
-a non-critical one warns at AFR_FAILED and fails at AFR_FAILED_OTHER.
+last bucket takes the highest rate of the buckets it passed. A critical
+counter at an AFR of AFR_FAILED (10 %) or more fails, a non-critical one
+warns at AFR_FAILED and fails at AFR_FAILED_OTHER.
 
 The drive's risk is its worst counter, raised to at least "medium" when a
 critical counter grew in the last GROWTH_DAYS (from the trend kept by

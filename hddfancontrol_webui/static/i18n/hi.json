@@ -154,7 +154,7 @@
   "health.worn_out": "निर्धारित घिसाव समाप्त",
   "health.past_life": "सेवा जीवन से आगे",
   "health.growing": "पिछले 30 दिनों में बढ़ रहा है: {counters}। लगातार बढ़ती गिनती खराब हो रही ड्राइव का सबसे साफ़ संकेत है: इसके डेटा का बैकअप लें।",
-  "health.title": "प्रति गुण विफलता दर (Backblaze, Scrutiny की तरह)",
+  "health.title": "प्रति गुण विफलता दर (Backblaze डेटा)",
   "health.afr_head": "प्रति वर्ष विफलताएँ",
   "health.status": "स्थिति",
   "health.status_ok": "ठीक",

@@ -154,7 +154,7 @@
   "health.worn_out": "Rated wear used up",
   "health.past_life": "Past its service life",
   "health.growing": "Growing in the last 30 days: {counters}. A count that keeps growing is the clearest sign of a failing drive: back up its data.",
-  "health.title": "Failure rate by attribute (Backblaze, as in Scrutiny)",
+  "health.title": "Failure rate by attribute (Backblaze data)",
   "health.afr_head": "Failures a year",
   "health.status": "Status",
   "health.status_ok": "OK",

@@ -154,7 +154,7 @@
   "health.worn_out": "Usure nominale épuisée",
   "health.past_life": "Au-delà de sa durée de service",
   "health.growing": "En hausse sur les 30 derniers jours : {counters}. Un compteur qui ne cesse de croître est le signe le plus net d'un disque qui lâche : sauvegardez ses données.",
-  "health.title": "Taux de panne par attribut (Backblaze, comme Scrutiny)",
+  "health.title": "Taux de panne par attribut (données Backblaze)",
   "health.afr_head": "Pannes par an",
   "health.status": "État",
   "health.status_ok": "OK",
