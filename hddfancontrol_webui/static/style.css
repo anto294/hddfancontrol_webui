@@ -339,6 +339,48 @@ footer {
   padding: 1rem 16px 2rem;
 }
 
+/* The details of a drive, in a window over the page (drives.js, openDetails). */
+dialog.details-dialog {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+
+dialog.details-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  position: sticky;
+  top: -1rem;
+  margin: -1rem -1rem 0.5rem;
+  padding: 1rem 1rem 0.5rem;
+  background: var(--surface);
+  border-block-end: 1px solid var(--border);
+}
+
+.dialog-head h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.details-dialog table.list {
+  width: 100%;
+}
+
+.details-open {
+  margin-block-start: 0.5rem;
+}
+
 footer .update-link {
   font-weight: 600;
 }

@@ -61,6 +61,8 @@ function smartCard(device, data) {
   }
   if (health && health.life) fact(t("health.life"), lifeText(health.life), health.life.years[1] === 0 ? "hot" : "");
   if (facts.children.length) card.append(facts);
+  // The life left is a statistical guess: said on the card itself, not only under Details.
+  if (health && health.life) card.append(el("p", { class: "muted small", text: t("health.estimate") }));
   if (health && health.growing.length) card.append(el("p", { class: "warning small", text: t("health.growing", { counters: health.growing.map((key) => t(`smart.${key}`)).join(", ") }) }));
 
   // The maximum of the settings should stay under what the drive is made for.
@@ -108,7 +110,8 @@ function smartCard(device, data) {
   for (const [key, value] of fields) {
     if (present(value)) table.append(row(t(`smart.${key}`), String(value)));
   }
-  const details = el("details", {}, el("summary", { text: t("smart.details") }), table, el("p", { class: "muted small", text: device }));
+  // The details open in a window of their own (openDetails): the cards stay short.
+  const details = el("div", {}, table, el("p", { class: "muted small", text: device }));
   if (data.attributes && data.attributes.length) {
     const attrs = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.value"), t("smart.worst"), t("smart.thresh"), t("smart.raw")));
     for (const attr of data.attributes) {
@@ -133,13 +136,35 @@ function smartCard(device, data) {
   // The trend of the counters, read when the details are opened.
   const trend = el("div", { class: "smart-trend" });
   details.append(el("h4", { text: t("smart.trend") }), trend);
-  details.addEventListener("toggle", () => {
-    if (details.open && !trend.dataset.loaded) loadTrendOf(device, trend);
-  });
-  card.append(details);
+  card.append(
+    el("button", {
+      type: "button",
+      class: "secondary details-open",
+      text: t("smart.details"),
+      onclick: () => {
+        openDetails(smartTitle(device, data), details);
+        if (!trend.dataset.loaded) loadTrendOf(device, trend);
+      },
+    }),
+  );
   const note = data.asleep ? t("smart.asleep_note") : "";
   card.append(el("p", { class: "muted small", text: `${t("smart.updated", { time: fmtTime(data.time) })} ${note}` }));
   return card;
+}
+
+// A window over the page with a drive's details; Escape, the close button or a click
+// outside it closes it, and it leaves the page as it was.
+function openDetails(title, body) {
+  const close = el("button", { type: "button", class: "link dialog-close", text: t("action.close") });
+  const dialog = el("dialog", { class: "details-dialog" }, el("div", { class: "dialog-head" }, el("h3", { text: title }), close), body);
+  close.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+  close.focus();
 }
 
 // Drivers of controllers that are host bus adapters (HBA), not ports of the board.

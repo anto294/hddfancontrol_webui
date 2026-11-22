@@ -21,6 +21,12 @@ their browser, and the image needs nothing beyond Python.
 The scripts load in that order with `defer`; later ones use the globals of earlier
 ones.
 
+The details of a drive (its full SMART table, every attribute, the failure rates and
+the trend) open in a window over the page (`openDetails` in `drives.js`, a `<dialog>`
+shown with `showModal`): the cards keep what matters every day, and a long table never
+stretches the tab. Escape, the close button or a click outside it closes it; the trend
+is read the first time it opens.
+
 The footer shows the running version and, when `status.update` names a newer release
 (`updates.py`), a link to its page on GitHub.
 

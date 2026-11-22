@@ -62,7 +62,9 @@ details, which draws the counters that were ever above 0 and the wear with the c
 of the History tab.
 
 **Risk and remaining life** (`health.py`, `assess`, added to each drive of
-`GET /api/smart` as `health`). An estimate, and the page says so:
+`GET /api/smart` as `health`). An estimate, and the page says so: the card itself,
+not only its details, says that the life left is a statistical estimate that may not
+match reality (`health.estimate`):
 
 - **Risk per counter**, from Backblaze's data: the raw count of reallocated sectors (5),
   spin retries (10), reported uncorrectable (187), reallocation events (196), pending
