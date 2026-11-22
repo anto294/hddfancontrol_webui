@@ -51,15 +51,19 @@ async def in_daemon_thread(func: Callable[[], T], name: str = "worker") -> T:
             future.set_result(result)  # type: ignore[arg-type]  # None only when error is set
 
     def run() -> None:
+        result: T | None = None
+        # What the waiting task gets if func ends by something that is no Exception (SystemExit...):
+        # that one goes on up the thread, and the wait must never hang on it.
+        error: BaseException | None = RuntimeError(f"{name} ended without a result")
         try:
-            result: T | None = func()
-            error: BaseException | None = None
-        except BaseException as err:  # handed to the waiting task, like asyncio.to_thread does
-            result, error = None, err
-        try:
-            loop.call_soon_threadsafe(settle, result, error)
-        except RuntimeError:
-            pass  # the loop is closed: nobody waits any more
+            result, error = func(), None
+        except Exception as err:  # handed to the waiting task, like asyncio.to_thread does
+            error = err
+        finally:
+            try:
+                loop.call_soon_threadsafe(settle, result, error)
+            except RuntimeError:
+                pass  # the loop is closed: nobody waits any more
 
     threading.Thread(target=run, name=name, daemon=True).start()
     return await future

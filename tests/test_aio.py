@@ -67,3 +67,20 @@ async def test_in_daemon_thread() -> None:
     release.set()  # the thread ends by itself; its result is dropped
     seen[0].join(5)
     await asyncio.sleep(0.01)
+
+
+async def test_in_daemon_thread_never_hangs_on_an_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A function that ends by SystemExit (no Exception) still ends the wait; the exit itself goes on up its thread."""
+    seen: list[type[BaseException]] = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: seen.append(args.exc_type))
+
+    def leave() -> int:
+        raise SystemExit(3)
+
+    with pytest.raises(RuntimeError, match="ended without a result"):
+        await asyncio.wait_for(in_daemon_thread(leave, name="leave"), 5)
+    for _ in range(100):
+        if seen:
+            break
+        await asyncio.sleep(0.01)
+    assert seen == [SystemExit]
