@@ -45,6 +45,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   deleted. Saving or resetting the settings now takes the mark off every drive
   they monitor, and restoring a drive that is monitored already only takes its
   mark off.
+- **An archive that cannot be saved no longer leaves the drive marked.** When
+  the settings could not be written (a full or read-only `/config`), the drive
+  stayed monitored but marked as archived; the mark is now taken off again.
 
 ## [0.12.0] - 2026-11-21
 

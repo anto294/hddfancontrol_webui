@@ -435,7 +435,12 @@ async def post_drive_archive(request: web.Request) -> web.Response:
     async def change() -> None:
         # Marked first: the hourly tidy keeps the SMART data of an archived drive.
         await asyncio.to_thread(app[HISTORY].archive, device)
-        await supervisor.set_monitor_drives(tuple(d for d in supervisor.settings.monitor_drives if d != device))
+        try:
+            await supervisor.set_monitor_drives(tuple(d for d in supervisor.settings.monitor_drives if d != device))
+        except Exception:
+            # Still monitored: a mark left would make it monitored and archived at once.
+            await asyncio.to_thread(app[HISTORY].unarchive, device)
+            raise
 
     return await _drive_answer(request, change)
 

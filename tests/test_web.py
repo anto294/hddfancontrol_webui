@@ -853,3 +853,22 @@ async def test_an_archived_drive_monitored_again_from_the_settings(make_client: 
     response = await client.post("/api/drives/restore", json={"device": gone}, headers=FETCH)
     assert response.status == 200 and await response.json() == {}
     assert supervisor.settings.monitor_drives == (DRIVE, gone)
+
+
+async def test_an_archive_that_cannot_be_saved_leaves_no_mark(
+    make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the monitored drives cannot be saved, the drive stays monitored and is not marked as archived."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client()
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    supervisor = client.app[SUPERVISOR]
+
+    async def full_disk(drives: tuple[str, ...]) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(supervisor, "set_monitor_drives", full_disk)
+    response = await client.post("/api/drives/archive", json={"device": gone}, headers=FETCH)
+    assert response.status == 500 and (await response.json())["error"] == "save_failed"
+    assert gone in supervisor.settings.monitor_drives
+    assert client.app[MONITOR].history.archived() == {}
