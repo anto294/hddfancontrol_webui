@@ -343,6 +343,7 @@ The variables of **Web UI and access**, the advanced ones and `TZ` are read only
 | `CONFIG_DIR` | `/config` | Where settings, names, history and credentials are kept |
 | `WEBUI_ACCESS_LOG` | `false` | Log every HTTP request with the client's address, in the gateway's lines (the page polls every few seconds) |
 | `LOAD_SENSOR_MODULES` | `true` (`false` bare metal) | Run `sensors-detect --auto` at start and load the chip modules it finds |
+| `CHECK_UPDATES` | `true` | Ask GitHub once a day for the latest release and name a newer one in the footer of the page; nothing about the host is sent |
 | `HDDFANCONTROL_BIN`, `HDIDLE_BIN`, `SMARTCTL_BIN`, `SENSORS_DETECT_BIN`, `MODPROBE_BIN` | from `PATH` | Programs to use |
 
 </details>

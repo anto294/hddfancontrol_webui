@@ -26,6 +26,7 @@
   "action.save_credentials": "Guardar",
   "action.login": "Iniciar sesión",
   "action.logout": "Cerrar sesión",
+  "footer.update": "Actualización disponible: {version}",
   "mode.running": "En marcha",
   "mode.waiting": "Esperando ajustes",
   "mode.pwm_test": "Prueba PWM",

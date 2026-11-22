@@ -21,6 +21,9 @@ their browser, and the image needs nothing beyond Python.
 The scripts load in that order with `defer`; later ones use the globals of earlier
 ones.
 
+The footer shows the running version and, when `status.update` names a newer release
+(`updates.py`), a link to its page on GitHub.
+
 ## Rules
 
 - **No HTML from data.** The DOM is built with `el()` and `textContent`. Never

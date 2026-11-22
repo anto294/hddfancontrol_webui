@@ -57,6 +57,7 @@ and every value that reaches a command line has been checked by `settings.from_d
 | `smart.py`, `drivedb.py` | SMART data and self-tests; brand and recording type of a model |
 | `cron.py` | The cron expressions of every schedule |
 | `labels.py`, `bays.py` | Names of drives and fans, the bay map |
+| `updates.py` | Once a day, the latest release on GitHub, for the footer of the page (`CHECK_UPDATES`) |
 | `privsep.py`, `tls.py`, `auth.py` | The gateway's user and folders, TLS, credentials |
 
 Nothing blocks the event loop: file and SQLite work goes through

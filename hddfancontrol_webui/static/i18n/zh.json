@@ -26,6 +26,7 @@
   "action.save_credentials": "保存",
   "action.login": "登录",
   "action.logout": "退出登录",
+  "footer.update": "有可用更新：{version}",
   "mode.running": "运行中",
   "mode.waiting": "等待设置",
   "mode.pwm_test": "PWM 测试",

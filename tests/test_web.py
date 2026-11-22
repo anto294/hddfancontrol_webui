@@ -27,7 +27,18 @@ from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import NOTIFY_MASK, SettingsStore
 from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
 from hddfancontrol_webui.templog import TempLog
-from hddfancontrol_webui.web import HARDWARE, LABELS, MONITOR, SUPERVISOR, TEMP_LOG, create_app, mask_addresses, mask_drives
+from hddfancontrol_webui.updates import RELEASE_PAGE, UpdateCheck
+from hddfancontrol_webui.web import (
+    HARDWARE,
+    LABELS,
+    MONITOR,
+    STATE,
+    SUPERVISOR,
+    TEMP_LOG,
+    create_app,
+    mask_addresses,
+    mask_drives,
+)
 
 PWM1 = "/sys/class/hwmon/hwmon2/pwm1"
 DRIVE = "/dev/disk/by-id/ata-ST4000VN006-3CW104_ZW627CWW"
@@ -122,6 +133,17 @@ async def test_status_and_health(make_client: ClientMaker) -> None:
     assert status["latest"]["temps"] == {"sda": 41.0}
     assert status["mode"] == "waiting"
     assert status["checks"] == []  # filled at start by __main__ (checks.py)
+    assert status["update"] is None  # no UpdateCheck (CHECK_UPDATES=false)
+
+
+async def test_status_names_a_newer_release(make_client: ClientMaker) -> None:
+    """The status carries what the update check found."""
+    client = await make_client()
+    check = UpdateCheck("0.12.0", lambda text: None)
+    check.available = {"version": "0.13.0", "url": RELEASE_PAGE + "v0.13.0"}
+    client.server.app[STATE]["updates"] = check
+    status = await (await client.get("/api/status")).json()
+    assert status["update"] == {"version": "0.13.0", "url": RELEASE_PAGE + "v0.13.0"}
 
 
 async def test_settings_api(make_client: ClientMaker) -> None:

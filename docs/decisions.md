@@ -282,6 +282,17 @@ the same hundreds of sysfs files twice for the same answer. A cache with a lifet
 would hand out older counters, and the page turns two snapshots into rates by their
 `clock`. (2026-11-21)
 
+**A newer release is named in the footer, from a daily check by the core.** Once a
+day (`CHECK_PERIOD`) the core asks GitHub's API for the latest release; the status
+carries a newer one and the page links to it. Why: most installs are a container or
+a tarball left running for months, and a fix (a safety rule, a security one) does
+not reach them unless someone looks. The core asks, not the browser: the page keeps
+its CSP with no outside address, and one request a day serves every page. Only
+releases are checked (`dev`, `edge-…` and `experimental-…` builds never ask), only
+the latest non-beta release is offered, nothing about the host is sent, and
+`CHECK_UPDATES=false` turns it off for a host that must not reach the Internet. It
+only tells: nothing is downloaded or installed. (2026-11-22)
+
 **Seven languages, translated by meaning.** English, Italian, Spanish, French, Chinese,
 Hindi and Arabic (right to left). Why: the most spoken languages; a literal translation
 reads badly. (0.10.0, 2026-11-18)

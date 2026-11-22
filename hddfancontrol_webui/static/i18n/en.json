@@ -26,6 +26,7 @@
   "action.save_credentials": "Save",
   "action.login": "Log in",
   "action.logout": "Log out",
+  "footer.update": "Update available: {version}",
   "mode.running": "Running",
   "mode.waiting": "Waiting for settings",
   "mode.pwm_test": "PWM test",

@@ -26,6 +26,7 @@
   "action.save_credentials": "Enregistrer",
   "action.login": "Se connecter",
   "action.logout": "Se déconnecter",
+  "footer.update": "Mise à jour disponible : {version}",
   "mode.running": "En marche",
   "mode.waiting": "En attente des paramètres",
   "mode.pwm_test": "Test PWM",

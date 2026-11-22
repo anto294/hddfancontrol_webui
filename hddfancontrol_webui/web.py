@@ -223,6 +223,8 @@ async def get_status(request: web.Request) -> web.Response:
         smart_refreshing=app[MONITOR].smart_refreshing,
         checks=app[STATE]["checks"],
         alerts=alerts.status() if alerts is not None else [],
+        # A newer release ({version, url}) found by updates.py, or None.
+        update=updates.available if (updates := app[STATE].get("updates")) is not None else None,
     )
     return web.json_response(data)
 

@@ -26,6 +26,7 @@
   "action.save_credentials": "सहेजें",
   "action.login": "लॉग इन करें",
   "action.logout": "लॉग आउट करें",
+  "footer.update": "अपडेट उपलब्ध: {version}",
   "mode.running": "चल रहा है",
   "mode.waiting": "सेटिंग्स का इंतज़ार",
   "mode.pwm_test": "PWM टेस्ट",

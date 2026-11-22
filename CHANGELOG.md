@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **A newer release is named in the footer.** Once a day the web UI asks
+  GitHub for the latest release; when it is newer than the one running, the
+  footer links to it. Nothing about the host is sent, nothing is installed,
+  and `CHECK_UPDATES=false` turns it off.
+
 ### Changed
 
 - The title of the failure rates under **Details** names only their source,

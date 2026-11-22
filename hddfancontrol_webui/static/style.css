@@ -339,6 +339,10 @@ footer {
   padding: 1rem 16px 2rem;
 }
 
+footer .update-link {
+  font-weight: 600;
+}
+
 /* Cards and layout */
 .grid {
   display: grid;
