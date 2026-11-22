@@ -295,6 +295,7 @@
   "error.invalid_list": "Debe ser una lista.",
   "error.unknown_drive": "No es uno de los discos elegidos.",
   "error.drive_present": "Este disco está en el equipo: solo se puede archivar o eliminar un disco que ya no está.",
+  "error.dev_unreadable": "No aparece ningún disco en /dev/disk/by-id, así que no se puede saber si este disco falta de verdad. Comprueba que /dev se pasa al contenedor.",
   "error.drive_controlled": "Este disco controla los ventiladores: quítalo primero de los discos de los ventiladores en Ajustes.",
   "error.target_order": "Debe ser menor que la temperatura máxima.",
   "error.unreadable_file": "No se puede leer el archivo de ajustes.",

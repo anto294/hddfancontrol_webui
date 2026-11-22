@@ -51,6 +51,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **A database error while a drive is deleted is reported clearly.** A failing
   `history.db` gave a bare server error; it now gives the same "cannot save"
   message as a failing `/config`.
+- **No drive can be archived or deleted while `/dev` shows none.** When `/dev`
+  could not be read (no drive listed at all), every drive looked gone, a
+  present one too. Archive and Delete are now refused with a message about
+  `/dev`, as the SMART cards and the missing drive alert already did.
 
 ## [0.12.0] - 2026-11-21
 

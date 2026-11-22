@@ -888,3 +888,17 @@ async def test_a_database_error_on_delete_is_answered(make_client: ClientMaker, 
     monkeypatch.setattr(monitor, "forget_drive", locked)
     response = await client.post("/api/drives/delete", json={"device": gone}, headers=FETCH)
     assert response.status == 500 and (await response.json())["error"] == "save_failed"
+
+
+async def test_no_drive_is_gone_while_dev_lists_none(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without any drive listed, /dev is not readable here: no drive can be archived or deleted as gone."""
+    client = await make_client()
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE]}, headers=FETCH)).status == 200
+    hardware = client.app[HARDWARE]
+    monkeypatch.setattr(hardware, "drives", lambda full=True: [])
+    monkeypatch.setattr(hardware, "dev_exists", lambda path: False)  # an unreadable /dev: nothing seems to be here
+    for action in ("archive", "delete"):
+        response = await client.post(f"/api/drives/{action}", json={"device": DRIVE}, headers=FETCH)
+        assert response.status == 409 and (await response.json())["error"] == "dev_unreadable"
+    assert client.app[SUPERVISOR].settings.monitor_drives == (DRIVE,)
+    assert client.app[MONITOR].history.archived() == {}

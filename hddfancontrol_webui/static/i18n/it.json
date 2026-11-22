@@ -295,6 +295,7 @@
   "error.invalid_list": "Deve essere un elenco.",
   "error.unknown_drive": "Non è uno dei dischi scelti.",
   "error.drive_present": "Questo disco è presente: si possono archiviare o eliminare solo i dischi che non ci sono più.",
+  "error.dev_unreadable": "In /dev/disk/by-id non risulta nessun disco, quindi non si può dire se questo disco manca davvero. Controlla che /dev sia passato al container.",
   "error.drive_controlled": "Questo disco pilota le ventole: prima toglilo dai dischi delle ventole nelle Impostazioni.",
   "error.target_order": "Deve essere più bassa della temperatura massima.",
   "error.unreadable_file": "Il file delle impostazioni non si può leggere.",

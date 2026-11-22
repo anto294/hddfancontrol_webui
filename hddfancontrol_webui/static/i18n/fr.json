@@ -295,6 +295,7 @@
   "error.invalid_list": "Doit être une liste.",
   "error.unknown_drive": "Ne fait pas partie des disques choisis.",
   "error.drive_present": "Ce disque est présent : seul un disque qui n'est plus là peut être archivé ou supprimé.",
+  "error.dev_unreadable": "Aucun disque n’apparaît dans /dev/disk/by-id : impossible de savoir si ce disque a vraiment disparu. Vérifiez que /dev est transmis au conteneur.",
   "error.drive_controlled": "Ce disque pilote les ventilateurs : retirez-le d'abord des disques des ventilateurs dans les Paramètres.",
   "error.target_order": "Doit être inférieure à la température maximale.",
   "error.unreadable_file": "Impossible de lire le fichier des paramètres.",

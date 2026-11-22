@@ -295,6 +295,7 @@
   "error.invalid_list": "Must be a list.",
   "error.unknown_drive": "Not one of the chosen drives.",
   "error.drive_present": "This drive is on the host: only a drive that is gone can be archived or deleted.",
+  "error.dev_unreadable": "No drive is listed in /dev/disk/by-id here, so it cannot be told whether this drive is gone. Check that /dev is passed to the container.",
   "error.drive_controlled": "This drive drives the fans: remove it from the fan drives in Settings first.",
   "error.target_order": "Must be lower than the maximum temperature.",
   "error.unreadable_file": "The settings file cannot be read.",
