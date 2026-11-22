@@ -62,6 +62,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **The state no longer reads "Running" when no fan can be driven.** When the
   chips of all the chosen fans were gone, the state said **Running** because
   hddfancontrol was measuring. It now says **Fans not found**, in red.
+- **An error in the page no longer stops its updates.** A round of polling that
+  failed with an unexpected error stopped that polling for good, until the page
+  was reloaded; during manual control, the status it stopped asking for ended
+  manual control after two minutes. The next round now always runs.
 
 ## [0.12.0] - 2026-11-21
 
