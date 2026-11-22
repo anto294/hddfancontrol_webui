@@ -21,6 +21,7 @@ from typing import Any
 
 from aiohttp import web
 
+from .aio import cancel_and_wait
 from .alerts import Alerts
 from .bays import Bays
 from .bmc import IPMITOOL_BIN, Bmc
@@ -68,6 +69,7 @@ from .settings import SettingsStore
 from .smart import read_smart, start_selftest
 from .supervisor import Daemon, LogBuffer, Supervisor
 from .templog import TempLog
+from .updates import UpdateCheck
 from .web import STATE, create_app
 
 # Where the package is imported from (root's): the gateway imports it from there only.
@@ -252,15 +254,21 @@ def build() -> Core:
                 monitor.start()
 
         task = asyncio.create_task(startup(), name="startup")
+        updates: UpdateCheck | None = app[STATE].get("updates")
+        update_task = asyncio.create_task(updates.run(), name="updates") if updates is not None else None
         yield
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        if update_task is not None:
+            await cancel_and_wait(update_task)
         await monitor.stop()
         await alerts.stop()
         await supervisor.stop()
         history.close()
 
     app.cleanup_ctx.append(lifecycle)
+    if env_flag(env, "CHECK_UPDATES", True):
+        app[STATE]["updates"] = UpdateCheck(VERSION, lambda text: logs.add(SOURCE_WEBUI, text))
     return Core(app, socket_path, user, gateway, supervisor, bmc)
 
 

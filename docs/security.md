@@ -135,6 +135,13 @@ Charts and bars are SVG attributes, never style attributes, which the CSP would 
 There are no external resources: no CDN, no fonts, nothing the browser fetches from
 elsewhere.
 
+The core asks one thing of the Internet by itself: the latest release, from GitHub's
+API, once a day (`updates.py`, `CHECK_PERIOD`; off with `CHECK_UPDATES=false`, never
+for a build that is not a release). It is a plain GET with a generic User-Agent and
+no data about the host; the answer counts only through a tag that must read
+`vX.Y.Z`, and the link the page shows is built from that tag, never taken from the
+answer.
+
 ## Checks in CI
 
 Bandit, ruff with the `S` rules, CodeQL, hadolint and shellcheck run on every push. The

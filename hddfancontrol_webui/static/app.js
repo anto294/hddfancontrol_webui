@@ -592,6 +592,14 @@ function renderHeader() {
   pill.dataset.mode = status.mode;
   // Releases are numbers (0.3.0); "dev" and "edge-<commit>" are shown as they are.
   $("version").textContent = /^\d/.test(status.version) ? `v${status.version}` : status.version;
+  // A newer release (updates.py): its link is built by the server from the tag.
+  const update = status.update;
+  $("update").hidden = !update;
+  if (update) {
+    const link = $("update-link");
+    link.textContent = t("footer.update", { version: `v${update.version}` });
+    link.href = update.url;
+  }
 }
 
 async function pollStatus() {

@@ -64,11 +64,12 @@ of the History tab.
 **Risk and remaining life** (`health.py`, `assess`, added to each drive of
 `GET /api/smart` as `health`). An estimate, and the page says so:
 
-- **Risk per counter**, as Scrutiny does it: the raw count of reallocated sectors (5),
+- **Risk per counter**, from Backblaze's data: the raw count of reallocated sectors (5),
   spin retries (10), reported uncorrectable (187), reallocation events (196), pending
   (197) and offline uncorrectable (198) sectors, and CRC errors (199, not critical) is
   looked up in the annual failure rates Backblaze observed for drives with that count
-  (Scrutiny's table, MIT License, rounded to four digits). A critical counter at
+  (the table as tabulated by the Scrutiny project, MIT License, rounded to four
+  digits). A critical counter at
   `AFR_FAILED` (10 %) or more fails; CRC errors warn there and fail at
   `AFR_FAILED_OTHER` (20 %). A count past the last bucket takes the highest rate it
   passed.
