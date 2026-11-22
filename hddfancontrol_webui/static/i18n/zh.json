@@ -301,6 +301,7 @@
   "error.unreadable_env": "无法读取环境变量：当前使用默认值（见日志）。",
   "error.invalid_settings": "部分值无效。",
   "error.busy": "PWM 测试或扫描正在进行，请等待其结束。",
+  "error.settings_broken": "已保存的设置无法使用，当前使用的是环境变量：请先在“设置”中修正或重置设置，以免此更改覆盖它们。",
   "error.save_failed": "无法写入 /config。该卷是否可写？",
   "error.csrf": "请求被拒绝。",
   "error.invalid_json": "请求不是有效的 JSON。",

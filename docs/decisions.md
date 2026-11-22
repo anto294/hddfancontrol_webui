@@ -192,6 +192,12 @@ keeps the by-id names only. Why: the environment that stands in for a broken fil
 monitor other drives and keep fewer days; a mistake in a file can be fixed, but the
 SMART trend of a drive deleted in the meantime cannot come back. (2026-11-22)
 
+**A change of the monitored drives is refused while `settings.json` is broken.**
+`Supervisor.set_monitor_drives` raises `SettingsBroken` and the API answers 409
+`settings_broken`. Why: the settings in force are then the environment's; saving them
+with one drive more or less would replace the user's file, which only needed a fix.
+Settings → Save (or Reset) is the way out, and it shows what will be saved. (2026-11-22)
+
 ## Security
 
 **Privilege separation: a root core on a Unix socket, an unprivileged gateway on the

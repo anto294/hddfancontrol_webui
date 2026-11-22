@@ -53,7 +53,7 @@ from .monitor import Monitor
 from .notify import NOTIFY_FORBIDDEN, NotifyError
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsError, from_dict, is_drive_path, restore_notify_url
-from .supervisor import Busy, ReadOnly, Supervisor
+from .supervisor import Busy, ReadOnly, SettingsBroken, Supervisor
 from .templog import TempLog
 
 _LOGGER = logging.getLogger(__name__)
@@ -407,6 +407,8 @@ async def _drive_answer(request: web.Request, change: Callable[[], Awaitable[Non
         await change()
     except Busy:
         return _json_error(409, "busy")
+    except SettingsBroken:
+        return _json_error(409, "settings_broken")
     except OSError as err:
         _LOGGER.error("Cannot change the monitored drives: %s", err)
         return _json_error(500, "save_failed")

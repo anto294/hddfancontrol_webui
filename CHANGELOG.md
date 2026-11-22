@@ -31,6 +31,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   that stood in for it: it could delete the SMART data and trend of drives the
   file monitored, and samples the file kept for longer. Nothing is deleted
   until the file is fixed, and the log says so once.
+- **Archiving or deleting a drive no longer overwrites a broken
+  `settings.json`.** While the file could not be used, the change saved the
+  environment variables that stood in for it over the file. It is now refused
+  with a message that asks to fix or reset the settings first.
 
 ## [0.12.0] - 2026-11-21
 

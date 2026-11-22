@@ -112,7 +112,9 @@ without any drive listed, `/dev` is not readable and says nothing). The card off
 A drive that drives the fans (under any of its names) is refused (`drive_controlled`):
 it leaves fan control in the settings first. A drive still on the host is refused too
 (`drive_present`). Changing `monitor_drives` this way saves the settings and restarts
-nothing (`Supervisor.set_monitor_drives`): only the monitor reads it.
+nothing (`Supervisor.set_monitor_drives`): only the monitor reads it. While
+`settings.json` is broken it is refused (409 `settings_broken`): the settings in force
+are then the environment's, and saving them would overwrite the file.
 
 The history keeps a drive under one of its by-id names (`wwn-` first), maybe not the one
 of the settings, and once the drive is gone `/dev` no longer says which they were: the

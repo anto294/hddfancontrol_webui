@@ -301,6 +301,7 @@
   "error.unreadable_env": "No se pueden leer las variables de entorno: se usan los valores predeterminados (consulta el registro).",
   "error.invalid_settings": "Algunos valores no son válidos.",
   "error.busy": "Hay una prueba PWM o una búsqueda de sensores en curso. Espera a que termine.",
+  "error.settings_broken": "Los ajustes guardados no se pueden usar y rigen las variables de entorno: corrige o restablece primero los ajustes en Ajustes, para que este cambio no los sobrescriba.",
   "error.save_failed": "No se puede escribir en /config. ¿El volumen admite escritura?",
   "error.csrf": "Solicitud rechazada.",
   "error.invalid_json": "La solicitud no es JSON válido.",

@@ -85,6 +85,13 @@ class ReadOnly(RuntimeError):
 
 
 # ---------------------------
+#   SettingsBroken
+# ---------------------------
+class SettingsBroken(RuntimeError):
+    """settings.json cannot be used and the environment stands in: saving would overwrite the user's file with it."""
+
+
+# ---------------------------
 #   NotSelected
 # ---------------------------
 class NotSelected(ValueError):
@@ -717,11 +724,16 @@ class Supervisor:
         Only the monitor reads monitor_drives (SMART, self-tests, the missing
         drive alert): hddfancontrol and the fans never see it, so they run on.
         The drives were checked by the caller (from_dict, or a drive taken off
-        the list). Refused once the web UI is stopping.
+        the list). Refused once the web UI is stopping, and while
+        settings.json is broken (SettingsBroken): the settings in force are
+        then the environment's, and saving them would overwrite the file the
+        user can still fix.
         """
         async with self._lock:
             if self.closing:
                 raise Busy("The web UI is stopping")
+            if self.store.error is not None:
+                raise SettingsBroken("The saved settings cannot be used")
             settings = replace(self.settings, monitor_drives=drives)
             await asyncio.to_thread(self.store.save, settings)
             self.settings, self.source = settings, SOURCE_FILE

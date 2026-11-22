@@ -25,7 +25,7 @@ from hddfancontrol_webui.monitor import Monitor
 from hddfancontrol_webui.notify import NotifyError
 from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import NOTIFY_MASK, SettingsStore
-from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
+from hddfancontrol_webui.supervisor import LogBuffer, SettingsBroken, Supervisor
 from hddfancontrol_webui.templog import TempLog
 from hddfancontrol_webui.updates import RELEASE_PAGE, UpdateCheck
 from hddfancontrol_webui.web import (
@@ -805,3 +805,25 @@ async def test_hardware_requests_share_the_snapshot_under_way(
     release.set()
     assert [(await response).status for response in pending] == [500, 500]
     assert len(calls) == 3
+
+
+async def test_drive_changes_never_overwrite_broken_settings(make_client: ClientMaker) -> None:
+    """With settings.json broken, the environment stands in: a change of the monitored drives is refused, the file kept."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client(env={"MONITOR_DRIVES": gone})
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    supervisor = client.app[SUPERVISOR]
+    broken = '{"monitor_drives": [' + json.dumps(DRIVE) + ", " + json.dumps(gone) + "], "  # cut short
+    supervisor.store.path.write_text(broken)
+    supervisor.settings, supervisor.source = supervisor.store.load()
+    assert supervisor.store.error is not None
+    history = client.app[MONITOR].history
+    history.save_smart(gone, {"status": "ok"})
+
+    response = await client.post("/api/drives/delete", json={"device": gone}, headers=FETCH)
+    assert response.status == 409 and (await response.json())["error"] == "settings_broken"
+    assert supervisor.store.path.read_text() == broken
+    assert gone in history.smart()
+    with pytest.raises(SettingsBroken):
+        await supervisor.set_monitor_drives((DRIVE,))
+    assert supervisor.store.path.read_text() == broken
