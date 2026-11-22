@@ -123,6 +123,14 @@ Writing the missing fan's old path is still never done: it may belong to another
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)
 
+**The startup checks never hold up the start.** They run beside the sensor scan and
+`Supervisor.start()` (`startup`, `checks_task`), in a daemon thread of their own
+(`in_daemon_thread`). Why: they open every drive of `/dev` and every chosen PWM file,
+and an `open()` on a dying drive can hang in the kernel for good; the fans come first,
+and the checks only report. A daemon thread rather than `asyncio.to_thread`: a call
+that never returns would otherwise hold a thread of the shared pool, which
+`asyncio.run` waits for at exit. (2026-11-22)
+
 ## Data
 
 **History and SMART summaries in SQLite.** Why: one file, no server, queries that

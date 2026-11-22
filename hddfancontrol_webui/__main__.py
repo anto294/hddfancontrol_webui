@@ -14,17 +14,17 @@ import os
 import shutil
 import signal
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 
-from .aio import cancel_and_wait
+from .aio import cancel_and_wait, in_daemon_thread
 from .alerts import Alerts
 from .bays import Bays
-from .checks import run_checks
+from .checks import Problem, run_checks
 from .const import (
     DEFAULT_CONFIG_DIR,
     HDDFANCONTROL_BIN,
@@ -204,10 +204,9 @@ def build() -> Core:
         else:
             logs.add(SOURCE_WEBUI, f"hddfancontrol-webui {VERSION}: core started, the gateway runs as {user.name}")
 
-        async def startup() -> None:
+        def checks() -> list[Problem]:
             # What the container or the host lacks, said once with what to do; it only reports.
-            app[STATE]["checks"] = await asyncio.to_thread(
-                run_checks,
+            return run_checks(
                 lambda text: logs.add(SOURCE_WEBUI, text),
                 config_dir,
                 hardware,
@@ -215,28 +214,18 @@ def build() -> Core:
                 programs,
                 load_modules,
             )
-            # A failed sensor scan must not keep the fans from being controlled.
-            if load_modules:
-                app[STATE]["sensors"] = SensorReport(state="running")
-                try:
-                    app[STATE]["sensors"] = await scan()
-                except Exception as err:  # any failure: report it and go on
-                    logs.add(SOURCE_SENSORS, f"WARNING: the sensor scan failed: {err!r}")
-                    app[STATE]["sensors"] = SensorReport(state="done", detect_error=repr(err))
-            try:
-                await supervisor.start()
-            except Exception as err:
-                logs.add(SOURCE_WEBUI, f"ERROR: cannot start fan control: {err!r}")
-                raise
-            finally:
-                monitor.start()
 
-        task = asyncio.create_task(startup(), name="startup")
+        task = asyncio.create_task(
+            startup(app[STATE], checks, scan if load_modules else None, supervisor.start, monitor.start, logs.add),
+            name="startup",
+        )
         updates: UpdateCheck | None = app[STATE].get("updates")
         update_task = asyncio.create_task(updates.run(), name="updates") if updates is not None else None
         yield
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        if (checks_task := app[STATE].get("checks_task")) is not None:
+            await cancel_and_wait(checks_task)
         if update_task is not None:
             await cancel_and_wait(update_task)
         await monitor.stop()
@@ -248,6 +237,50 @@ def build() -> Core:
     if env_flag(env, "CHECK_UPDATES", True):
         app[STATE]["updates"] = UpdateCheck(VERSION, lambda text: logs.add(SOURCE_WEBUI, text))
     return Core(app, socket_path, user, gateway, supervisor)
+
+
+# ---------------------------
+#   startup
+# ---------------------------
+async def startup(
+    state: dict[str, Any],
+    checks: Callable[[], list[Problem]],
+    scan: Callable[[], Awaitable[SensorReport]] | None,
+    start_fans: Callable[[], Awaitable[None]],
+    start_monitor: Callable[[], None],
+    log: Callable[[str, str], None],
+) -> None:
+    """The start, in the background: the startup checks beside it, the sensor scan (when given), then the fans and the monitor.
+
+    Nothing waits for the checks: they open every drive and fan file, and
+    an open() that hangs on a dying drive must never keep the fans from
+    being controlled. They run in a daemon thread of their own
+    (in_daemon_thread) as state["checks_task"], which the lifecycle cancels
+    at the stop; state["checks"] stays [] until they end. A failed sensor
+    scan does not stop the start either.
+    """
+
+    async def run_checks_now() -> None:
+        try:
+            state["checks"] = await in_daemon_thread(checks, name="checks")
+        except Exception as err:  # the checks only report: they never stop the start
+            log(SOURCE_WEBUI, f"WARNING: the startup checks failed: {err!r}")
+
+    state["checks_task"] = asyncio.create_task(run_checks_now(), name="checks")
+    if scan is not None:
+        state["sensors"] = SensorReport(state="running")
+        try:
+            state["sensors"] = await scan()
+        except Exception as err:  # any failure: report it and go on
+            log(SOURCE_SENSORS, f"WARNING: the sensor scan failed: {err!r}")
+            state["sensors"] = SensorReport(state="done", detect_error=repr(err))
+    try:
+        await start_fans()
+    except Exception as err:
+        log(SOURCE_WEBUI, f"ERROR: cannot start fan control: {err!r}")
+        raise
+    finally:
+        start_monitor()
 
 
 # ---------------------------

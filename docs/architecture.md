@@ -108,7 +108,12 @@ but never because of a label.
 
 ## Start and stop
 
-Start, in the background so the web UI answers at once:
+Start, in the background so the web UI answers at once (`startup` in `__main__.py`).
+The checks of step 1 run beside steps 2 to 4, which never wait for them: they open
+every drive and fan file, and an `open()` that hangs on a dying drive must never keep
+the fans from being controlled. They run in a daemon thread of their own
+(`in_daemon_thread`, so a hung one does not hold the exit either), as `checks_task`,
+cancelled at the stop; `checks` in the status is empty until they end.
 
 1. The startup checks (`checks.py`, `run_checks`): what the host or the container keeps
    the web UI from doing, each logged as a WARNING with what to do and shown as a

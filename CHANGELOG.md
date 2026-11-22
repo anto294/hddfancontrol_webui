@@ -35,6 +35,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `settings.json`.** While the file could not be used, the change saved the
   environment variables that stood in for it over the file. It is now refused
   with a message that asks to fix or reset the settings first.
+- **A drive that hangs when opened no longer keeps the fans from starting.**
+  The startup checks open every drive, and the fans and the sensor scan
+  waited for them: an `open()` stuck on a dying drive left the fans
+  uncontrolled. The checks now run beside the start, and their banners show
+  once they end.
 
 ## [0.12.0] - 2026-11-21
 
