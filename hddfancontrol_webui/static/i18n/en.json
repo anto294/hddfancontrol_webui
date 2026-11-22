@@ -150,6 +150,7 @@
   "health.risk_high": "High",
   "health.afr": "{afr} a year",
   "health.life": "Estimated life left",
+  "health.estimate": "The life left is only a statistical estimate and may not match reality: a drive can fail much earlier or last much longer. Keep backups either way.",
   "health.years_range": "{low}–{high} years",
   "health.years_about": "about {years} years",
   "health.replace_soon": "Replace it soon",

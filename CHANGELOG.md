@@ -19,6 +19,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Drive details in a window.** **Details** on a drive card opens its SMART
   table, attributes, failure rates and trend in a window over the page, so
   the Drives tab stays short.
+- A drive card that shows an estimated life left now says, on the card itself,
+  that it is only a statistical estimate that may not match reality.
 - The title of the failure rates under **Details** names only their source,
   Backblaze's data.
 

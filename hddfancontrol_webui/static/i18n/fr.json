@@ -150,6 +150,7 @@
   "health.risk_high": "Élevé",
   "health.afr": "{afr} par an",
   "health.life": "Durée de vie restante estimée",
+  "health.estimate": "La durée de vie restante n'est qu'une estimation statistique et peut ne pas refléter la réalité : un disque peut tomber en panne bien plus tôt ou durer bien plus longtemps. Gardez des sauvegardes dans tous les cas.",
   "health.years_range": "{low}–{high} ans",
   "health.years_about": "environ {years} ans",
   "health.replace_soon": "À remplacer bientôt",

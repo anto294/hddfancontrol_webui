@@ -150,6 +150,7 @@
   "health.risk_high": "مرتفع",
   "health.afr": "{afr} سنويًا",
   "health.life": "العمر المتبقي المقدّر",
+  "health.estimate": "العمر المتبقي مجرد تقدير إحصائي وقد لا يعكس الواقع: قد يتعطل القرص قبل ذلك بكثير أو يدوم مدة أطول بكثير. احتفظ بنسخ احتياطية في كل الأحوال.",
   "health.years_range": "{low}–{high} سنوات",
   "health.years_about": "نحو {years} سنوات",
   "health.replace_soon": "استبدله قريبًا",

@@ -150,6 +150,7 @@
   "health.risk_high": "高",
   "health.afr": "每年 {afr}",
   "health.life": "预计剩余寿命",
+  "health.estimate": "剩余寿命只是统计估算，可能与实际不符：硬盘可能提前很久损坏，也可能使用更久。无论如何都请做好备份。",
   "health.years_range": "{low}–{high} 年",
   "health.years_about": "约 {years} 年",
   "health.replace_soon": "请尽快更换",

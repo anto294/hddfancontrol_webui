@@ -61,6 +61,8 @@ function smartCard(device, data) {
   }
   if (health && health.life) fact(t("health.life"), lifeText(health.life), health.life.years[1] === 0 ? "hot" : "");
   if (facts.children.length) card.append(facts);
+  // The life left is a statistical guess: said on the card itself, not only under Details.
+  if (health && health.life) card.append(el("p", { class: "muted small", text: t("health.estimate") }));
   if (health && health.growing.length) card.append(el("p", { class: "warning small", text: t("health.growing", { counters: health.growing.map((key) => t(`smart.${key}`)).join(", ") }) }));
 
   // The maximum of the settings should stay under what the drive is made for.

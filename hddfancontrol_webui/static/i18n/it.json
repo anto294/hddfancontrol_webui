@@ -150,6 +150,7 @@
   "health.risk_high": "Alto",
   "health.afr": "{afr} all'anno",
   "health.life": "Vita residua stimata",
+  "health.estimate": "La vita residua è solo una stima statistica e potrebbe non rispecchiare la realtà: un disco può guastarsi molto prima o durare molto di più. Tieni comunque dei backup.",
   "health.years_range": "{low}–{high} anni",
   "health.years_about": "circa {years} anni",
   "health.replace_soon": "Da sostituire presto",
