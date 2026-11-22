@@ -34,6 +34,7 @@
   "mode.stopped": "रुका हुआ",
   "mode.manual": "मैनुअल कंट्रोल",
   "mode.read_only": "केवल पढ़ने के लिए",
+  "mode.fans_missing": "पंखे नहीं मिले",
   "mode.curve": "कर्व (न्यूनतम / अधिकतम)",
   "mode.auto": "ऑटो (लक्ष्य तापमान)",
   "daemon.running": "चल रहा है",

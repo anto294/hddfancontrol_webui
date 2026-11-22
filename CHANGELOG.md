@@ -59,6 +59,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the chip of one more fan disappeared, the log said the fans "came back" and
   listed every fan found. It now names the fans that came back and the ones
   that are gone, each on its own line.
+- **The state no longer reads "Running" when no fan can be driven.** When the
+  chips of all the chosen fans were gone, the state said **Running** because
+  hddfancontrol was measuring. It now says **Fans not found**, in red.
 
 ## [0.12.0] - 2026-11-21
 

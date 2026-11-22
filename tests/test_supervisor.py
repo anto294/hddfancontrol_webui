@@ -380,6 +380,8 @@ async def test_fans_follow_their_chip(
     assert supervisor.missing_pwms == [moved_to] and supervisor.status()["missing_pwms"] == [moved_to]
     # The drives are still watched: only the missing fan is left alone.
     assert supervisor.hddfancontrol.active and not supervisor.fans.active
+    # No fan is driven: not "running", though hddfancontrol measures.
+    assert supervisor.mode == "fans_missing" and supervisor.status()["mode"] == "fans_missing"
     assert any("not on the host" in line["text"] for line in supervisor.logs.since(0))
     # Nothing changed yet: a look finds nothing to do.
     assert not await supervisor.recheck_fans()

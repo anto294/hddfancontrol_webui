@@ -96,7 +96,8 @@ The PWM outputs are kept with the `/sys/devices/…` path of their chip. When th
 numbers change at a reboot (`hwmon2` becomes `hwmon3`), `Supervisor._placed` finds the
 same output again (`Hardware.locate`), saves the settings and moves the label. A fan
 whose chip is gone is listed in `missing_pwms` and only that fan is not controlled: the
-others are, and hddfancontrol measures the drives all the same. While the list is not
+others are, and hddfancontrol measures the drives all the same. When no fan is left to
+control, the mode is `fans_missing` rather than `running`. While the list is not
 empty the supervisor looks again every `PLACE_PERIOD` (60 s) and after each sensor scan
 of the page (`recheck_fans`), and restarts with the fan as soon as its chip is back. The
 chip of a fan is always the host's: `apply` drops one sent with the settings, and

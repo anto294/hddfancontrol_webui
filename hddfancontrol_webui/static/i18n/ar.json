@@ -34,6 +34,7 @@
   "mode.stopped": "متوقف",
   "mode.manual": "التحكم اليدوي",
   "mode.read_only": "للقراءة فقط",
+  "mode.fans_missing": "لم يُعثر على المراوح",
   "mode.curve": "منحنى (حد أدنى / حد أقصى)",
   "mode.auto": "تلقائي (درجة حرارة مستهدفة)",
   "daemon.running": "قيد التشغيل",

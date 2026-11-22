@@ -34,6 +34,7 @@
   "mode.stopped": "Arrêté",
   "mode.manual": "Contrôle manuel",
   "mode.read_only": "Lecture seule",
+  "mode.fans_missing": "Ventilateurs introuvables",
   "mode.curve": "Courbe (minimum / maximum)",
   "mode.auto": "Auto (température cible)",
   "daemon.running": "En marche",

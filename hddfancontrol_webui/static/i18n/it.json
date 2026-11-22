@@ -34,6 +34,7 @@
   "mode.stopped": "Fermo",
   "mode.manual": "Controllo manuale",
   "mode.read_only": "Sola lettura",
+  "mode.fans_missing": "Ventole non trovate",
   "mode.curve": "Curva (minima / massima)",
   "mode.auto": "Auto (temperatura obiettivo)",
   "daemon.running": "In funzione",

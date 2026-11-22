@@ -34,6 +34,7 @@
   "mode.stopped": "Stopped",
   "mode.manual": "Manual control",
   "mode.read_only": "Read only",
+  "mode.fans_missing": "Fans not found",
   "mode.curve": "Curve (minimum / maximum)",
   "mode.auto": "Auto (target temperature)",
   "daemon.running": "Running",

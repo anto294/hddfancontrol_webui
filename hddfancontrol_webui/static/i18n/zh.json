@@ -34,6 +34,7 @@
   "mode.stopped": "已停止",
   "mode.manual": "手动控制",
   "mode.read_only": "只读",
+  "mode.fans_missing": "未找到风扇",
   "mode.curve": "曲线（最低 / 最高）",
   "mode.auto": "自动（目标温度）",
   "daemon.running": "运行中",

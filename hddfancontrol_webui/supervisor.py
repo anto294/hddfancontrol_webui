@@ -58,6 +58,8 @@ MODE_PWM_TEST = "pwm_test"
 MODE_STOPPED = "stopped"
 MODE_MANUAL = "manual"
 MODE_READ_ONLY = "read_only"
+# The chips of every chosen fan are gone: hddfancontrol may measure, but no fan is driven.
+MODE_FANS_MISSING = "fans_missing"
 
 
 # Lines waiting for stdout at most; more are dropped from stdout (never from the buffer).
@@ -442,6 +444,9 @@ class Supervisor:
         if not self.settings.complete:
             # hddfancontrol may measure already (drives without fans), but no fan is driven.
             return MODE_WAITING
+        if self.missing_pwms:
+            # Not "running": hddfancontrol measures, but the chips of all the fans are gone.
+            return MODE_FANS_MISSING
         if self.hddfancontrol.active:
             return MODE_RUNNING
         return MODE_STOPPED
