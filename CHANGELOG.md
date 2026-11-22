@@ -55,6 +55,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   could not be read (no drive listed at all), every drive looked gone, a
   present one too. Archive and Delete are now refused with a message about
   `/dev`, as the SMART cards and the missing drive alert already did.
+- **The log no longer says that fans came back when more of them went.** When
+  the chip of one more fan disappeared, the log said the fans "came back" and
+  listed every fan found. It now names the fans that came back and the ones
+  that are gone, each on its own line.
 
 ## [0.12.0] - 2026-11-21
 

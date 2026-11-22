@@ -999,3 +999,53 @@ async def test_monitored_drives_change_without_a_restart(setup: tuple[Supervisor
     with pytest.raises(Busy):
         await supervisor.set_monitor_drives(())
     await supervisor.stop()
+
+
+async def test_recheck_says_which_fans_came_back_and_which_are_gone(
+    tmp_path: Path, fake_sys: Path, fake_dev: Path, make_script: ScriptMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A look that finds one more chip gone says so; a look that finds them back names only those, under their new path."""
+    monkeypatch.setenv("FAKE_LOG", str(tmp_path / "calls.log"))
+    # A second chip, with its own fan.
+    other = fake_sys / "class/hwmon/hwmon5"
+    other.mkdir()
+    for name, value in {"name": "it8613", "pwm1": "100", "pwm1_enable": "2", "fan1_input": "700"}.items():
+        (other / name).write_text(value + "\n")
+    (fake_sys / "devices/platform/it87.2608").mkdir(parents=True)
+    (other / "device").symlink_to("../../../devices/platform/it87.2608")
+    pwm_b = "/sys/class/hwmon/hwmon5/pwm1"
+    store = SettingsStore(tmp_path / "config", {})
+    store.save(
+        from_dict({**CONFIG, "pwms": [{"path": PWM1, "start": 200, "stop": 75}, {"path": pwm_b, "start": 200, "stop": 75}]})
+    )
+    logs = LogBuffer(echo=False)
+    supervisor = Supervisor(
+        store,
+        logs,
+        None,
+        FanController(PwmWriter(fake_sys), lambda: None, lambda text: None),
+        hddfancontrol=make_script("hddfancontrol", FAKE_HDDFANCONTROL),
+        hdidle=make_script("hd-idle", "time.sleep(60)"),
+        hardware=Hardware(fake_dev, fake_sys),
+    )
+    await supervisor.start()  # records both chips
+    await supervisor.stop()
+    other.rename(tmp_path / "gone_b")
+    await supervisor.start()
+    assert supervisor.missing_pwms == [pwm_b]
+
+    def lines() -> list[str]:
+        return [line["text"] for line in logs.since(0)]
+
+    (fake_sys / "class/hwmon/hwmon2").rename(tmp_path / "gone_a")
+    assert await supervisor.recheck_fans()
+    assert supervisor.missing_pwms == [PWM1, pwm_b]
+    assert not any("came back" in text for text in lines())
+    assert any(text.endswith("gone too, they are not controlled: " + PWM1) for text in lines())
+
+    (tmp_path / "gone_a").rename(fake_sys / "class/hwmon/hwmon3")
+    assert await supervisor.recheck_fans()
+    assert supervisor.missing_pwms == [pwm_b]
+    came_back = [text for text in lines() if "came back" in text]
+    assert came_back == ["The chip of these fans came back, they are controlled again: /sys/class/hwmon/hwmon3/pwm1"]
+    await supervisor.stop()
