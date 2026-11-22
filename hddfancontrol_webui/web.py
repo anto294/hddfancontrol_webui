@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import socket
+import sqlite3
 import struct
 import time
 from collections.abc import Awaitable, Callable
@@ -55,7 +56,7 @@ from .monitor import Monitor
 from .notify import NOTIFY_FORBIDDEN, NotifyError
 from .sensors import SensorReport, scan_sensor_modules
 from .settings import SettingsError, from_dict, is_drive_path, restore_notify_url
-from .supervisor import Busy, ReadOnly, Supervisor
+from .supervisor import Busy, ReadOnly, SettingsBroken, Supervisor
 from .templog import TempLog
 
 _LOGGER = logging.getLogger(__name__)
@@ -405,6 +406,27 @@ async def _drive_change(request: web.Request) -> tuple[str, set[str]] | web.Resp
 
 
 # ---------------------------
+#   _presence_error
+# ---------------------------
+async def _presence_error(app: web.Application, device: str) -> web.Response | None:
+    """The answer for a drive that cannot be told gone: here (drive_present), or /dev lists no drive (dev_unreadable); else None.
+
+    Without any drive listed, /dev is not readable here (Monitor.smart_view
+    and the missing drive alert follow the same rule): every drive would
+    look gone, a present one too.
+    """
+    hardware = app[HARDWARE]
+
+    def presence() -> str | None:
+        if not hardware.drives(full=False):
+            return "dev_unreadable"
+        return "drive_present" if hardware.dev_exists(device) else None
+
+    code = await asyncio.to_thread(presence)
+    return None if code is None else _json_error(409, code)
+
+
+# ---------------------------
 #   _drive_answer
 # ---------------------------
 async def _drive_answer(request: web.Request, change: Callable[[], Awaitable[None]]) -> web.Response:
@@ -413,7 +435,9 @@ async def _drive_answer(request: web.Request, change: Callable[[], Awaitable[Non
         await change()
     except Busy:
         return _json_error(409, "busy")
-    except OSError as err:
+    except SettingsBroken:
+        return _json_error(409, "settings_broken")
+    except (OSError, sqlite3.Error) as err:  # /config, or history.db (forget_drive, the archive marks)
         _LOGGER.error("Cannot change the monitored drives: %s", err)
         return _json_error(500, "save_failed")
     return await get_archived(request)
@@ -432,13 +456,18 @@ async def post_drive_archive(request: web.Request) -> web.Response:
     supervisor = app[SUPERVISOR]
     if device not in supervisor.settings.monitor_drives:
         return _json_error(404, "unknown_drive")
-    if await asyncio.to_thread(app[HARDWARE].dev_exists, device):
-        return _json_error(409, "drive_present")
+    if (refused := await _presence_error(app, device)) is not None:
+        return refused
 
     async def change() -> None:
         # Marked first: the hourly tidy keeps the SMART data of an archived drive.
         await asyncio.to_thread(app[HISTORY].archive, device)
-        await supervisor.set_monitor_drives(tuple(d for d in supervisor.settings.monitor_drives if d != device))
+        try:
+            await supervisor.set_monitor_drives(tuple(d for d in supervisor.settings.monitor_drives if d != device))
+        except Exception:
+            # Still monitored: a mark left would make it monitored and archived at once.
+            await asyncio.to_thread(app[HISTORY].unarchive, device)
+            raise
 
     return await _drive_answer(request, change)
 
@@ -457,6 +486,12 @@ async def post_drive_restore(request: web.Request) -> web.Response:
     if device not in await asyncio.to_thread(app[HISTORY].archived):
         return _json_error(404, "unknown_drive")
     current = supervisor.settings
+    if device in current.monitor_drives:
+        # Monitored already (settings saved before the mark was taken off with them): only the mark goes.
+        async def unmark() -> None:
+            await asyncio.to_thread(app[HISTORY].unarchive, device)
+
+        return await _drive_answer(request, unmark)
     try:
         checked = from_dict({**current.to_dict(), "monitor_drives": [*current.monitor_drives, device]})
     except SettingsError as err:
@@ -486,8 +521,8 @@ async def post_drive_delete(request: web.Request) -> web.Response:
     monitored = device in supervisor.settings.monitor_drives
     if not monitored and device not in await asyncio.to_thread(app[HISTORY].archived):
         return _json_error(404, "unknown_drive")
-    if monitored and await asyncio.to_thread(app[HARDWARE].dev_exists, device):
-        return _json_error(409, "drive_present")
+    if monitored and (refused := await _presence_error(app, device)) is not None:
+        return refused
 
     async def change() -> None:
         if monitored:
@@ -711,7 +746,31 @@ async def put_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the settings: %s", err)
         return _json_error(500, "save_failed")
+    await _unarchive_monitored(request.app)
     return _settings_answer(supervisor)
+
+
+# ---------------------------
+#   _unarchive_monitored
+# ---------------------------
+async def _unarchive_monitored(app: web.Application) -> None:
+    """Take the archive mark off every drive the settings in force monitor again (Settings, or a reset).
+
+    A drive both monitored and archived could be neither restored
+    (duplicate) nor deleted (drive_present), and the mark would stay. The
+    settings are applied already: a failure is logged, never answered.
+    """
+    history = app[HISTORY]
+    monitored = set(app[SUPERVISOR].settings.monitor_drives)
+
+    def unarchive() -> None:
+        for device in set(history.archived()) & monitored:
+            history.unarchive(device)
+
+    try:
+        await asyncio.to_thread(unarchive)
+    except sqlite3.Error as err:
+        _LOGGER.error("Cannot take the archive mark off the monitored drives: %s", err)
 
 
 # ---------------------------
@@ -727,6 +786,7 @@ async def delete_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot delete the settings: %s", err)
         return _json_error(500, "save_failed")
+    await _unarchive_monitored(request.app)
     return _settings_answer(supervisor)
 
 

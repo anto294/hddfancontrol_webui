@@ -24,6 +24,49 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The title of the failure rates under **Details** names only their source,
   Backblaze's data.
 
+### Fixed
+
+- **A broken `settings.json` no longer deletes history or SMART data.** While
+  the file could not be used, the hourly cleaning followed the environment
+  that stood in for it: it could delete the SMART data and trend of drives the
+  file monitored, and samples the file kept for longer. Nothing is deleted
+  until the file is fixed, and the log says so once.
+- **Archiving or deleting a drive no longer overwrites a broken
+  `settings.json`.** While the file could not be used, the change saved the
+  environment variables that stood in for it over the file. It is now refused
+  with a message that asks to fix or reset the settings first.
+- **A drive that hangs when opened no longer keeps the fans from starting.**
+  The startup checks open every drive, and the fans and the sensor scan
+  waited for them: an `open()` stuck on a dying drive left the fans
+  uncontrolled. The checks now run beside the start, and their banners show
+  once they end.
+- **An archived drive added back in Settings is no longer stuck.** It stayed
+  marked as archived while monitored, so it could be neither restored nor
+  deleted. Saving or resetting the settings now takes the mark off every drive
+  they monitor, and restoring a drive that is monitored already only takes its
+  mark off.
+- **An archive that cannot be saved no longer leaves the drive marked.** When
+  the settings could not be written (a full or read-only `/config`), the drive
+  stayed monitored but marked as archived; the mark is now taken off again.
+- **A database error while a drive is deleted is reported clearly.** A failing
+  `history.db` gave a bare server error; it now gives the same "cannot save"
+  message as a failing `/config`.
+- **No drive can be archived or deleted while `/dev` shows none.** When `/dev`
+  could not be read (no drive listed at all), every drive looked gone, a
+  present one too. Archive and Delete are now refused with a message about
+  `/dev`, as the SMART cards and the missing drive alert already did.
+- **The log no longer says that fans came back when more of them went.** When
+  the chip of one more fan disappeared, the log said the fans "came back" and
+  listed every fan found. It now names the fans that came back and the ones
+  that are gone, each on its own line.
+- **The state no longer reads "Running" when no fan can be driven.** When the
+  chips of all the chosen fans were gone, the state said **Running** because
+  hddfancontrol was measuring. It now says **Fans not found**, in red.
+- **An error in the page no longer stops its updates.** A round of polling that
+  failed with an unexpected error stopped that polling for good, until the page
+  was reloaded; during manual control, the status it stopped asking for ended
+  manual control after two minutes. The next round now always runs.
+
 ## [0.12.0] - 2026-11-21
 
 ### Added

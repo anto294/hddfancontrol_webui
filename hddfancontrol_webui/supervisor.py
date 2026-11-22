@@ -58,6 +58,8 @@ MODE_PWM_TEST = "pwm_test"
 MODE_STOPPED = "stopped"
 MODE_MANUAL = "manual"
 MODE_READ_ONLY = "read_only"
+# The chips of every chosen fan are gone: hddfancontrol may measure, but no fan is driven.
+MODE_FANS_MISSING = "fans_missing"
 
 
 # Lines waiting for stdout at most; more are dropped from stdout (never from the buffer).
@@ -82,6 +84,13 @@ class Busy(RuntimeError):
 # ---------------------------
 class ReadOnly(RuntimeError):
     """The fans cannot be written: /sys is read only (a container that is not privileged)."""
+
+
+# ---------------------------
+#   SettingsBroken
+# ---------------------------
+class SettingsBroken(RuntimeError):
+    """settings.json cannot be used and the environment stands in: saving would overwrite the user's file with it."""
 
 
 # ---------------------------
@@ -435,6 +444,9 @@ class Supervisor:
         if not self.settings.complete:
             # hddfancontrol may measure already (drives without fans), but no fan is driven.
             return MODE_WAITING
+        if self.missing_pwms:
+            # Not "running": hddfancontrol measures, but the chips of all the fans are gone.
+            return MODE_FANS_MISSING
         if self.hddfancontrol.active:
             return MODE_RUNNING
         return MODE_STOPPED
@@ -484,9 +496,15 @@ class Supervisor:
             if missing == self.missing_pwms and settings == self.settings:
                 return False
             await self._keep_place(settings)
-            back = [pwm.path for pwm in settings.pwms if pwm.path not in missing]
+            # _placed keeps the order of the fans: each one is compared with itself, under its new path.
+            pairs = list(zip(self.settings.pwms, settings.pwms, strict=True))
+            back = [new.path for old, new in pairs if old.path in self.missing_pwms and new.path not in missing]
+            gone = [new.path for old, new in pairs if old.path not in self.missing_pwms and new.path in missing]
             self.settings, self.missing_pwms = settings, missing
-            self._log("The chip of these fans came back, they are controlled again: " + ", ".join(back))
+            if back:
+                self._log("The chip of these fans came back, they are controlled again: " + ", ".join(back))
+            if gone:
+                self._log("WARNING: the chip of these fans is gone too, they are not controlled: " + ", ".join(gone))
             await self._restart()
             return True
 
@@ -717,11 +735,16 @@ class Supervisor:
         Only the monitor reads monitor_drives (SMART, self-tests, the missing
         drive alert): hddfancontrol and the fans never see it, so they run on.
         The drives were checked by the caller (from_dict, or a drive taken off
-        the list). Refused once the web UI is stopping.
+        the list). Refused once the web UI is stopping, and while
+        settings.json is broken (SettingsBroken): the settings in force are
+        then the environment's, and saving them would overwrite the file the
+        user can still fix.
         """
         async with self._lock:
             if self.closing:
                 raise Busy("The web UI is stopping")
+            if self.store.error is not None:
+                raise SettingsBroken("The saved settings cannot be used")
             settings = replace(self.settings, monitor_drives=drives)
             await asyncio.to_thread(self.store.save, settings)
             self.settings, self.source = settings, SOURCE_FILE

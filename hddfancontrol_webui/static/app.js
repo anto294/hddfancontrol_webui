@@ -702,8 +702,14 @@ function alertBanner(text) {
 // to go on; coming back polls at once.
 function every(ms, fn, hidden = () => false) {
   setTimeout(async function tick() {
-    if (!document.hidden || hidden()) await fn();
-    setTimeout(tick, typeof ms === "function" ? ms() : ms);
+    // A round that fails must never end the polling (pollStatus keeps manual control alive).
+    try {
+      if (!document.hidden || hidden()) await fn();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setTimeout(tick, typeof ms === "function" ? ms() : ms);
+    }
   }, typeof ms === "function" ? ms() : ms);
 }
 

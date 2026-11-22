@@ -16,7 +16,8 @@ The tables are `series(kind, name)` and `samples(series, ts, value)`. A query av
 into at most `HISTORY_MAX_POINTS` (600) buckets per series, so a chart of a year costs
 the same as one of an hour. Every hour `purge` drops samples older than `history_days`
 and empty series, and `forget_smart` drops the SMART data of drives no longer
-monitored. A corrupt database is set aside and a new one started, so the start never
+monitored; while `settings.json` is broken (the environment stands in) neither runs,
+and the log says so once. A corrupt database is set aside and a new one started, so the start never
 fails on it.
 
 The same database keeps the last SMART summary per drive, the notes on alerts and a
@@ -103,6 +104,9 @@ without any drive listed, `/dev` is not readable and says nothing). The card off
   the SMART data of every drive monitored or archived. The **Archived drives** section
   of the tab lists them (`GET /api/drives/archived`, with `present` when the drive is
   back) and can monitor one again (`POST /api/drives/restore`, checked by `from_dict`).
+  A drive the settings monitor again (Settings → Save, or a reset to the environment)
+  loses its mark too (`_unarchive_monitored`), so it is never monitored and archived
+  at once; restoring one that is monitored already only takes the mark off.
 - **Delete** (`POST /api/drives/delete`, the button asks twice), for a gone monitored
   drive or an archived one: everything it left goes, its SMART data, its series under
   every name it had, the notes on its alerts, its self-test times, its labels and its
@@ -110,8 +114,11 @@ without any drive listed, `/dev` is not readable and says nothing). The card off
 
 A drive that drives the fans (under any of its names) is refused (`drive_controlled`):
 it leaves fan control in the settings first. A drive still on the host is refused too
-(`drive_present`). Changing `monitor_drives` this way saves the settings and restarts
-nothing (`Supervisor.set_monitor_drives`): only the monitor reads it.
+(`drive_present`), and so is any drive while `/dev` lists none (`dev_unreadable`: `/dev`
+is not readable, and every drive would look gone). Changing `monitor_drives` this way saves the settings and restarts
+nothing (`Supervisor.set_monitor_drives`): only the monitor reads it. While
+`settings.json` is broken it is refused (409 `settings_broken`): the settings in force
+are then the environment's, and saving them would overwrite the file.
 
 The history keeps a drive under one of its by-id names (`wwn-` first), maybe not the one
 of the settings, and once the drive is gone `/dev` no longer says which they were: the

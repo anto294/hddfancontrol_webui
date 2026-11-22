@@ -565,3 +565,33 @@ def test_what_the_monitor_takes_from_the_hardware(tmp_path: Path, fake_sys: Path
     assert found[f"smart_error:{nvme}"][1]["drive"] == "Boot"
     assert "missing" not in json.dumps(list(monitor.smart_view().values()))
     monitor.history.close()
+
+
+def test_tidy_deletes_nothing_while_the_saved_settings_are_broken(tmp_path: Path, fake_sys: Path, fake_dev: Path) -> None:
+    """With settings.json broken, the environment stands in: tidy keeps every sample and SMART reading, and says so once."""
+    lines: list[str] = []
+    broken = [True]
+    history = History(tmp_path / "history.db")
+    monitor = Monitor(
+        history,
+        TempLog(tmp_path / "temps.jsonl"),
+        Hardware(fake_dev, fake_sys),
+        lambda: Settings(history_days=1),  # the environment: one day, no monitored drive
+        log=lines.append,
+        settings_ok=lambda: not broken[0],
+    )
+    old = int(time.time()) - 10 * 86400
+    history.record(old, [("drive", DRIVE, 40.0)])
+    history.save_smart(DRIVE, {"status": "ok"})
+    history.record_smart(DRIVE, {"pending_sectors": 1.0}, ts=old)
+    monitor.tidy()
+    monitor.tidy()
+    assert list(history.smart()) == [DRIVE]
+    assert history.smart_history(DRIVE) != {}
+    assert history.query(24 * 30)["series"] != []
+    assert len(lines) == 1 and "kept until they are fixed" in lines[0]
+    # Fixed: the cleaning runs again.
+    broken[0] = False
+    monitor.tidy()
+    assert history.smart() == {} and history.query(24 * 30)["series"] == []
+    history.close()

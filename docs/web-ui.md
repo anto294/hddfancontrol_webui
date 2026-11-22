@@ -39,7 +39,9 @@ The footer shows the running version and, when `status.update` names a newer rel
 - **Animations by class only**, and updated in place, so an animation does not restart
   at every poll; `prefers-reduced-motion` turns them off.
 - **No polling while the tab is hidden** (`every()`), except the status during manual
-  control: the server ends manual control when no page asks any more.
+  control: the server ends manual control when no page asks any more. A round that
+  throws is logged to the console and the next one is scheduled all the same: a bug in
+  one render must never stop the polling, and with it manual control.
 - **Only the tab shown asks for its data.** The log lines (`pollLogs`) are asked for only
   while the Logs tab is open; opening it first catches up from the last line it has
   (`after=`), then draws the whole log. The server keeps as many lines

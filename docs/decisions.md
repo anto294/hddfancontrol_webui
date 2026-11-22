@@ -123,6 +123,14 @@ Writing the missing fan's old path is still never done: it may belong to another
 an unprivileged container cannot write the fans; pretending it controls them would be
 dangerous. (2026-11-16)
 
+**The startup checks never hold up the start.** They run beside the sensor scan and
+`Supervisor.start()` (`startup`, `checks_task`), in a daemon thread of their own
+(`in_daemon_thread`). Why: they open every drive of `/dev` and every chosen PWM file,
+and an `open()` on a dying drive can hang in the kernel for good; the fans come first,
+and the checks only report. A daemon thread rather than `asyncio.to_thread`: a call
+that never returns would otherwise hold a thread of the shared pool, which
+`asyncio.run` waits for at exit. (2026-11-22)
+
 ## Data
 
 **History and SMART summaries in SQLite.** Why: one file, no server, queries that
@@ -185,6 +193,18 @@ with that count (Backblaze's data) says how serious it is. The table and limits
 hand. Remaining life is only measurable for SSD/NVMe (their own wear); for hard drives
 it is a range from a 5–7 year service life, cut by the risk, and the page says it is
 an estimate. A growing critical counter counts more than its size. (2026-11-21)
+
+**Nothing is deleted while `settings.json` is broken.** The hourly `tidy` skips `purge`
+and `forget_smart` while the store reports an error (`Monitor(settings_ok=...)`) and
+keeps the by-id names only. Why: the environment that stands in for a broken file may
+monitor other drives and keep fewer days; a mistake in a file can be fixed, but the
+SMART trend of a drive deleted in the meantime cannot come back. (2026-11-22)
+
+**A change of the monitored drives is refused while `settings.json` is broken.**
+`Supervisor.set_monitor_drives` raises `SettingsBroken` and the API answers 409
+`settings_broken`. Why: the settings in force are then the environment's; saving them
+with one drive more or less would replace the user's file, which only needed a fix.
+Settings → Save (or Reset) is the way out, and it shows what will be saved. (2026-11-22)
 
 ## Security
 

@@ -300,7 +300,8 @@ a {
   border-color: var(--warn);
 }
 
-.pill[data-mode="stopped"] {
+.pill[data-mode="stopped"],
+.pill[data-mode="fans_missing"] {
   color: var(--danger);
   border-color: var(--danger);
 }

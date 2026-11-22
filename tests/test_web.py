@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sqlite3
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -27,7 +28,7 @@ from hddfancontrol_webui.monitor import Monitor
 from hddfancontrol_webui.notify import NotifyError
 from hddfancontrol_webui.sensors import SensorReport
 from hddfancontrol_webui.settings import NOTIFY_MASK, SettingsStore
-from hddfancontrol_webui.supervisor import LogBuffer, Supervisor
+from hddfancontrol_webui.supervisor import LogBuffer, SettingsBroken, Supervisor
 from hddfancontrol_webui.templog import TempLog
 from hddfancontrol_webui.updates import RELEASE_PAGE, UpdateCheck
 from hddfancontrol_webui.web import (
@@ -861,3 +862,99 @@ async def test_hardware_requests_share_the_snapshot_under_way(
     release.set()
     assert [(await response).status for response in pending] == [500, 500]
     assert len(calls) == 3
+
+
+async def test_drive_changes_never_overwrite_broken_settings(make_client: ClientMaker) -> None:
+    """With settings.json broken, the environment stands in: a change of the monitored drives is refused, the file kept."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client(env={"MONITOR_DRIVES": gone})
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    supervisor = client.app[SUPERVISOR]
+    broken = '{"monitor_drives": [' + json.dumps(DRIVE) + ", " + json.dumps(gone) + "], "  # cut short
+    supervisor.store.path.write_text(broken)
+    supervisor.settings, supervisor.source = supervisor.store.load()
+    assert supervisor.store.error is not None
+    history = client.app[MONITOR].history
+    history.save_smart(gone, {"status": "ok"})
+
+    response = await client.post("/api/drives/delete", json={"device": gone}, headers=FETCH)
+    assert response.status == 409 and (await response.json())["error"] == "settings_broken"
+    assert supervisor.store.path.read_text() == broken
+    assert gone in history.smart()
+    with pytest.raises(SettingsBroken):
+        await supervisor.set_monitor_drives((DRIVE,))
+    assert supervisor.store.path.read_text() == broken
+
+
+async def test_an_archived_drive_monitored_again_from_the_settings(make_client: ClientMaker) -> None:
+    """Saving or resetting settings that monitor an archived drive takes its mark off; restore only takes off a mark left."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client(env={"MONITOR_DRIVES": f"{DRIVE} {gone}"})
+    history = client.app[MONITOR].history
+    supervisor = client.app[SUPERVISOR]
+    archived = "/api/drives/archived"
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    assert (await client.post("/api/drives/archive", json={"device": gone}, headers=FETCH)).status == 200
+    assert gone in await (await client.get(archived)).json()
+
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    assert await (await client.get(archived)).json() == {}
+
+    assert (await client.post("/api/drives/archive", json={"device": gone}, headers=FETCH)).status == 200
+    assert (await client.delete("/api/settings", headers=FETCH)).status == 200  # the environment monitors it
+    assert gone in supervisor.settings.monitor_drives
+    assert await (await client.get(archived)).json() == {}
+
+    # A mark left on a monitored drive (an older version): restore takes it off and adds no duplicate.
+    history.archive(gone)
+    response = await client.post("/api/drives/restore", json={"device": gone}, headers=FETCH)
+    assert response.status == 200 and await response.json() == {}
+    assert supervisor.settings.monitor_drives == (DRIVE, gone)
+
+
+async def test_an_archive_that_cannot_be_saved_leaves_no_mark(
+    make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the monitored drives cannot be saved, the drive stays monitored and is not marked as archived."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client()
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    supervisor = client.app[SUPERVISOR]
+
+    async def full_disk(drives: tuple[str, ...]) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(supervisor, "set_monitor_drives", full_disk)
+    response = await client.post("/api/drives/archive", json={"device": gone}, headers=FETCH)
+    assert response.status == 500 and (await response.json())["error"] == "save_failed"
+    assert gone in supervisor.settings.monitor_drives
+    assert client.app[MONITOR].history.archived() == {}
+
+
+async def test_a_database_error_on_delete_is_answered(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A history.db that fails while a drive is deleted gives save_failed, as a /config that fails does."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client()
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    monitor = client.app[MONITOR]
+
+    def locked(device: str) -> set[str]:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(monitor, "forget_drive", locked)
+    response = await client.post("/api/drives/delete", json={"device": gone}, headers=FETCH)
+    assert response.status == 500 and (await response.json())["error"] == "save_failed"
+
+
+async def test_no_drive_is_gone_while_dev_lists_none(make_client: ClientMaker, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without any drive listed, /dev is not readable here: no drive can be archived or deleted as gone."""
+    client = await make_client()
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE]}, headers=FETCH)).status == 200
+    hardware = client.app[HARDWARE]
+    monkeypatch.setattr(hardware, "drives", lambda full=True: [])
+    monkeypatch.setattr(hardware, "dev_exists", lambda path: False)  # an unreadable /dev: nothing seems to be here
+    for action in ("archive", "delete"):
+        response = await client.post(f"/api/drives/{action}", json={"device": DRIVE}, headers=FETCH)
+        assert response.status == 409 and (await response.json())["error"] == "dev_unreadable"
+    assert client.app[SUPERVISOR].settings.monitor_drives == (DRIVE,)
+    assert client.app[MONITOR].history.archived() == {}
