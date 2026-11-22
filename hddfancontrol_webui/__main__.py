@@ -152,6 +152,7 @@ def build() -> Core:
         status=supervisor.status,
         labels=labels.all,
         selftest=selftest,
+        settings_ok=lambda: supervisor.store.error is None,
     )
 
     async def scan() -> SensorReport:

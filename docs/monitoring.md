@@ -16,7 +16,8 @@ The tables are `series(kind, name)` and `samples(series, ts, value)`. A query av
 into at most `HISTORY_MAX_POINTS` (600) buckets per series, so a chart of a year costs
 the same as one of an hour. Every hour `purge` drops samples older than `history_days`
 and empty series, and `forget_smart` drops the SMART data of drives no longer
-monitored. A corrupt database is set aside and a new one started, so the start never
+monitored; while `settings.json` is broken (the environment stands in) neither runs,
+and the log says so once. A corrupt database is set aside and a new one started, so the start never
 fails on it.
 
 The same database keeps the last SMART summary per drive, the notes on alerts and a

@@ -24,6 +24,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - The title of the failure rates under **Details** names only their source,
   Backblaze's data.
 
+### Fixed
+
+- **A broken `settings.json` no longer deletes history or SMART data.** While
+  the file could not be used, the hourly cleaning followed the environment
+  that stood in for it: it could delete the SMART data and trend of drives the
+  file monitored, and samples the file kept for longer. Nothing is deleted
+  until the file is fixed, and the log says so once.
+
 ## [0.12.0] - 2026-11-21
 
 ### Added

@@ -186,6 +186,12 @@ hand. Remaining life is only measurable for SSD/NVMe (their own wear); for hard 
 it is a range from a 5–7 year service life, cut by the risk, and the page says it is
 an estimate. A growing critical counter counts more than its size. (2026-11-21)
 
+**Nothing is deleted while `settings.json` is broken.** The hourly `tidy` skips `purge`
+and `forget_smart` while the store reports an error (`Monitor(settings_ok=...)`) and
+keeps the by-id names only. Why: the environment that stands in for a broken file may
+monitor other drives and keep fewer days; a mistake in a file can be fixed, but the
+SMART trend of a drive deleted in the meantime cannot come back. (2026-11-22)
+
 ## Security
 
 **Privilege separation: a root core on a Unix socket, an unprivileged gateway on the

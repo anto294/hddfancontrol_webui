@@ -108,12 +108,15 @@ class Monitor:
         status: Callable[[], dict[str, Any]] | None = None,
         labels: Callable[[], dict[str, str]] | None = None,
         selftest: SelfTest = start_selftest,
+        settings_ok: Callable[[], bool] | None = None,
     ) -> None:
         """Read from these sources and write to history; log the temperatures with log.
 
         With alerts, the conditions of conditions() are handed to it after
         each record; status() is the status of the supervisor and labels()
-        the names given to drives and fans.
+        the names given to drives and fans. settings_ok() says whether the
+        settings in force are the user's (False: settings.json is broken and
+        the environment stands in); tidy() deletes nothing while it is False.
         """
         self.history = history
         self.temp_log = temp_log
@@ -125,6 +128,9 @@ class Monitor:
         self.alerts = alerts
         self._status = status
         self._labels = labels or dict
+        self._settings_ok = settings_ok or (lambda: True)
+        # Whether the last tidy() held back its deletions, so that it says so once.
+        self._tidy_held = False
         # Fans seen turning (so they have a speed sensor), and since when a fan shows 0 RPM.
         self._spun: set[str] = set()
         self._stall_since: dict[str, float] = {}
@@ -321,10 +327,21 @@ class Monitor:
         """The hourly cleaning: old samples go, and the SMART data of drives neither monitored nor archived. Blocking.
 
         The other names of each monitored drive are kept first, so that its
-        series can still be found and deleted once the drive is gone.
+        series can still be found and deleted once the drive is gone. While
+        settings.json is broken (settings_ok() is False) nothing is deleted:
+        the environment that stands in may list other drives or keep fewer
+        days, and what is deleted cannot come back once the file is fixed.
         """
         settings = self._settings()
         self.remember_ids()
+        if not self._settings_ok():
+            if not self._tidy_held and self._log is not None:
+                self._log(
+                    "WARNING: the saved settings cannot be used: old samples and SMART data are kept until they are fixed"
+                )
+            self._tidy_held = True
+            return
+        self._tidy_held = False
         self.history.purge(settings.history_days)
         self.history.forget_smart(set(settings.monitor_drives) | set(self.history.archived()))
 
