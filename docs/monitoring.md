@@ -104,6 +104,9 @@ without any drive listed, `/dev` is not readable and says nothing). The card off
   the SMART data of every drive monitored or archived. The **Archived drives** section
   of the tab lists them (`GET /api/drives/archived`, with `present` when the drive is
   back) and can monitor one again (`POST /api/drives/restore`, checked by `from_dict`).
+  A drive the settings monitor again (Settings → Save, or a reset to the environment)
+  loses its mark too (`_unarchive_monitored`), so it is never monitored and archived
+  at once; restoring one that is monitored already only takes the mark off.
 - **Delete** (`POST /api/drives/delete`, the button asks twice), for a gone monitored
   drive or an archived one: everything it left goes, its SMART data, its series under
   every name it had, the notes on its alerts, its self-test times, its labels and its

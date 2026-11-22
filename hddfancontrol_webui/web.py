@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import socket
+import sqlite3
 import struct
 import time
 from collections.abc import Awaitable, Callable
@@ -453,6 +454,12 @@ async def post_drive_restore(request: web.Request) -> web.Response:
     if device not in await asyncio.to_thread(app[HISTORY].archived):
         return _json_error(404, "unknown_drive")
     current = supervisor.settings
+    if device in current.monitor_drives:
+        # Monitored already (settings saved before the mark was taken off with them): only the mark goes.
+        async def unmark() -> None:
+            await asyncio.to_thread(app[HISTORY].unarchive, device)
+
+        return await _drive_answer(request, unmark)
     try:
         checked = from_dict({**current.to_dict(), "monitor_drives": [*current.monitor_drives, device]})
     except SettingsError as err:
@@ -670,7 +677,31 @@ async def put_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot save the settings: %s", err)
         return _json_error(500, "save_failed")
+    await _unarchive_monitored(request.app)
     return _settings_answer(supervisor)
+
+
+# ---------------------------
+#   _unarchive_monitored
+# ---------------------------
+async def _unarchive_monitored(app: web.Application) -> None:
+    """Take the archive mark off every drive the settings in force monitor again (Settings, or a reset).
+
+    A drive both monitored and archived could be neither restored
+    (duplicate) nor deleted (drive_present), and the mark would stay. The
+    settings are applied already: a failure is logged, never answered.
+    """
+    history = app[HISTORY]
+    monitored = set(app[SUPERVISOR].settings.monitor_drives)
+
+    def unarchive() -> None:
+        for device in set(history.archived()) & monitored:
+            history.unarchive(device)
+
+    try:
+        await asyncio.to_thread(unarchive)
+    except sqlite3.Error as err:
+        _LOGGER.error("Cannot take the archive mark off the monitored drives: %s", err)
 
 
 # ---------------------------
@@ -686,6 +717,7 @@ async def delete_settings(request: web.Request) -> web.Response:
     except OSError as err:
         _LOGGER.error("Cannot delete the settings: %s", err)
         return _json_error(500, "save_failed")
+    await _unarchive_monitored(request.app)
     return _settings_answer(supervisor)
 
 

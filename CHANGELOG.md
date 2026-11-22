@@ -40,6 +40,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   waited for them: an `open()` stuck on a dying drive left the fans
   uncontrolled. The checks now run beside the start, and their banners show
   once they end.
+- **An archived drive added back in Settings is no longer stuck.** It stayed
+  marked as archived while monitored, so it could be neither restored nor
+  deleted. Saving or resetting the settings now takes the mark off every drive
+  they monitor, and restoring a drive that is monitored already only takes its
+  mark off.
 
 ## [0.12.0] - 2026-11-21
 

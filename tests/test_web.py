@@ -827,3 +827,29 @@ async def test_drive_changes_never_overwrite_broken_settings(make_client: Client
     with pytest.raises(SettingsBroken):
         await supervisor.set_monitor_drives((DRIVE,))
     assert supervisor.store.path.read_text() == broken
+
+
+async def test_an_archived_drive_monitored_again_from_the_settings(make_client: ClientMaker) -> None:
+    """Saving or resetting settings that monitor an archived drive takes its mark off; restore only takes off a mark left."""
+    gone = "/dev/disk/by-id/ata-GONE_1"
+    client = await make_client(env={"MONITOR_DRIVES": f"{DRIVE} {gone}"})
+    history = client.app[MONITOR].history
+    supervisor = client.app[SUPERVISOR]
+    archived = "/api/drives/archived"
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    assert (await client.post("/api/drives/archive", json={"device": gone}, headers=FETCH)).status == 200
+    assert gone in await (await client.get(archived)).json()
+
+    assert (await client.put("/api/settings", json={"monitor_drives": [DRIVE, gone]}, headers=FETCH)).status == 200
+    assert await (await client.get(archived)).json() == {}
+
+    assert (await client.post("/api/drives/archive", json={"device": gone}, headers=FETCH)).status == 200
+    assert (await client.delete("/api/settings", headers=FETCH)).status == 200  # the environment monitors it
+    assert gone in supervisor.settings.monitor_drives
+    assert await (await client.get(archived)).json() == {}
+
+    # A mark left on a monitored drive (an older version): restore takes it off and adds no duplicate.
+    history.archive(gone)
+    response = await client.post("/api/drives/restore", json={"device": gone}, headers=FETCH)
+    assert response.status == 200 and await response.json() == {}
+    assert supervisor.settings.monitor_drives == (DRIVE, gone)
