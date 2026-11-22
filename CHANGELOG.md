@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-22
+
 ### Added
 
 - **A newer release is named in the footer.** Once a day the web UI asks
@@ -906,7 +908,8 @@ First release.
   `RESTORE_FAN_SETTINGS` is on by default: when hddfancontrol stops, the fans
   get their previous settings back instead of running at full speed.
 
-[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.12.0...main
+[Unreleased]: https://github.com/anto294/hddfancontrol_webui/compare/v0.13.0...main
+[0.13.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/anto294/hddfancontrol_webui/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/anto294/hddfancontrol_webui/compare/v0.10.1...v0.11.0
