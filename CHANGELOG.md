@@ -9,9 +9,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
-- **The web UI speaks German and Brazilian Portuguese.** Pick the language
-  from the flag in the header, or let the browser choose; the alerts can be
-  sent in it too (Settings → Notifications, or `NOTIFY_LANGUAGE`).
+- **The web UI speaks German, Brazilian Portuguese and Russian.** Pick the
+  language from the flag in the header, or let the browser choose; the alerts
+  can be sent in it too (Settings → Notifications, or `NOTIFY_LANGUAGE`).
 
 ## [0.13.0] - 2026-11-22
 

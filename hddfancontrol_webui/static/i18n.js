@@ -4,9 +4,9 @@
 // English is always loaded first, so a missing key in another language
 // falls back to English instead of showing the key.
 const I18N = { strings: {}, lang: "en", locale: "en" };
-const LANGUAGES = ["en", "it", "es", "fr", "de", "pt", "zh", "hi", "ar"];
+const LANGUAGES = ["en", "it", "es", "fr", "de", "pt", "ru", "zh", "hi", "ar"];
 // Each language is named in itself, so anyone finds their own.
-const LANGUAGE_NAMES = { en: "English", it: "Italiano", es: "Español", fr: "Français", de: "Deutsch", pt: "Português (Brasil)", zh: "中文", hi: "हिन्दी", ar: "العربية" };
+const LANGUAGE_NAMES = { en: "English", it: "Italiano", es: "Español", fr: "Français", de: "Deutsch", pt: "Português (Brasil)", ru: "Русский", zh: "中文", hi: "हिन्दी", ar: "العربية" };
 // Written from right to left: the page turns around.
 const RTL_LANGUAGES = ["ar"];
 // Dates and numbers: Latin digits everywhere, as the values of the page use them.
@@ -34,7 +34,8 @@ function saveLanguage(code) {
 
 // Flags drawn as SVG, the same on every system (Windows shows no flag emoji).
 // English gets the British flag, Spanish the Spanish one, Portuguese the
-// Brazilian one, Hindi the Indian one; Arabic, spoken in many countries, a letter of its own; "automatic" a globe.
+// Brazilian one, Hindi the Indian one; Arabic and Russian, spoken in many
+// countries, a letter of their own; "automatic" a globe.
 const FLAGS = {
   "": { viewBox: "0 0 24 24", parts: [["circle", { cx: 12, cy: 12, r: 9, class: "globe" }], ["path", { d: "M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18", class: "globe" }]] },
   en: {
@@ -84,6 +85,13 @@ const FLAGS = {
       ["rect", { width: 20, height: 14, fill: "#009C3B" }],
       ["path", { d: "M10,1.7 L18.3,7 L10,12.3 L1.7,7Z", fill: "#FFDF00" }],
       ["circle", { cx: 10, cy: 7, r: 3.5, fill: "#002776" }],
+    ],
+  },
+  ru: {
+    viewBox: "0 0 30 20",
+    parts: [
+      ["rect", { width: 30, height: 20, fill: "#3b5998" }],
+      ["text", { x: 15, y: 15, "text-anchor": "middle", "font-size": 15, fill: "#fff", text: "Я" }],
     ],
   },
   zh: {
