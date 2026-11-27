@@ -317,6 +317,15 @@ only tells: nothing is downloaded or installed. (2026-11-22)
 Hindi and Arabic (right to left). Why: the most spoken languages; a literal translation
 reads badly. (0.10.0, 2026-11-18)
 
+**More languages for the people who run home servers.** German, Brazilian Portuguese,
+Russian and Japanese, translated by meaning like the others and reviewed as a native
+speaker would read them. Why: the communities that build their own NAS and home servers
+are large where these languages are spoken and often read no English; Portuguese is the
+Brazilian one (`pt`, dates as `pt-BR`), the larger community, which Portugal reads too.
+Russian gets a letter in the language picker, not a flag, as Arabic does: it is spoken
+in many countries. Each language more is one more file for every new key, so the list
+stops where few users are left. (2026-11-27)
+
 ## Branches and images
 
 **Features under test live on the `experimental` branch, which is checked like `main`

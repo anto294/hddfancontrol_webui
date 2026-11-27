@@ -62,7 +62,7 @@ Open `https://<host>:28462` (the certificate is self-signed: accept it once), ty
 - **Watch the drives.** SMART health, scheduled self-tests, what each drive is (NAS or desktop, CMR or SMR, how it is connected), and a map of the bays of the case with the drives in them.
 - **Know when something is wrong.** A hot drive, a stopped or worn fan, a SMART problem: a banner, a log line and, if you want, a message on your phone through ntfy, Gotify or a webhook.
 
-Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleeping drive), history charts from one hour to a year, names for fans and drives, settings backup, Prometheus metrics, a light and a dark theme, a phone layout, and seven languages (English, Italian, Spanish, French, Chinese, Hindi, Arabic).
+Also: spin down of idle drives with hd-idle (nothing in the web UI wakes a sleeping drive), history charts from one hour to a year, names for fans and drives, settings backup, Prometheus metrics, a light and a dark theme, a phone layout, and eleven languages (English, Italian, Spanish, French, German, Brazilian Portuguese, Russian, Japanese, Chinese, Hindi, Arabic).
 
 <table>
   <tr>
@@ -328,7 +328,7 @@ The variables of **Web UI and access**, the advanced ones and `TZ` are read only
 | `SELFTEST_LONG` | — | When a long SMART self-test starts (cron), such as `0 3 1 * *` |
 | `NOTIFY_URL` | — | Where alerts are sent (see [Alerts](#alerts)); empty, none |
 | `NOTIFY_FORMAT` | `ntfy` | `ntfy`, `gotify` or `json` |
-| `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en`, `it`, `es`, `fr`, `zh`, `hi` or `ar` |
+| `NOTIFY_LANGUAGE` | `en` | Language of the alerts: `en`, `it`, `es`, `fr`, `de`, `pt`, `ru`, `ja`, `zh`, `hi` or `ar` |
 | `NOTIFY_REPEAT_H` | `0` | Send again an alert still on (and not taken note of) every this many hours; `0` sends it once |
 | `NOTIFY_QUIET` | — | Quiet hours, the minutes a cron expression matches, such as `* 22-23,0-6 * * *`: only urgent alerts go out, the rest when they end |
 | `NOTIFY_SUMMARY` | — | When a summary is sent (cron), such as `0 9 * * mon` |

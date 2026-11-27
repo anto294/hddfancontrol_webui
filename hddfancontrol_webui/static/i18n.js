@@ -4,13 +4,13 @@
 // English is always loaded first, so a missing key in another language
 // falls back to English instead of showing the key.
 const I18N = { strings: {}, lang: "en", locale: "en" };
-const LANGUAGES = ["en", "it", "es", "fr", "zh", "hi", "ar"];
+const LANGUAGES = ["en", "it", "es", "fr", "de", "pt", "ru", "ja", "zh", "hi", "ar"];
 // Each language is named in itself, so anyone finds their own.
-const LANGUAGE_NAMES = { en: "English", it: "Italiano", es: "Español", fr: "Français", zh: "中文", hi: "हिन्दी", ar: "العربية" };
+const LANGUAGE_NAMES = { en: "English", it: "Italiano", es: "Español", fr: "Français", de: "Deutsch", pt: "Português (Brasil)", ru: "Русский", ja: "日本語", zh: "中文", hi: "हिन्दी", ar: "العربية" };
 // Written from right to left: the page turns around.
 const RTL_LANGUAGES = ["ar"];
 // Dates and numbers: Latin digits everywhere, as the values of the page use them.
-const LOCALES = { zh: "zh-CN", hi: "hi-IN-u-nu-latn", ar: "ar-u-nu-latn" };
+const LOCALES = { pt: "pt-BR", zh: "zh-CN", hi: "hi-IN-u-nu-latn", ar: "ar-u-nu-latn" };
 const LANGUAGE_KEY = "lang";
 
 // The language chosen in this browser, or "" to follow the browser. Storage
@@ -33,8 +33,9 @@ function saveLanguage(code) {
 }
 
 // Flags drawn as SVG, the same on every system (Windows shows no flag emoji).
-// English gets the British flag, Spanish the Spanish one, Hindi the Indian
-// one; Arabic, spoken in many countries, a letter of its own; "automatic" a globe.
+// English gets the British flag, Spanish the Spanish one, Portuguese the
+// Brazilian one, Japanese the Japanese one, Hindi the Indian one; Arabic and Russian, spoken in many
+// countries, a letter of their own; "automatic" a globe.
 const FLAGS = {
   "": { viewBox: "0 0 24 24", parts: [["circle", { cx: 12, cy: 12, r: 9, class: "globe" }], ["path", { d: "M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18", class: "globe" }]] },
   en: {
@@ -68,6 +69,36 @@ const FLAGS = {
       ["rect", { width: 1, height: 2, fill: "#002395" }],
       ["rect", { x: 1, width: 1, height: 2, fill: "#fff" }],
       ["rect", { x: 2, width: 1, height: 2, fill: "#ED2939" }],
+    ],
+  },
+  de: {
+    viewBox: "0 0 5 3",
+    parts: [
+      ["rect", { width: 5, height: 1, fill: "#000" }],
+      ["rect", { y: 1, width: 5, height: 1, fill: "#DD0000" }],
+      ["rect", { y: 2, width: 5, height: 1, fill: "#FFCE00" }],
+    ],
+  },
+  pt: {
+    viewBox: "0 0 20 14",
+    parts: [
+      ["rect", { width: 20, height: 14, fill: "#009C3B" }],
+      ["path", { d: "M10,1.7 L18.3,7 L10,12.3 L1.7,7Z", fill: "#FFDF00" }],
+      ["circle", { cx: 10, cy: 7, r: 3.5, fill: "#002776" }],
+    ],
+  },
+  ru: {
+    viewBox: "0 0 30 20",
+    parts: [
+      ["rect", { width: 30, height: 20, fill: "#3b5998" }],
+      ["text", { x: 15, y: 15, "text-anchor": "middle", "font-size": 15, fill: "#fff", text: "Я" }],
+    ],
+  },
+  ja: {
+    viewBox: "0 0 30 20",
+    parts: [
+      ["rect", { width: 30, height: 20, fill: "#fff" }],
+      ["circle", { cx: 15, cy: 10, r: 6, fill: "#BC002D" }],
     ],
   },
   zh: {

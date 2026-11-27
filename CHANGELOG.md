@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **The web UI speaks German, Brazilian Portuguese, Russian and Japanese.**
+  Pick the language from the flag in the header, or let the browser choose;
+  the alerts can be sent in it too (Settings → Notifications, or
+  `NOTIFY_LANGUAGE`).
+
 ## [0.13.0] - 2026-11-22
 
 ### Added
