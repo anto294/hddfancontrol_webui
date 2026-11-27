@@ -14,6 +14,14 @@
   --warn-bg: #fff4e0;
   --danger: #d33a2c;
   --danger-bg: #fdeceb;
+  /* Failure risk, seven bands from green to red (health.py BAND_LIMITS). */
+  --band0: #138a52;
+  --band1: #3b8a2a;
+  --band2: #687f0e;
+  --band3: #8f7400;
+  --band4: #b26a00;
+  --band5: #c4501b;
+  --band6: #d33a2c;
   --info-bg: #e7f0ff;
   --grid: #e3e8f0;
   --c1: #1e7cf2;
@@ -44,6 +52,13 @@
     --warn-bg: #2b2210;
     --danger: #ff6b5e;
     --danger-bg: #2e1513;
+    --band0: #3ccf8e;
+    --band1: #79d65a;
+    --band2: #b5d84a;
+    --band3: #ecd24a;
+    --band4: #f0b44c;
+    --band5: #ff8c4a;
+    --band6: #ff6b5e;
     --info-bg: #10223f;
     --grid: #18253d;
     --c1: #3d95ff;
@@ -72,6 +87,13 @@
   --warn-bg: #2b2210;
   --danger: #ff6b5e;
   --danger-bg: #2e1513;
+  --band0: #3ccf8e;
+  --band1: #79d65a;
+  --band2: #b5d84a;
+  --band3: #ecd24a;
+  --band4: #f0b44c;
+  --band5: #ff8c4a;
+  --band6: #ff6b5e;
   --info-bg: #10223f;
   --grid: #18253d;
   --c1: #3d95ff;
@@ -1613,12 +1635,91 @@ details.help p {
   font-variant-numeric: tabular-nums;
 }
 
+/* The failure rate and the chance of a drive read as one line: the whole row. */
+.fact.wide {
+  grid-column: 1 / -1;
+}
+
 .fact.warm strong {
   color: var(--warn);
 }
 
 .fact.hot strong {
   color: var(--danger);
+}
+
+.fact.band-0 strong,
+.list .band-0 {
+  color: var(--band0);
+}
+
+.fact.band-1 strong,
+.list .band-1 {
+  color: var(--band1);
+}
+
+.fact.band-2 strong,
+.list .band-2 {
+  color: var(--band2);
+}
+
+.fact.band-3 strong,
+.list .band-3 {
+  color: var(--band3);
+}
+
+.fact.band-4 strong,
+.list .band-4 {
+  color: var(--band4);
+}
+
+.fact.band-5 strong,
+.list .band-5 {
+  color: var(--band5);
+}
+
+.fact.band-6 strong,
+.list .band-6 {
+  color: var(--band6);
+}
+
+.risk-scale .seg-0 {
+  fill: var(--band0);
+}
+
+.risk-scale .seg-1 {
+  fill: var(--band1);
+}
+
+.risk-scale .seg-2 {
+  fill: var(--band2);
+}
+
+.risk-scale .seg-3 {
+  fill: var(--band3);
+}
+
+.risk-scale .seg-4 {
+  fill: var(--band4);
+}
+
+.risk-scale .seg-5 {
+  fill: var(--band5);
+}
+
+.risk-scale .seg-6 {
+  fill: var(--band6);
+}
+
+.risk-scale {
+  display: block;
+  inline-size: 100%;
+  block-size: 0.35rem;
+  margin-block-start: 0.25rem;
+}
+
+.risk-scale .off {
+  opacity: 0.22;
 }
 
 .card.smart.smart-failing {
