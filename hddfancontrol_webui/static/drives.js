@@ -38,28 +38,31 @@ function smartCard(device, data) {
   // What matters every day, up front; the rest under Details.
   const limit = data.temp_limit ?? null;
   const facts = el("div", { class: "facts" });
-  const fact = (label, value, level = "") => facts.append(el("div", { class: `fact ${level}`.trim() }, el("span", { class: "muted small", text: label }), el("strong", { text: value })));
+  const fact = (label, value, level = "", ...extra) =>
+    facts.append(el("div", { class: `fact ${level}`.trim() }, el("span", { class: "muted small", text: label }), el("strong", { text: value }), ...extra));
+  const health = data.health;
   if (present(data.temperature)) fact(t("smart.temperature"), fmtTemp(data.temperature), tempLevel(data.temperature, (state.hardware.drives.find((dr) => dr.ids.includes(device)) || {}).name));
   if (present(data.temp_lifetime_max)) fact(t("smart.temp_lifetime_max_short"), fmtTemp(data.temp_lifetime_max), limit !== null && data.temp_lifetime_max > limit ? "warm" : "");
   if (limit !== null) fact(t("smart.temp_limit_short"), fmtTemp(limit));
   if (present(data.power_on_hours)) fact(t("smart.power_on_hours"), t("smart.years", { years: (data.power_on_hours / 8766).toFixed(1) }));
   if (present(data.percentage_used)) fact(t("smart.percentage_used"), ltr(`${data.percentage_used} %`), data.percentage_used >= 90 ? "hot" : "");
+  // A counter above 0 takes the colour of how much it raises the risk (health.py), not always red.
   for (const key of SMART_ERRORS) {
-    if (data[key]) fact(t(`smart.${key}`), String(data[key]), "hot");
+    if (!data[key]) continue;
+    const attr = health ? health.attributes.find((a) => a.key === key) : null;
+    fact(t(`smart.${key}`), String(data[key]), `band-${attr ? attr.band : WARNING_BAND}`);
   }
   const test = data.selftest;
   if (test) {
     const result = test.running ? t("smart.selftest_running") : test.passed === true ? t("smart.selftest_ok") : test.passed === false ? t("smart.selftest_failed") : test.result;
     fact(t("smart.selftest"), result, test.passed === false ? "hot" : "");
   }
-  // Risk and remaining life (health.py): an estimate, said so under Details.
-  const health = data.health;
-  if (health && health.risk !== "unknown") {
-    const level = { high: "hot", medium: "warm" }[health.risk] || "";
-    const afr = health.afr === null ? "" : ` · ${t("health.afr", { afr: fmtAfr(health.afr) })}`;
-    fact(t("health.risk"), `${t(`health.risk_${health.risk}`)}${afr}`, level);
+  // Failure rate and the chance the drive still works (health.py): statistics, said so on the card.
+  if (health && health.band !== null) {
+    fact(t("health.risk"), riskText(data, health), `wide band-${health.band}`, riskScale(health.band));
+    // "Replace soon" is said once, by the risk.
+    if (health.life && health.life.basis !== "risk") fact(lifeLabel(health.life), lifeText(health.life), `wide band-${health.band}`);
   }
-  if (health && health.life) fact(t("health.life"), lifeText(health.life), health.life.years[1] === 0 ? "hot" : "");
   if (facts.children.length) card.append(facts);
   // The life left is a statistical guess: said on the card itself, not only under Details.
   if (health && health.life) card.append(el("p", { class: "muted small", text: t("health.estimate") }));
@@ -124,15 +127,15 @@ function smartCard(device, data) {
     details.append(el("h4", { text: t("smart.attributes") }), attrs);
   }
   if (health && health.attributes.length) {
-    const risks = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.raw"), t("health.afr_head"), t("health.status")));
+    const risks = el("table", { class: "list attrs" }, headRow("ID", t("smart.attribute"), t("smart.raw"), t("health.ratio_head")));
     for (const attr of health.attributes) {
-      const line = row(String(attr.id), t(`smart.${attr.key}`), String(attr.value), fmtAfr(attr.afr), t(`health.status_${attr.status}`));
-      if (attr.status !== "ok") line.className = attr.status === "failed" ? "failed" : "failed-past";
+      const line = row(String(attr.id), t(`smart.${attr.key}`), String(attr.value), fmtRatio(attr.ratio));
+      line.lastChild.className = `band-${attr.band}`;
       risks.append(line);
     }
     details.append(el("h4", { text: t("health.title") }), risks);
   }
-  if (health && health.risk !== "unknown") details.append(el("p", { class: "muted small", text: t(`health.note_${health.life ? health.life.basis : "risk"}`) }));
+  if (health && health.band !== null) details.append(el("p", { class: "muted small", text: t(`health.note_${health.life && health.life.basis !== "risk" ? health.life.basis : "risk"}`) }));
   // The trend of the counters, read when the details are opened.
   const trend = el("div", { class: "smart-trend" });
   details.append(el("h4", { text: t("smart.trend") }), trend);
@@ -213,15 +216,57 @@ function renderSmart(data) {
   if (!entries.length) list.append(el("p", { class: "muted", text: t("smart.none") }));
 }
 
+// The band of a counter above 0 with no rate of its own (NVMe media errors): WARNING_BAND of health.py.
+const WARNING_BAND = 4;
+const RISK_BANDS = 7;
+
 // "2.5 %": an annual failure rate.
 function fmtAfr(afr) {
   return ltr(`${(afr * 100).toFixed(afr < 0.1 ? 1 : 0)} %`);
 }
 
-// "3–5 years", or what a range of 0 means for its basis.
+// "×3.0": how many times a clean drive's rate.
+function fmtRatio(ratio) {
+  return ltr(`×${ratio.toFixed(1)}`);
+}
+
+// "98.6 %": a chance, never rounded to a certainty either way.
+function fmtChance(chance) {
+  const percent = Math.min(99.9, chance * 100);
+  if (percent < 1) return ltr("< 1 %");
+  return ltr(`${percent.toFixed(percent >= 10 ? 1 : 0)} %`);
+}
+
+// "1.4 % a year · like an average drive", or what the drive itself says when it has no counters.
+function riskText(data, health) {
+  if (data.status === "failing") return t("health.replace_soon");
+  if (health.afr === null) return t(health.band >= WARNING_BAND ? "health.nvme_warn" : "health.nvme_ok");
+  const versus = health.times < 1.5 ? t("health.like_average") : t("health.times_average", { times: health.times.toFixed(1) });
+  return `${t("health.afr", { afr: fmtAfr(health.afr) })} · ${versus}`;
+}
+
+// Seven segments from green to red, the drive's band lit: where it sits at a glance.
+function riskScale(level) {
+  const node = svg("svg", { class: "risk-scale", viewBox: `0 0 ${RISK_BANDS * 10} 4`, preserveAspectRatio: "none", "aria-hidden": "true" });
+  for (let i = 0; i < RISK_BANDS; i += 1) {
+    node.append(svg("rect", { x: i * 10 + 0.5, width: 9, height: 4, rx: 1, class: `seg-${i}${i === level ? "" : " off"}` }));
+  }
+  return node;
+}
+
+function lifeLabel(life) {
+  return t(life.basis === "age" ? "health.survival_label" : "health.life");
+}
+
+// The chance a hard drive still works in 1, 3 and 5 years; the years of wear left of an SSD.
 function lifeText(life) {
+  if (life.basis === "risk") return t("health.replace_soon");
+  if (life.basis === "age") {
+    const chance = Object.fromEntries(life.survival.map(([years, p]) => [years, fmtChance(p)]));
+    return t("health.survival", { one: chance[1], three: chance[3], five: chance[5] });
+  }
   const [low, high] = life.years;
-  if (high === 0) return t(life.basis === "risk" ? "health.replace_soon" : life.basis === "wear" ? "health.worn_out" : "health.past_life");
+  if (high === 0) return t("health.worn_out");
   if (low === high) return t("health.years_about", { years: low.toFixed(1) });
   return t("health.years_range", { low: low.toFixed(1), high: high.toFixed(1) });
 }

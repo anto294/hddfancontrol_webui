@@ -62,30 +62,43 @@ drive: `forget_smart` (neither monitored nor archived) and `forget_drive`.
 details, which draws the counters that were ever above 0 and the wear with the chart
 of the History tab.
 
-**Risk and remaining life** (`health.py`, `assess`, added to each drive of
-`GET /api/smart` as `health`). An estimate, and the page says so: the card itself,
-not only its details, says that the life left is a statistical estimate that may not
-match reality (`health.estimate`):
+**Failure rate and the chance a drive still works** (`health.py`, `assess`, added to
+each drive of `GET /api/smart` as `health`). Statistics of hundreds of thousands of
+drives, not a forecast, and the card says so (`health.estimate`):
 
-- **Risk per counter**, from Backblaze's data: the raw count of reallocated sectors (5),
-  spin retries (10), reported uncorrectable (187), reallocation events (196), pending
-  (197) and offline uncorrectable (198) sectors, and CRC errors (199, not critical) is
-  looked up in the annual failure rates Backblaze observed for drives with that count
-  (the table as tabulated by the Scrutiny project, MIT License, rounded to four
-  digits). A critical counter at
-  `AFR_FAILED` (10 %) or more fails; CRC errors warn there and fail at
-  `AFR_FAILED_OTHER` (20 %). A count past the last bucket takes the highest rate it
-  passed.
-- **Risk of the drive**: high when SMART fails or a counter fails; medium when a
-  counter warns, the worst rate is `AFR_MEDIUM` (5 %) or more, a critical counter grew
-  in the last `GROWTH_DAYS` (30) of the trend, or an NVMe drive has a warning; low
-  otherwise; unknown without any counter.
-- **Life left**: high risk is "replace soon". SSD/NVMe: the wear left
-  (`percentage_used`) at the pace of the drive's own hours, and of its trend when it
-  covers `WEAR_PACE_DAYS` and moved; the two give the range. Hard drives (a rotation
-  rate) have no wear counter: `HDD_LIFE_YEARS` (5–7 years of power-on time) less their
-  age, halved at medium risk. A SATA SSD gets a risk but no life (its wear is in vendor
-  attributes).
+- **By age**, from Backblaze's Drive Stats of today's drives (the bathtub curve
+  revisited with the 2025 fleet): `FLEET_AFR` (1.36 % a year) through most of a
+  drive's life, rising from 8 years to 4.25 % at 10 years 3 months (`AGE_AFR`, linear
+  in between). The start of the rise at 8 years is our reading of "a pretty even
+  failure rate, then a steep spike"; past the last point the same slope goes on, never
+  above `AGE_AFR_CAP` (10 %), since Backblaze has few drives that old.
+- **By counter**: the raw count of reallocated sectors (5), spin retries (10), reported
+  uncorrectable (187), reallocation events (196), pending (197) and offline
+  uncorrectable (198) sectors, and CRC errors (199) is looked up in the annual failure
+  rates Backblaze observed for drives with that count (the table as tabulated by the
+  Scrutiny project, MIT License, rounded to four digits; a count past the last bucket
+  takes the highest rate it passed). That table comes from an older fleet, whose clean
+  drives failed at 2.5–5.5 % a year, so it is used only as a ratio: the rate at the
+  count over the rate at 0 (`relative_risk`, at least 1). The drive takes its worst
+  counter (counters move together, so they are not multiplied), and at least
+  `GROWING_RATIO` (4) when a critical counter grew in the last `GROWTH_DAYS` (30) of
+  the trend.
+- **The drive's rate** is the rate of its age times that ratio (`AFR_MAX` at most); an
+  SSD with ATA counters takes the rate of a young drive, since the age curve is the one
+  of hard drives. The page shows it as "1.4 % a year · like an average drive" or
+  "13 % a year · 9.4× an average drive" (`times`, the rate over `FLEET_AFR`).
+- **Colour**: seven bands from green to red (`band`, 0 to 6): the rate over
+  `FLEET_AFR` moves up one band at each of `BAND_LIMITS` (1.5, 2.5, 4, 8, 16, 32). The
+  card shows a scale of the seven with the drive's band lit, and each counter above 0
+  takes the band of its own ratio, not always red. An NVMe drive (no ATA counters) is
+  in band 0, or `WARNING_BAND` (4) when it reports a warning; a drive SMART itself says
+  is failing is in `FAILING_BAND` (6), "replace soon". `risk` (low for bands 0–2,
+  medium 3–4, high 5–6) is kept in the answer for other readers.
+- **Life**: a hard drive with its power-on hours gets the chance it still works in 1, 3
+  and 5 years (`SURVIVAL_YEARS`), from the same rates rising with its age year by year
+  (`survival`). SSD/NVMe: the years of wear left (`percentage_used`) at the pace of the
+  drive's own hours, and of its trend when it covers `WEAR_PACE_DAYS` and moved; the two
+  give the range. A SATA SSD gets a rate but no life (its wear is in vendor attributes).
 
 **Self-tests.** Every minute the SMART loop starts the short or long tests that are due
 (`selftest_short`, `selftest_long`, cron), with `smartctl -n standby -t short|long`, and

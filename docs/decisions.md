@@ -194,6 +194,19 @@ hand. Remaining life is only measurable for SSD/NVMe (their own wear); for hard 
 it is a range from a 5–7 year service life, cut by the risk, and the page says it is
 an estimate. A growing critical counter counts more than its size. (2026-11-21)
 
+**Failure risk as the statistics of today's drives, life as a chance, in seven colours.**
+The first model took Scrutiny's table of Backblaze rates as absolute rates and gave hard
+drives 5–7 years less their age: a healthy six-year-old drive showed "medium risk,
+5.5 % a year" (the rate of a clean count of spin retries in an older fleet) and "0–0.5
+years left", which frightened for nothing. Backblaze's 2025 data say today's drives fail
+at about 1.36 % a year until late in life (4.25 % at 10 years). So the rate now comes
+from the drive's age (`AGE_AFR`), and the table only says how many times a count raises
+it against a clean drive. A hard drive's life is the chance it still works in 1, 3 and
+5 years, which is what the statistics can say, instead of a number of years they cannot;
+seven colour bands from green to red replace three levels, so a small count looks small.
+Why: an estimate that scares owners of healthy drives teaches them to ignore it; one
+that matches the fleet's numbers keeps red for drives that need it. (2026-11-27)
+
 **Nothing is deleted while `settings.json` is broken.** The hourly `tidy` skips `purge`
 and `forget_smart` while the store reports an error (`Monitor(settings_ok=...)`) and
 keeps the by-id names only. Why: the environment that stands in for a broken file may

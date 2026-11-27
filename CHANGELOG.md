@@ -14,6 +14,22 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   the alerts can be sent in it too (Settings → Notifications, or
   `NOTIFY_LANGUAGE`).
 
+### Changed
+
+- **Failure risk and life no longer frighten for nothing.** The failure rate
+  of a drive is now the rate of drives of its age in Backblaze's 2025 data
+  (about 1.4 % a year until around 8 years), raised by how much its SMART
+  counters raise it; a hard drive shows the chance it still works in 1, 3
+  and 5 years instead of a number of years left; seven colours from green to
+  red replace three levels, and counters above 0 take their own colour
+  instead of always red.
+
+### Fixed
+
+- **A healthy hard drive showed "medium" risk and almost no life left.** A
+  clean count of spin retries read as 5.5 % a year, and the life of a hard
+  drive ended at 5–7 years of power-on time.
+
 ## [0.13.0] - 2026-11-22
 
 ### Added

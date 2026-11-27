@@ -1,32 +1,38 @@
-"""How likely a drive is to fail, and how long it may last: an estimate from its SMART data and their trend.
+"""How likely a drive is to fail, and how likely it is to still work in a few years: statistics, not a forecast.
 
-Risk, from Backblaze's data: each critical ATA counter is looked up in the
-annual failure rates (AFR) that Backblaze observed on its fleet for drives
-with that count. The table is Scrutiny's
-(github.com/AnalogJ/scrutiny, pkg/thresholds/ata_attribute_metadata.go,
-MIT License, Copyright (c) 2020 Jason Kulatunga), reduced to the counters
-smart.py reads, with the rates rounded to four digits. A count past the
-last bucket takes the highest rate of the buckets it passed. A critical
-counter at an AFR of AFR_FAILED (10 %) or more fails, a non-critical one
-warns at AFR_FAILED and fails at AFR_FAILED_OTHER.
+The failure rate of a drive is the rate of a drive of its age, times how
+much its SMART counters raise it:
 
-The drive's risk is its worst counter, raised to at least "medium" when a
-critical counter grew in the last GROWTH_DAYS (from the trend kept by
-history.py): a growing count is the clearest sign of a dying drive.
+- By age, from Backblaze's Drive Stats of today's drives (the bathtub curve
+  revisited with the 2025 fleet): about FLEET_AFR (1.36 %) a year through
+  most of their life, then a rise to 4.25 % at 10 years and 3 months
+  (AGE_AFR). The rise is taken to start at 8 years; past the last point the
+  same slope goes on, never above AGE_AFR_CAP: Backblaze has few drives
+  that old.
+- By counter, from the annual failure rates that Backblaze observed for
+  drives with each count, as tabulated by Scrutiny
+  (github.com/AnalogJ/scrutiny, pkg/thresholds/ata_attribute_metadata.go,
+  MIT License, Copyright (c) 2020 Jason Kulatunga), reduced to the counters
+  smart.py reads, with the rates rounded to four digits. That table comes
+  from an older fleet whose clean drives failed more often than today's, so
+  it is used only as a ratio: the rate at the drive's count over the rate
+  at a count of 0 (relative_risk). The drive takes its worst counter (the
+  counters move together, so they are not multiplied), and at least
+  GROWING_RATIO when a critical counter grew in the last GROWTH_DAYS (from
+  the trend kept by history.py): a growing count is the clearest sign of a
+  dying drive.
 
-Remaining life is a rough estimate, never a promise:
-
-- SSD and NVMe report their wear (percentage_used): the life left is the
-  wear left at the pace of the drive's own hours, or of its last
-  GROWTH_DAYS when the trend shows the wear moving.
-- A hard drive has no wear counter. Its range starts from HDD_LIFE_YEARS
-  of power-on time (5 years is the service life and warranty of NAS and
-  enterprise lines; most drives of Backblaze's fleet last longer), less
-  its age; a medium risk halves it, a high risk makes it "replace soon".
+The rate over FLEET_AFR gives the colour band (BAND_LIMITS, 0 to 6). For a
+hard drive, the chance it still works in SURVIVAL_YEARS comes from the same
+rates, rising with its age year by year. SSD and NVMe report their wear
+(percentage_used): their life left is the wear left at the pace of the
+drive's own hours, or of its last GROWTH_DAYS when the trend shows the wear
+moving. A drive that SMART itself says is failing is "replace soon".
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 # (low, high, annual failure rate) per raw count, from Scrutiny's ObservedThresholds.
@@ -110,17 +116,31 @@ ATTRIBUTE_IDS = {
 }
 CRITICAL = frozenset(ATTRIBUTE_IDS) - {"crc_errors"}
 # Scrutiny's limits: a critical counter fails at AFR_FAILED; another warns there and fails at AFR_FAILED_OTHER.
+# Kept in the attributes of the answer; the drive's own rate and band come from the ratios.
 AFR_FAILED = 0.10
 AFR_FAILED_OTHER = 0.20
-# Under this AFR a drive is as likely to fail as a healthy one of the fleet (about 2.5 % a year).
-AFR_MEDIUM = 0.05
+
+# Backblaze Drive Stats, the bathtub curve revisited (2025): today's drives fail at about this rate a year...
+FLEET_AFR = 0.0136
+# ...until a rise to 4.25 % at 10 years 3 months: (age in years, annual failure rate), linear in between.
+AGE_AFR = ((0.0, FLEET_AFR), (8.0, FLEET_AFR), (10.25, 0.0425))
+AGE_AFR_CAP = 0.10
+# No rate above this: even a drive in a bad way has some chance of a year.
+AFR_MAX = 0.95
+# A critical counter still growing counts at least as this many times a clean drive.
+GROWING_RATIO = 4.0
+# The colour bands: the drive's rate over FLEET_AFR at or above each limit moves it up one band (0 to 6).
+BAND_LIMITS = (1.5, 2.5, 4.0, 8.0, 16.0, 32.0)
+# The band of a drive whose own warnings (NVMe) or SMART verdict say something is wrong.
+WARNING_BAND = 4
+FAILING_BAND = 6
+# Hard drives: the chance they still work after this many years.
+SURVIVAL_YEARS = (1, 3, 5)
 
 # The trend counts a counter as growing when it rose over this many days.
 GROWTH_DAYS = 30
 # NVMe/SSD: the trend's pace of wear is used once it covers this many days and moved.
 WEAR_PACE_DAYS = 30
-# Hard drives: the years of power-on time the range of life starts from.
-HDD_LIFE_YEARS = (5.0, 7.0)
 HOURS_PER_YEAR = 8766.0
 
 RISK_LOW = "low"
@@ -196,57 +216,133 @@ def _wear_life(summary: dict[str, Any], trend: dict[str, list[list[float]]], now
 
 
 # ---------------------------
-#   _age_life
+#   age_afr
 # ---------------------------
-def _age_life(summary: dict[str, Any], risk: str) -> dict[str, Any] | None:
-    """Years left of a hard drive from its age and risk, or None without its hours."""
-    hours = summary.get("power_on_hours")
-    if not isinstance(hours, int | float) or hours < 0:
+def age_afr(years: float) -> float:
+    """The annual failure rate of a drive of this age with clean counters (AGE_AFR, linear in between)."""
+    points = AGE_AFR
+    if years <= points[0][0]:
+        return points[0][1]
+    for (x0, y0), (x1, y1) in zip(points, points[1:], strict=False):
+        if years <= x1:
+            return y0 + (y1 - y0) * (years - x0) / (x1 - x0)
+    (x0, y0), (x1, y1) = points[-2], points[-1]
+    return min(AGE_AFR_CAP, y1 + (y1 - y0) * (years - x1) / (x1 - x0))
+
+
+# ---------------------------
+#   relative_risk
+# ---------------------------
+def relative_risk(key: str, count: int) -> float | None:
+    """How many times a clean drive's rate Backblaze saw for this count of a counter (at least 1), or None."""
+    afr, clean = failure_rate(key, count), failure_rate(key, 0)
+    if afr is None or not clean:
         return None
-    age = hours / HOURS_PER_YEAR
-    factor = 0.5 if risk == RISK_MEDIUM else 1.0
-    low, high = (max(0.0, (years - age) * factor) for years in HDD_LIFE_YEARS)
-    return {"basis": "age", "years": [round(low, 1), round(high, 1)]}
+    return max(1.0, afr / clean)
+
+
+# ---------------------------
+#   band
+# ---------------------------
+def band(afr: float) -> int:
+    """The colour band (0 to 6) of an annual failure rate: how many BAND_LIMITS its ratio to FLEET_AFR reaches."""
+    ratio = afr / FLEET_AFR
+    return sum(1 for limit in BAND_LIMITS if ratio >= limit)
+
+
+# ---------------------------
+#   survival
+# ---------------------------
+def survival(age: float, ratio: float, years: float, step: float = 0.05) -> float:
+    """The chance a drive of this age and relative risk still works after this many years.
+
+    The rate of each step is the rate of the drive's age then, times its
+    ratio, as a constant hazard over the step.
+    """
+    hazard = 0.0
+    elapsed = 0.0
+    while elapsed < years - 1e-9:
+        span = min(step, years - elapsed)
+        afr = min(AFR_MAX, age_afr(age + elapsed + span / 2) * ratio)
+        hazard += -math.log(1.0 - afr) * span
+        elapsed += span
+    return math.exp(-hazard)
 
 
 # ---------------------------
 #   assess
 # ---------------------------
 def assess(summary: dict[str, Any], trend: dict[str, list[list[float]]], now: float) -> dict[str, Any] | None:
-    """The risk and remaining life of a drive from its SMART summary and trend; None for a reading with no data.
+    """The failure rate, colour band and life of a drive from its SMART summary and trend; None for a reading with no data.
 
-    {risk, afr, attributes: [{key, id, value, afr, status}], growing: [key], life: {basis, years: [low, high]} | None}
+    {risk, band, afr, ratio, times, attributes: [{key, id, value, afr, ratio, band, status}], growing: [key],
+    life: {basis: "age", survival: [[years, chance]]} | {basis: "wear", years: [low, high]} | {basis: "risk"} | None}
     """
     if summary.get("status") in (None, "error", "standby"):
         return None
     attributes: list[dict[str, Any]] = []
-    rates: list[float] = []
     for key, attr_id in ATTRIBUTE_IDS.items():
         value = summary.get(key)
         if not isinstance(value, int) or isinstance(value, bool):
             continue
-        afr = failure_rate(key, value)
-        if afr is not None:
-            rates.append(afr)
-            attributes.append({"key": key, "id": attr_id, "value": value, "afr": afr, "status": attribute_status(key, afr)})
+        afr, ratio = failure_rate(key, value), relative_risk(key, value)
+        if afr is not None and ratio is not None:
+            attributes.append(
+                {
+                    "key": key,
+                    "id": attr_id,
+                    "value": value,
+                    "afr": afr,
+                    "ratio": round(ratio, 1),
+                    "band": band(FLEET_AFR * ratio),
+                    "status": attribute_status(key, afr),
+                }
+            )
     rising = growing(trend, now)
     nvme = isinstance(summary.get("percentage_used"), int | float)
-    worst = max(rates, default=None)
-    if summary.get("status") == "failing" or any(a["status"] == "failed" for a in attributes):
-        risk = RISK_HIGH
-    elif rising or any(a["status"] == "warning" for a in attributes) or (worst is not None and worst >= AFR_MEDIUM):
-        risk = RISK_MEDIUM
-    elif attributes or nvme:
-        risk = RISK_LOW
+    hdd = summary.get("rpm") is not None
+    hours = summary.get("power_on_hours")
+    age = hours / HOURS_PER_YEAR if isinstance(hours, int | float) and hours >= 0 else None
+    ratio = max((a["ratio"] for a in attributes), default=1.0)
+    if rising:
+        ratio = max(ratio, GROWING_RATIO)
+    rate: float | None = None
+    if summary.get("status") == "failing":
+        level = FAILING_BAND
+    elif attributes:
+        # The age curve is the one of hard drives; an SSD with ATA counters takes the rate of a young drive.
+        rate = min(AFR_MAX, age_afr(age if hdd and age is not None else 0.0) * ratio)
+        level = band(rate)
+    elif nvme:
+        level = WARNING_BAND if summary.get("warnings") else 0
     else:
-        risk = RISK_UNKNOWN
-    if nvme and risk == RISK_LOW and summary.get("warnings"):
-        risk = RISK_MEDIUM  # media errors, a critical warning, worn out
-    # A SATA SSD names its wear in vendor attributes only: no life for it, its risk all the same.
-    if risk == RISK_HIGH:
-        life: dict[str, Any] | None = {"basis": "risk", "years": [0.0, 0.0]}
+        return {
+            "risk": RISK_UNKNOWN,
+            "band": None,
+            "afr": None,
+            "ratio": None,
+            "times": None,
+            "attributes": [],
+            "growing": rising,
+            "life": None,
+        }
+    risk = RISK_LOW if level <= 2 else RISK_MEDIUM if level <= 4 else RISK_HIGH
+    life: dict[str, Any] | None
+    if level == FAILING_BAND and summary.get("status") == "failing":
+        life = {"basis": "risk"}
     elif nvme:
         life = _wear_life(summary, trend, now)
+    elif hdd and age is not None and rate is not None:
+        life = {"basis": "age", "survival": [[years, round(survival(age, ratio, years), 3)] for years in SURVIVAL_YEARS]}
     else:
-        life = _age_life(summary, risk) if summary.get("rpm") is not None else None
-    return {"risk": risk, "afr": worst, "attributes": attributes, "growing": rising, "life": life}
+        life = None  # a SATA SSD names its wear in vendor attributes only
+    return {
+        "risk": risk,
+        "band": level,
+        "afr": None if rate is None else round(rate, 4),
+        "ratio": None if rate is None else round(ratio, 1),
+        "times": None if rate is None else round(rate / FLEET_AFR, 1),
+        "attributes": attributes,
+        "growing": rising,
+        "life": life,
+    }
