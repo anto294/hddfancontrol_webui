@@ -36,7 +36,7 @@ COMMAND_TYPES = ("ata", "scsi")
 CONTROL_MODES = ("curve", "auto")
 # How alerts are sent to NOTIFY_URL (notify.py), and in which language.
 NOTIFY_FORMATS = ("ntfy", "gotify", "json")
-NOTIFY_LANGUAGES = ("en", "it", "es", "fr", "zh", "hi", "ar")
+NOTIFY_LANGUAGES = ("en", "it", "es", "fr", "de", "zh", "hi", "ar")
 MAX_REPEAT_H = 168
 MAX_URL_LENGTH = 500
 # The host, then nothing or a path, query or fragment: no overlap, so no slow backtracking.

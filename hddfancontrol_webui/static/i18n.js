@@ -4,9 +4,9 @@
 // English is always loaded first, so a missing key in another language
 // falls back to English instead of showing the key.
 const I18N = { strings: {}, lang: "en", locale: "en" };
-const LANGUAGES = ["en", "it", "es", "fr", "zh", "hi", "ar"];
+const LANGUAGES = ["en", "it", "es", "fr", "de", "zh", "hi", "ar"];
 // Each language is named in itself, so anyone finds their own.
-const LANGUAGE_NAMES = { en: "English", it: "Italiano", es: "Español", fr: "Français", zh: "中文", hi: "हिन्दी", ar: "العربية" };
+const LANGUAGE_NAMES = { en: "English", it: "Italiano", es: "Español", fr: "Français", de: "Deutsch", zh: "中文", hi: "हिन्दी", ar: "العربية" };
 // Written from right to left: the page turns around.
 const RTL_LANGUAGES = ["ar"];
 // Dates and numbers: Latin digits everywhere, as the values of the page use them.
@@ -68,6 +68,14 @@ const FLAGS = {
       ["rect", { width: 1, height: 2, fill: "#002395" }],
       ["rect", { x: 1, width: 1, height: 2, fill: "#fff" }],
       ["rect", { x: 2, width: 1, height: 2, fill: "#ED2939" }],
+    ],
+  },
+  de: {
+    viewBox: "0 0 5 3",
+    parts: [
+      ["rect", { width: 5, height: 1, fill: "#000" }],
+      ["rect", { y: 1, width: 5, height: 1, fill: "#DD0000" }],
+      ["rect", { y: 2, width: 5, height: 1, fill: "#FFCE00" }],
     ],
   },
   zh: {
