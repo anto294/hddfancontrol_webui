@@ -66,12 +66,12 @@ The footer shows the running version and, when `status.update` names a newer rel
 ## Languages
 
 Texts are flat keys in `static/i18n/<lang>.json`: English, Italian, Spanish, French,
-German, Brazilian Portuguese, Russian, Chinese, Hindi and Arabic. A new key goes into
-every file, translated by meaning, not word for word, and reviewed as a native speaker
-would read it. `tests/test_translations.py` fails when a key, a placeholder, a server
-error code or a status lacks a text, or when a language is missing from `LANGUAGES`
-(`i18n.js`), `NOTIFY_LANGUAGES` (`settings.py`) or the notification language options of
-`index.html`. Alerts sent by the server use the same files (`alert.<kind>`).
+German, Brazilian Portuguese, Russian, Japanese, Chinese, Hindi and Arabic. A new key
+goes into every file, translated by meaning, not word for word, and reviewed as a native
+speaker would read it. `tests/test_translations.py` fails when a key, a placeholder, a
+server error code or a status lacks a text, or when a language is missing from
+`LANGUAGES` (`i18n.js`), `NOTIFY_LANGUAGES` (`settings.py`) or the notification language
+options of `index.html`. Alerts sent by the server use the same files (`alert.<kind>`).
 
 Arabic turns the page right to left (`dir="rtl"`). So the CSS uses logical properties
 (`margin-inline-start`, `text-align: start`), never left or right, and a number with
